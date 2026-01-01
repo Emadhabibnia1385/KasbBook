@@ -3,6 +3,7 @@
 REPO="https://github.com/Emadhabibnia1385/KasbBook.git"
 DIR="/opt/kasbbook"
 SERVICE="kasbbook"
+PY_FILE="bot.py"
 
 R='\033[31m'; G='\033[32m'; Y='\033[33m'; C='\033[36m'; M='\033[35m'; B='\033[1m'; N='\033[0m'
 
@@ -26,9 +27,9 @@ header() {
   echo ""
 }
 
-err() { echo -e "${R}✗ $*${N}" >&2; read -p "Press Enter to continue..." _; return 1; }
-ok() { echo -e "${G}✓ $*${N}"; }
-info() { echo -e "${Y}➜ $*${N}"; }
+err() { echo -e "${R}✗ $*${N}" >&2; echo ""; read -p "Press Enter to continue..." _; return 1; }
+ok()  { echo -e "${G}✓ $*${N}"; }
+info(){ echo -e "${Y}➜ $*${N}"; }
 
 pause() { echo ""; read -p "Press Enter to continue..." _; }
 
@@ -39,9 +40,18 @@ check_root() {
   fi
 }
 
-run_silent() {
-  # run command silently; if fails, show error
-  "$@" >/dev/null 2>&1
+run_silent() { "$@" >/dev/null 2>&1; }
+
+detect_py_file() {
+  if [[ -f "$DIR/bot.py" ]]; then
+    PY_FILE="bot.py"
+  elif [[ -f "$DIR/BOT.py" ]]; then
+    PY_FILE="BOT.py"
+  else
+    err "No bot entry file found (bot.py or BOT.py) in $DIR"
+    return 1
+  fi
+  return 0
 }
 
 ask_config() {
@@ -74,6 +84,8 @@ EOF
 }
 
 create_service() {
+  detect_py_file || return 1
+
   info "Creating systemd service..."
   cat > "/etc/systemd/system/$SERVICE.service" << EOF
 [Unit]
@@ -84,7 +96,7 @@ After=network.target
 Type=simple
 WorkingDirectory=$DIR
 EnvironmentFile=$DIR/.env
-ExecStart=$DIR/venv/bin/python $DIR/BOT.py
+ExecStart=$DIR/venv/bin/python $DIR/$PY_FILE
 Restart=always
 RestartSec=5
 
@@ -92,9 +104,9 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-  run_silent systemctl daemon-reload || return 1
-  run_silent systemctl enable "$SERVICE" || return 1
-  run_silent systemctl restart "$SERVICE" || return 1
+  run_silent systemctl daemon-reload || { err "systemctl daemon-reload failed"; return 1; }
+  run_silent systemctl enable "$SERVICE" || { err "systemctl enable failed"; return 1; }
+  run_silent systemctl restart "$SERVICE" || { err "systemctl restart failed"; return 1; }
   return 0
 }
 
@@ -111,6 +123,8 @@ install_bot() {
     run_silent git clone -q "$REPO" "$DIR" || { err "git clone failed"; return 1; }
   fi
 
+  detect_py_file || return 1
+
   info "Setting up Python environment..."
   if [[ ! -d "$DIR/venv" ]]; then
     run_silent python3 -m venv "$DIR/venv" || { err "venv create failed"; return 1; }
@@ -125,7 +139,7 @@ install_bot() {
     run_silent "$DIR/venv/bin/pip" install python-telegram-bot==20.7 python-dotenv==1.0.1 jdatetime==5.0.0 pytz==2025.2 || { err "pip install failed"; return 1; }
   fi
 
-  # ✅ خواسته تو: بعد از نصب پکیج‌ها یک بار صفحه پاک شود و منو دوباره بیاد
+  # ✅ بعد از نصب پکیج‌ها یک بار صفحه پاک بشه و منو/هدر دوباره نمایش داده بشه
   header
   ok "Packages downloaded & installed successfully!"
   echo ""
@@ -133,7 +147,7 @@ install_bot() {
   ask_config || return 1
   write_env
 
-  create_service || { err "service create/restart failed"; return 1; }
+  create_service || return 1
 
   echo ""
   ok "KasbBook installed successfully!"
@@ -147,6 +161,8 @@ update_bot() {
   [[ -d "$DIR/.git" ]] || { err "Not installed. Install first."; return 1; }
 
   (cd "$DIR" && run_silent git pull -q) || { err "git pull failed"; return 1; }
+
+  detect_py_file || return 1
 
   info "Updating requirements..."
   if [[ -f "$DIR/requirements.txt" ]]; then
@@ -202,6 +218,13 @@ show_menu() {
   echo ""
 }
 
+read_choice() {
+  # مقاوم برای ترمینال‌های مختلف (trim)
+  IFS= read -r choice
+  choice="${choice//[$'\t\r\n ']/}"
+  echo "$choice"
+}
+
 main() {
   check_root
 
@@ -210,9 +233,9 @@ main() {
     show_menu
 
     echo -n "Select option [0-9]: "
-    read -r choice
+    choice="$(read_choice)"
 
-    case $choice in
+    case "$choice" in
       1) install_bot; pause ;;
       2) update_bot; pause ;;
       3) edit_config; pause ;;
