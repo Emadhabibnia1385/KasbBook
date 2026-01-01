@@ -26,14 +26,22 @@ header() {
   echo ""
 }
 
-err() { echo -e "${R}✗ $*${N}" >&2; exit 1; }
+err() { echo -e "${R}✗ $*${N}" >&2; read -p "Press Enter to continue..." _; return 1; }
 ok() { echo -e "${G}✓ $*${N}"; }
 info() { echo -e "${Y}➜ $*${N}"; }
 
+pause() { echo ""; read -p "Press Enter to continue..." _; }
+
 check_root() {
   if [[ $EUID -ne 0 ]]; then
-    err "Please run with sudo or as root"
+    echo -e "${R}✗ Please run with sudo or as root${N}"
+    exit 1
   fi
+}
+
+run_silent() {
+  # run command silently; if fails, show error
+  "$@" >/dev/null 2>&1
 }
 
 ask_config() {
@@ -42,16 +50,18 @@ ask_config() {
 
   echo -n "Enter Telegram Bot TOKEN: "
   read -r BOT_TOKEN
-  [[ -z "$BOT_TOKEN" ]] && err "TOKEN cannot be empty"
+  [[ -z "$BOT_TOKEN" ]] && { err "TOKEN cannot be empty"; return 1; }
 
   echo -n "Enter Primary Admin ID (numeric): "
   read -r ADMIN_CHAT_ID
-  [[ ! "$ADMIN_CHAT_ID" =~ ^[0-9]+$ ]] && err "Admin ID must be numeric"
+  [[ ! "$ADMIN_CHAT_ID" =~ ^[0-9]+$ ]] && { err "Admin ID must be numeric"; return 1; }
 
   echo -n "Enter Primary Admin Username (example: @EmadHabibnia1385): "
   read -r ADMIN_USERNAME
-  [[ -z "$ADMIN_USERNAME" ]] && err "Admin username cannot be empty"
+  [[ -z "$ADMIN_USERNAME" ]] && { err "Admin username cannot be empty"; return 1; }
   [[ "$ADMIN_USERNAME" != @* ]] && ADMIN_USERNAME="@${ADMIN_USERNAME}"
+
+  return 0
 }
 
 write_env() {
@@ -60,46 +70,10 @@ BOT_TOKEN=$BOT_TOKEN
 ADMIN_CHAT_ID=$ADMIN_CHAT_ID
 ADMIN_USERNAME=${ADMIN_USERNAME#@}
 EOF
-  chmod 600 "$DIR/.env"
+  chmod 600 "$DIR/.env" >/dev/null 2>&1 || true
 }
 
-install_bot() {
-  info "Installing prerequisites..."
-  apt-get update -qq 2>/dev/null
-  apt-get install -y -qq git python3 python3-venv python3-pip sqlite3 curl 2>/dev/null
-
-  info "Downloading KasbBook..."
-  if [[ -d "$DIR/.git" ]]; then
-    cd "$DIR" && git pull -q
-  else
-    rm -rf "$DIR"
-    git clone -q "$REPO" "$DIR"
-  fi
-
-  info "Setting up Python environment..."
-  if [[ ! -d "$DIR/venv" ]]; then
-    python3 -m venv "$DIR/venv"
-  fi
-
-  "$DIR/venv/bin/pip" install -q --upgrade pip wheel 2>/dev/null
-
-  info "Installing requirements..."
-  if [[ -f "$DIR/requirements.txt" ]]; then
-    "$DIR/venv/bin/pip" install -q -r "$DIR/requirements.txt" 2>/dev/null
-  else
-    # fallback (should not happen)
-    "$DIR/venv/bin/pip" install -q python-telegram-bot==20.7 python-dotenv==1.0.1 jdatetime==5.0.0 pytz==2025.2 2>/dev/null
-  fi
-
-  # ✅ خواسته تو: بعد از نصب پکیج‌ها یک بار صفحه پاک بشه و منو دوباره بیاد
-  clear 2>/dev/null || true
-  header
-  ok "Packages installed successfully!"
-  echo ""
-
-  ask_config
-  write_env
-
+create_service() {
   info "Creating systemd service..."
   cat > "/etc/systemd/system/$SERVICE.service" << EOF
 [Unit]
@@ -118,38 +92,81 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-  systemctl daemon-reload
-  systemctl enable "$SERVICE" >/dev/null 2>&1
-  systemctl restart "$SERVICE"
+  run_silent systemctl daemon-reload || return 1
+  run_silent systemctl enable "$SERVICE" || return 1
+  run_silent systemctl restart "$SERVICE" || return 1
+  return 0
+}
+
+install_bot() {
+  info "Installing prerequisites..."
+  run_silent apt-get update -qq || { err "apt update failed"; return 1; }
+  run_silent apt-get install -y -qq git python3 python3-venv python3-pip sqlite3 curl || { err "apt install failed"; return 1; }
+
+  info "Downloading KasbBook..."
+  if [[ -d "$DIR/.git" ]]; then
+    (cd "$DIR" && run_silent git pull -q) || { err "git pull failed"; return 1; }
+  else
+    run_silent rm -rf "$DIR"
+    run_silent git clone -q "$REPO" "$DIR" || { err "git clone failed"; return 1; }
+  fi
+
+  info "Setting up Python environment..."
+  if [[ ! -d "$DIR/venv" ]]; then
+    run_silent python3 -m venv "$DIR/venv" || { err "venv create failed"; return 1; }
+  fi
+
+  run_silent "$DIR/venv/bin/pip" install --upgrade pip wheel || { err "pip upgrade failed"; return 1; }
+
+  info "Installing requirements..."
+  if [[ -f "$DIR/requirements.txt" ]]; then
+    run_silent "$DIR/venv/bin/pip" install -r "$DIR/requirements.txt" || { err "requirements install failed"; return 1; }
+  else
+    run_silent "$DIR/venv/bin/pip" install python-telegram-bot==20.7 python-dotenv==1.0.1 jdatetime==5.0.0 pytz==2025.2 || { err "pip install failed"; return 1; }
+  fi
+
+  # ✅ خواسته تو: بعد از نصب پکیج‌ها یک بار صفحه پاک شود و منو دوباره بیاد
+  header
+  ok "Packages downloaded & installed successfully!"
+  echo ""
+
+  ask_config || return 1
+  write_env
+
+  create_service || { err "service create/restart failed"; return 1; }
 
   echo ""
   ok "KasbBook installed successfully!"
   echo ""
   systemctl status "$SERVICE" --no-pager -l
+  return 0
 }
 
 update_bot() {
   info "Updating KasbBook from GitHub..."
-  if [[ ! -d "$DIR/.git" ]]; then
-    err "KasbBook not installed. Please install first."
+  [[ -d "$DIR/.git" ]] || { err "Not installed. Install first."; return 1; }
+
+  (cd "$DIR" && run_silent git pull -q) || { err "git pull failed"; return 1; }
+
+  info "Updating requirements..."
+  if [[ -f "$DIR/requirements.txt" ]]; then
+    run_silent "$DIR/venv/bin/pip" install -r "$DIR/requirements.txt" || { err "requirements update failed"; return 1; }
   fi
 
-  cd "$DIR" && git pull -q
-  if [[ -f "$DIR/requirements.txt" ]]; then
-    "$DIR/venv/bin/pip" install -q -r "$DIR/requirements.txt" 2>/dev/null
-  fi
-  systemctl restart "$SERVICE"
+  run_silent systemctl restart "$SERVICE" || { err "restart failed"; return 1; }
+
+  header
   ok "Updated successfully!"
+  return 0
 }
 
 edit_config() {
-  if [[ ! -f "$DIR/.env" ]]; then
-    err "Config file not found. Please install first."
-  fi
-
+  [[ -f "$DIR/.env" ]] || { err "Config not found. Install first."; return 1; }
   nano "$DIR/.env"
-  systemctl restart "$SERVICE"
+  run_silent systemctl restart "$SERVICE" || { err "restart failed"; return 1; }
+  header
   ok "Configuration updated and bot restarted!"
+  return 0
 }
 
 remove_bot() {
@@ -157,15 +174,18 @@ remove_bot() {
   read -r confirm
   if [[ "$confirm" != "yes" ]]; then
     info "Cancelled"
-    return
+    return 0
   fi
 
-  systemctl stop "$SERVICE" 2>/dev/null
-  systemctl disable "$SERVICE" 2>/dev/null
-  rm -f "/etc/systemd/system/$SERVICE.service"
-  systemctl daemon-reload
-  rm -rf "$DIR"
+  run_silent systemctl stop "$SERVICE"
+  run_silent systemctl disable "$SERVICE"
+  run_silent rm -f "/etc/systemd/system/$SERVICE.service"
+  run_silent systemctl daemon-reload
+  run_silent rm -rf "$DIR"
+
+  header
   ok "KasbBook removed completely"
+  return 0
 }
 
 show_menu() {
@@ -193,39 +213,12 @@ main() {
     read -r choice
 
     case $choice in
-      1)
-        install_bot
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
-      2)
-        update_bot
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
-      3)
-        edit_config
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
-      4)
-        systemctl start "$SERVICE"
-        ok "Bot started"
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
-      5)
-        systemctl stop "$SERVICE"
-        ok "Bot stopped"
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
-      6)
-        systemctl restart "$SERVICE"
-        ok "Bot restarted"
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
+      1) install_bot; pause ;;
+      2) update_bot; pause ;;
+      3) edit_config; pause ;;
+      4) run_silent systemctl start "$SERVICE" && header && ok "Bot started"; pause ;;
+      5) run_silent systemctl stop "$SERVICE" && header && ok "Bot stopped"; pause ;;
+      6) run_silent systemctl restart "$SERVICE" && header && ok "Bot restarted"; pause ;;
       7)
         echo -e "${Y}Press Ctrl+C to exit logs${N}"
         sleep 2
@@ -233,22 +226,11 @@ main() {
         ;;
       8)
         systemctl status "$SERVICE" --no-pager -l
-        echo ""
-        read -p "Press Enter to continue..."
+        pause
         ;;
-      9)
-        remove_bot
-        echo ""
-        read -p "Press Enter to continue..."
-        ;;
-      0)
-        echo "Goodbye!"
-        exit 0
-        ;;
-      *)
-        err "Invalid option"
-        sleep 1
-        ;;
+      9) remove_bot; pause ;;
+      0) echo "Goodbye!"; exit 0 ;;
+      *) header; echo -e "${R}Invalid option${N}"; sleep 1 ;;
     esac
   done
 }
