@@ -1164,6 +1164,10 @@ def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
     return int(w_in), int(w_out), int(p_non), int(inst)
 
 
+def _fmt_num(n: int) -> str:
+    # 100000 -> 100,000
+    return f"{int(n):,}"
+
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
 
@@ -1171,17 +1175,18 @@ def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     net = w_in - w_out
     savings = net - p_non_install
 
-    lines: List[str] = []
-    lines.append(f"📅 تاریخ: {gdate} ({g_to_j(gdate)})")
-    lines.append("")
-    lines.append("گزارش")
-    lines.append(f"درامد آن روز: {w_in}")
-    lines.append(f"هزینه کاری آن روز: {w_out}")
-    lines.append(f"درامد خالص آن روز = درامد - هزینه کاری: {net}")
-    lines.append(f"هزینه شخصی (بدون قسط): {p_non_install}")
-    lines.append(f"پس انداز = درامد خالص - هزینه شخصی: {savings}")
-
+    lines = [
+        f"📅 {gdate}  |  {g_to_j(gdate)}",
+        "",
+        "📊 گزارش روز",
+        f"💰 درآمد: {_fmt_num(w_in)}",
+        f"🏢 هزینه کاری: {_fmt_num(w_out)}",
+        f"➖ خالص کاری: {_fmt_num(net)}",
+        f"👤 هزینه شخصی(بدون قسط): {_fmt_num(p_non_install)}",
+        f"💾 پس‌انداز: {_fmt_num(savings)}",
+    ]
     return rtl("\n".join(lines))
+
 
 
 def _short_add_labels() -> Tuple[str, str, str]:
@@ -1652,3 +1657,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
