@@ -238,6 +238,12 @@ def access_allowed(user_id: int) -> bool:
 
 
 def resolve_scope_owner(user_id: int) -> Tuple[str, int]:
+    """
+    public: always private per user
+    admin_only:
+        share=1 => shared, owner=ADMIN_CHAT_ID
+        share=0 => private per admin
+    """
     mode = get_setting("access_mode")
     if mode == ACCESS_PUBLIC:
         return ("private", user_id)
@@ -410,7 +416,7 @@ CAT_ADD_NAME = 0
 
 
 # ---------------------------
-# START
+# START (ONLY place that shows main menu automatically)
 # ---------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -450,7 +456,8 @@ async def main_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif action == "st":
         await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu(user.id))
     else:
-        await q.edit_message_text("دستور ناشناخته.", reply_markup=main_menu())
+        # do nothing aggressive
+        await q.edit_message_text("دستور ناشناخته.")
 
 
 # ---------------------------
@@ -478,7 +485,7 @@ async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu(user.id))
         return
 
-    await q.edit_message_text("دستور ناشناخته.", reply_markup=settings_menu(user.id))
+    await q.edit_message_text("دستور ناشناخته.")
 
 
 async def access_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -527,8 +534,7 @@ def build_admin_panel_kb() -> InlineKeyboardMarkup:
     with db_conn() as conn:
         admins = conn.execute("SELECT user_id, name FROM admins ORDER BY added_at DESC").fetchall()
 
-    # each row: [name] [delete]
-    for r in admins[:60]:
+    for r in admins[:80]:
         nm = (r["name"] or "").strip() or str(r["user_id"])
         rows.append(
             [
@@ -639,7 +645,7 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         conn.commit()
 
-    # IMPORTANT: do NOT jump to start/main menu
+    # stay on admin panel (NO main menu)
     await update.effective_chat.send_message("✅ اضافه شد.", reply_markup=build_admin_panel_kb())
     context.user_data.clear()
     return ConversationHandler.END
@@ -668,7 +674,7 @@ def build_cat_kb(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
 
     cats = fetch_cats(scope, owner, grp)
-    for r in cats[:80]:
+    for r in cats[:120]:
         nm = r["name"]
         locked = int(r["is_locked"]) == 1
         is_install = (grp == "personal_out" and nm == INSTALLMENT_NAME and locked)
@@ -771,7 +777,7 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         except sqlite3.IntegrityError:
             pass
 
-    # IMPORTANT: no main menu, no text list
+    # stay on same category panel
     await update.effective_chat.send_message("✅ اضافه شد.", reply_markup=build_cat_kb(scope, owner, grp))
     context.user_data.clear()
     return ConversationHandler.END
@@ -784,7 +790,7 @@ def cat_pick_keyboard(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
     ensure_installment(scope, owner)
     cats = fetch_cats(scope, owner, grp)
     rows: List[List[InlineKeyboardButton]] = []
-    for r in cats[:60]:
+    for r in cats[:80]:
         rows.append([InlineKeyboardButton(r["name"], callback_data=f"{CB_TX}:cat:{r['id']}")])
     rows.append([InlineKeyboardButton("➕ افزودن نوع جدید", callback_data=f"{CB_TX}:cat_add")])
     rows.append([InlineKeyboardButton("⬅️ لغو", callback_data=f"{CB_TX}:cancel")])
@@ -840,7 +846,7 @@ async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 FROM transactions
                 WHERE scope=? AND owner_user_id=? AND date_g BETWEEN ? AND ?
                 ORDER BY date_g DESC, id DESC
-                LIMIT 120
+                LIMIT 200
                 """,
                 (scope, owner, start, end),
             ).fetchall()
@@ -941,8 +947,10 @@ async def tx_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     scope, owner = resolve_scope_owner(user.id)
     ttype = context.user_data.get("tx_ttype")
 
-    await update.effective_chat.send_message(f"✅ تبدیل شد به میلادی: {g}\n\n🏷 دسته را انتخاب کنید:",
-                                            reply_markup=cat_pick_keyboard(scope, owner, ttype))
+    await update.effective_chat.send_message(
+        f"✅ تبدیل شد به میلادی: {g}\n\n🏷 دسته را انتخاب کنید:",
+        reply_markup=cat_pick_keyboard(scope, owner, ttype),
+    )
     return TX_CAT_PICK
 
 
@@ -1082,7 +1090,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
         )
         conn.commit()
 
-    # IMPORTANT: do NOT force main menu
+    # stay inside tx menu (NO main menu)
     await update.effective_chat.send_message(
         "✅ تراکنش ثبت شد.\n"
         f"📅 {date_g_} ({g_to_j(date_g_)})\n"
@@ -1201,33 +1209,27 @@ async def rp_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     scope, owner = resolve_scope_owner(user.id)
     text = summary_text(scope, owner, g1, g2, "📆 گزارش بازه دلخواه")
+
+    # stay in reports menu (NO main menu)
     await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=rp_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # ---------------------------
-# UNKNOWN handlers (do not break valid callbacks)
+# UNKNOWN callback (does NOT show menus automatically)
 # ---------------------------
-async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    if not access_allowed(user.id):
-        await deny(update)
-        return
-    await update.effective_chat.send_message("از /start شروع کنید.", reply_markup=main_menu())
-
-
 async def unknown_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     user = update.effective_user
     if not access_allowed(user.id):
         await deny(update)
         return
-    await q.answer()
+    # فقط جواب بده، منو نفرست
     try:
-        await q.edit_message_text("دکمه نامعتبر/قدیمی است.", reply_markup=main_menu())
+        await q.answer("دکمه نامعتبر/قدیمی است.", show_alert=False)
     except Exception:
-        await update.effective_chat.send_message("دکمه نامعتبر/قدیمی است.", reply_markup=main_menu())
+        pass
 
 
 # ---------------------------
@@ -1237,10 +1239,13 @@ def build_app() -> Application:
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # Only /start shows main menu automatically
     app.add_handler(CommandHandler("start", start))
 
+    # Main navigation
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|rp|st)$"))
 
+    # Settings
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
@@ -1282,7 +1287,10 @@ def build_app() -> Application:
             TX_CAT_PICK: [CallbackQueryHandler(tx_cat_pick_cb, pattern=r"^tx:(cat:\d+|cat_add|cancel)$")],
             TX_CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_cat_add_name_input)],
             TX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_amount_input)],
-            TX_DESC: [CommandHandler("skip", tx_desc_skip), MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input)],
+            TX_DESC: [
+                CommandHandler("skip", tx_desc_skip),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input),
+            ],
         },
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
@@ -1304,9 +1312,8 @@ def build_app() -> Application:
         persistent=False,
     )
     app.add_handler(rp_conv)
-    app.add_handler(CallbackQueryHandler(rp_cb, pattern=r"^rp:(sum:(today|month)|range)$"))
 
-    # Unknown callbacks ONLY
+    # Unknown callbacks ONLY (no menu)
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
@@ -1315,7 +1322,9 @@ def build_app() -> Application:
         group=90,
     )
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text), group=99)
+    # IMPORTANT:
+    # No unknown_text handler -> so no automatic "از /start..." menu ever.
+
     return app
 
 
