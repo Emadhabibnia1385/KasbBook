@@ -239,21 +239,7 @@ systemctl restart kasbbook
 
 </details>
 
----
-
-## 🤝 مشارکت در پروژه
-
-مشارکت شما در بهبود KasbBook خوش‌آمد است!
-
-1. پروژه را Fork کنید
-2. یک Branch جدید بسازید (`git checkout -b feature/amazing-feature`)
-3. تغییرات را Commit کنید (`git commit -m 'Add amazing feature'`)
-4. Push کنید (`git push origin feature/amazing-feature`)
-5. Pull Request بسازید
-
----
-
-## 📞 پشتیبانی
+## 📞 پشتیبان
 
 <div align="center">
 
@@ -265,18 +251,7 @@ systemctl restart kasbbook
 * 💬 **تلگرام:** [https://t.me/EmadHabibnia](https://t.me/EmadHabibnia)
 * 📢 **کانال:** [https://t.me/KasbBook](https://t.me/KasbBook)
 
----
 
-## ⭐ حمایت از پروژه
-
-اگر KasbBook برای شما مفید بود:
-
-* ⭐ به پروژه Star بدهید
-* 🔀 آن را Fork کنید
-* 📢 در کانال‌های خود معرفی کنید
-* 💡 پیشنهادهای خود را ارسال کنید
-
----
 
 <div align="center">
 
