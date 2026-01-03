@@ -1179,6 +1179,7 @@ def daily_list_text(scope: str, owner: int, gdate: str) -> str:
         f"📅 {gdate}  |  {g_to_j(gdate)}",
         "",
         "📊 گزارش روز",
+        " ",
         f"💰 درآمد: {_fmt_num(w_in)}",
         f"🏢 هزینه کاری: {_fmt_num(w_out)}",
         f"➖ خالص کاری: {_fmt_num(net)}",
