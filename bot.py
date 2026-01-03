@@ -1,14 +1,13 @@
 # bot.py
-# KasbBook - Telegram Finance Bot
+# KasbBook - Telegram Finance Bot (Inline-only UI)
 # Requirements: Python 3.10+, python-telegram-bot v20+, pytz, jdatetime, python-dotenv, sqlite3
 
 import os
 import re
 import sqlite3
 import logging
-from dataclasses import dataclass
-from datetime import datetime, date
-from typing import Optional, Tuple, List, Dict
+from datetime import datetime, date, timedelta
+from typing import Optional, Tuple, List
 
 import pytz
 import jdatetime
@@ -16,8 +15,6 @@ from dotenv import load_dotenv
 
 from telegram import (
     Update,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
@@ -44,18 +41,8 @@ ACCESS_PUBLIC = "public"
 
 INSTALLMENT_NAME = "قسط"
 
-# Main reply keyboard
-KB_MAIN = ReplyKeyboardMarkup(
-    [["📌 تراکنش‌ها", "📊 گزارش‌ها"], ["⚙️ تنظیمات"]],
-    resize_keyboard=True,
-)
-
-KB_SETTINGS = ReplyKeyboardMarkup(
-    [["🧩 مدیریت نوع‌ها"], ["🛡 بخش ادمین"], ["🏠 منوی اصلی"]],
-    resize_keyboard=True,
-)
-
 # Callback prefixes (keep short)
+CB_MAIN = "m"   # main menu
 CB_TX = "tx"
 CB_REP = "rp"
 CB_SET = "st"
@@ -128,7 +115,7 @@ def init_db() -> None:
                 scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
                 owner_user_id INTEGER NOT NULL,
                 actor_user_id INTEGER NOT NULL,
-                date_g TEXT NOT NULL,
+                date_g TEXT NOT NULL (YYYY-MM-DD),
                 ttype TEXT NOT NULL CHECK(ttype IN ('work_in','work_out','personal_out')),
                 category TEXT NOT NULL,
                 amount INTEGER NOT NULL CHECK(amount>=0),
@@ -155,13 +142,10 @@ def init_db() -> None:
         )
 
         # defaults
-        cur = conn.execute("SELECT v FROM settings WHERE k='access_mode'")
-        if cur.fetchone() is None:
+        if conn.execute("SELECT 1 FROM settings WHERE k='access_mode'").fetchone() is None:
             conn.execute("INSERT INTO settings(k,v) VALUES('access_mode', ?)", (ACCESS_ADMIN_ONLY,))
-        cur = conn.execute("SELECT v FROM settings WHERE k='share_enabled'")
-        if cur.fetchone() is None:
+        if conn.execute("SELECT 1 FROM settings WHERE k='share_enabled'").fetchone() is None:
             conn.execute("INSERT INTO settings(k,v) VALUES('share_enabled', '0')")
-
         conn.commit()
 
 
@@ -183,15 +167,13 @@ def is_admin_user(user_id: int) -> bool:
     if user_id == ADMIN_CHAT_ID:
         return True
     with db_conn() as conn:
-        row = conn.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,)).fetchone()
-        return row is not None
+        return conn.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,)).fetchone() is not None
 
 
 def access_allowed(user_id: int) -> bool:
     access_mode = get_setting("access_mode")
     if access_mode == ACCESS_PUBLIC:
         return True
-    # admin_only
     return is_admin_user(user_id)
 
 
@@ -209,42 +191,51 @@ def g_to_j_str(g_yyyy_mm_dd: str) -> str:
     return f"{jd.year:04d}/{jd.month:02d}/{jd.day:02d}"
 
 
-def parse_date_to_g(text: str) -> Optional[str]:
+def parse_gregorian(text: str) -> Optional[str]:
     s = text.strip()
-    # Gregorian: YYYY-MM-DD
     m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
-    if m:
-        try:
-            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            date(y, mo, d)  # validate
-            return f"{y:04d}-{mo:02d}-{d:02d}"
-        except ValueError:
-            return None
+    if not m:
+        return None
+    try:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        date(y, mo, d)
+        return f"{y:04d}-{mo:02d}-{d:02d}"
+    except ValueError:
+        return None
 
-    # Jalali: YYYY/MM/DD
+
+def parse_jalali_to_g(text: str) -> Optional[str]:
+    s = text.strip()
     m = re.fullmatch(r"(\d{4})/(\d{2})/(\d{2})", s)
-    if m:
-        try:
-            jy, jm, jd = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            g = jdatetime.date(jy, jm, jd).togregorian()
-            return g.strftime("%Y-%m-%d")
-        except ValueError:
-            return None
+    if not m:
+        return None
+    try:
+        jy, jm, jd = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        g = jdatetime.date(jy, jm, jd).togregorian()
+        return g.strftime("%Y-%m-%d")
+    except ValueError:
+        return None
 
-    return None
+
+def month_range_g_for_date(g_yyyy_mm_dd: str) -> Tuple[str, str]:
+    y, m, _ = map(int, g_yyyy_mm_dd.split("-"))
+    start = date(y, m, 1)
+    if m == 12:
+        nm = date(y + 1, 1, 1)
+    else:
+        nm = date(y, m + 1, 1)
+    end = nm - timedelta(days=1)
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
 def resolve_scope_owner(user_id: int) -> Tuple[str, int]:
     """
-    Returns (scope, owner_user_id) based on:
-    - Non-admin in public: private, owner=self
-    - Non-admin in admin_only: not allowed (caller should block)
-    - Admin:
-      - share_enabled=1 => shared, owner=ADMIN_CHAT_ID
-      - share_enabled=0 => private, owner=self
+    Non-admin (public): private, owner=self
+    Admin:
+      share_enabled=1 => shared, owner=ADMIN_CHAT_ID
+      share_enabled=0 => private, owner=self
     """
     if not is_admin_user(user_id):
-        # only possible if public
         return ("private", user_id)
 
     share_enabled = get_setting("share_enabled")
@@ -271,10 +262,7 @@ def ensure_installment(scope: str, owner_user_id: int) -> None:
                 (scope, owner_user_id, INSTALLMENT_NAME),
             )
         else:
-            conn.execute(
-                "UPDATE categories SET is_locked=1 WHERE id=?",
-                (row["id"],),
-            )
+            conn.execute("UPDATE categories SET is_locked=1 WHERE id=?", (row["id"],))
         conn.commit()
 
 
@@ -293,7 +281,7 @@ def denied_text(user_id: int, username: Optional[str]) -> str:
     )
 
 
-async def deny_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def deny_update(update: Update) -> None:
     user = update.effective_user
     text = denied_text(user.id, user.username)
     if update.callback_query:
@@ -302,7 +290,6 @@ async def deny_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await q.answer()
         except Exception:
             pass
-        # try edit; if fails, send new
         try:
             await q.edit_message_text(text)
         except Exception:
@@ -312,23 +299,28 @@ async def deny_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 # ------------------------
-# UI Builders
+# Inline UI builders
 # ------------------------
 def ikb(rows: List[List[Tuple[str, str]]]) -> InlineKeyboardMarkup:
-    """
-    rows: [[(text, cbdata), ...], ...]
-    """
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(t, callback_data=cb) for (t, cb) in row] for row in rows]
     )
+
+
+def main_menu_ikb(is_primary_admin: bool) -> InlineKeyboardMarkup:
+    rows = [
+        [("📌 تراکنش‌ها", f"{CB_MAIN}:tx"), ("📊 گزارش‌ها", f"{CB_MAIN}:rp")],
+        [("⚙️ تنظیمات", f"{CB_MAIN}:st")],
+    ]
+    return ikb(rows)
 
 
 def tx_menu_ikb() -> InlineKeyboardMarkup:
     return ikb(
         [
             [("➕ ثبت تراکنش", f"{CB_TX}:add")],
-            [("📄 لیست امروز", f"{CB_TX}:list:today"), ("📄 لیست این ماه", f"{CB_TX}:list:month")],
-            [("⬅️ بازگشت", f"{CB_TX}:back")],
+            [("📄 لیست امروز", f"{CB_TX}:list:today"), ("📄 لیست این ماه (میلادی)", f"{CB_TX}:list:month")],
+            [("⬅️ منوی اصلی", f"{CB_MAIN}:home")],
         ]
     )
 
@@ -336,20 +328,18 @@ def tx_menu_ikb() -> InlineKeyboardMarkup:
 def reports_menu_ikb() -> InlineKeyboardMarkup:
     return ikb(
         [
-            [("📅 خلاصه امروز", f"{CB_REP}:sum:today"), ("🗓 خلاصه این ماه", f"{CB_REP}:sum:month")],
+            [("📅 خلاصه امروز", f"{CB_REP}:sum:today"), ("🗓 خلاصه این ماه (میلادی)", f"{CB_REP}:sum:month")],
             [("📆 بازه دلخواه", f"{CB_REP}:range")],
-            [("⬅️ بازگشت", f"{CB_REP}:back")],
+            [("⬅️ منوی اصلی", f"{CB_MAIN}:home")],
         ]
     )
 
 
 def settings_menu_ikb(is_primary_admin: bool) -> InlineKeyboardMarkup:
-    rows = [
-        [("🧩 مدیریت نوع‌ها", f"{CB_SET}:cats")],
-    ]
+    rows = [[("🧩 مدیریت نوع‌ها", f"{CB_SET}:cats")]]
     if is_primary_admin:
         rows.append([("🛡 بخش ادمین", f"{CB_SET}:admin")])
-    rows.append([("🏠 منوی اصلی", f"{CB_SET}:home")])
+    rows.append([("⬅️ منوی اصلی", f"{CB_MAIN}:home")])
     return ikb(rows)
 
 
@@ -360,7 +350,7 @@ def admin_menu_ikb() -> InlineKeyboardMarkup:
         [
             [("👥 مدیریت ادمین‌ها", f"{CB_ADM}:admins")],
             [(f"🔁 اشتراک اطلاعات بین ادمین‌ها: {share_txt}", f"{CB_ADM}:share")],
-            [("⬅️ بازگشت", f"{CB_ADM}:back")],
+            [("⬅️ بازگشت", f"{CB_SET}:back")],
         ]
     )
 
@@ -369,7 +359,7 @@ def admins_manage_ikb() -> InlineKeyboardMarkup:
     return ikb(
         [
             [("➕ اضافه کردن ادمین", f"{CB_ADM}:add")],
-            [("📋 لیست ادمین‌ها", f"{CB_ADM}:list")],
+            [("📋 لیست ادمین‌ها + حذف", f"{CB_ADM}:list")],
             [("⬅️ بازگشت", f"{CB_ADM}:back2")],
         ]
     )
@@ -381,7 +371,7 @@ def cats_manage_ikb() -> InlineKeyboardMarkup:
             [("💰 درآمد کاری", f"{CB_CAT}:grp:work_in")],
             [("🏢 هزینه کاری", f"{CB_CAT}:grp:work_out")],
             [("👤 هزینه شخصی", f"{CB_CAT}:grp:personal_out")],
-            [("⬅️ بازگشت", f"{CB_CAT}:back")],
+            [("⬅️ منوی اصلی", f"{CB_MAIN}:home")],
         ]
     )
 
@@ -406,7 +396,7 @@ def ttype_label(ttype: str) -> str:
 # Conversations (States)
 # ------------------------
 # Add Transaction flow
-TX_TTYPE, TX_DATE, TX_CAT_PICK, TX_CAT_NEW, TX_AMOUNT, TX_DESC = range(6)
+TX_TTYPE, TX_DATE_MODE, TX_DATE_G, TX_DATE_J, TX_CAT_PICK, TX_CAT_NEW, TX_AMOUNT, TX_DESC = range(8)
 
 # Report range flow
 RP_RANGE_START, RP_RANGE_END = range(2)
@@ -418,188 +408,62 @@ ADM_ADD_UID, ADM_ADD_NAME = range(2)
 CAT_ADD_NAME = range(1)
 
 # ------------------------
-# Core Handlers
+# /start
 # ------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not access_allowed(user.id):
-        await deny_update(update, context)
+        await deny_update(update)
         return
 
+    is_primary = (user.id == ADMIN_CHAT_ID)
     await update.effective_chat.send_message(
-        f"سلام! به {PROJECT_NAME} خوش آمدید.\n\nاز منو انتخاب کنید:",
-        reply_markup=KB_MAIN,
+        f"سلام! به {PROJECT_NAME} خوش آمدید.\n\nاز منوی زیر انتخاب کنید:",
+        reply_markup=main_menu_ikb(is_primary),
     )
 
 
-async def main_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    if not access_allowed(user.id):
-        await deny_update(update, context)
-        return
-
-    text = (update.message.text or "").strip()
-
-    if text == "📌 تراکنش‌ها":
-        await update.effective_chat.send_message(
-            "📌 تراکنش‌ها:",
-            reply_markup=tx_menu_ikb(),
-        )
-        return
-
-    if text == "📊 گزارش‌ها":
-        await update.effective_chat.send_message(
-            "📊 گزارش‌ها:",
-            reply_markup=reports_menu_ikb(),
-        )
-        return
-
-    if text == "⚙️ تنظیمات":
-        is_primary = (user.id == ADMIN_CHAT_ID)
-        await update.effective_chat.send_message(
-            "⚙️ تنظیمات:",
-            reply_markup=settings_menu_ikb(is_primary),
-        )
-        return
-
-    if text == "🏠 منوی اصلی":
-        await update.effective_chat.send_message("🏠 منوی اصلی:", reply_markup=KB_MAIN)
-        return
-
-    if text == "🧩 مدیریت نوع‌ها":
-        await update.effective_chat.send_message("🧩 مدیریت نوع‌ها:", reply_markup=cats_manage_ikb())
-        return
-
-    if text == "🛡 بخش ادمین":
-        if user.id != ADMIN_CHAT_ID:
-            await update.effective_chat.send_message("⛔ این بخش فقط برای ادمین اصلی فعال است.")
-            return
-        await update.effective_chat.send_message("🛡 بخش ادمین:", reply_markup=admin_menu_ikb())
-        return
-
-    await update.effective_chat.send_message("از منو استفاده کنید.", reply_markup=KB_MAIN)
-
-
 # ------------------------
-# Callback Router (Access gate first)
+# Main menu callbacks
 # ------------------------
-async def cb_access_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def main_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     user = update.effective_user
     if not access_allowed(user.id):
-        await deny_update(update, context)
+        await deny_update(update)
         return
-    await q.answer()  # Always answer to avoid "loading..."
+    await q.answer()
+
+    data = q.data or ""
+    parts = data.split(":")
+    if len(parts) != 2:
+        await q.edit_message_text("خطا.")
+        return
+    action = parts[1]
+    is_primary = (user.id == ADMIN_CHAT_ID)
+
+    if action == "home":
+        await q.edit_message_text("🏠 منوی اصلی:", reply_markup=main_menu_ikb(is_primary))
+        return
+
+    if action == "tx":
+        await q.edit_message_text("📌 تراکنش‌ها:", reply_markup=tx_menu_ikb())
+        return
+
+    if action == "rp":
+        await q.edit_message_text("📊 گزارش‌ها:", reply_markup=reports_menu_ikb())
+        return
+
+    if action == "st":
+        await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu_ikb(is_primary))
+        return
+
+    await q.edit_message_text("دستور ناشناخته.")
 
 
 # ------------------------
 # Transactions: Callbacks + Conversation
 # ------------------------
-async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    q = update.callback_query
-    user = update.effective_user
-    data = q.data or ""
-
-    # ensure installment for current scope/owner where relevant
-    scope, owner = resolve_scope_owner(user.id)
-    ensure_installment(scope, owner)
-
-    parts = data.split(":")
-    # tx:...
-    if len(parts) < 2:
-        await q.edit_message_text("خطا در داده ورودی.")
-        return ConversationHandler.END
-
-    action = parts[1]
-
-    if action == "back":
-        await q.edit_message_text("🏠 منوی اصلی", reply_markup=None)
-        await update.effective_chat.send_message("🏠 منوی اصلی:", reply_markup=KB_MAIN)
-        return ConversationHandler.END
-
-    if action == "add":
-        # start add transaction conversation
-        context.user_data.clear()
-        await q.edit_message_text(
-            "نوع تراکنش را انتخاب کنید:",
-            reply_markup=ikb(
-                [
-                    [("💰 درآمد کاری", f"{CB_TX}:tt:work_in")],
-                    [("🏢 هزینه کاری", f"{CB_TX}:tt:work_out")],
-                    [("👤 هزینه شخصی", f"{CB_TX}:tt:personal_out")],
-                    [("⬅️ لغو", f"{CB_TX}:cancel")],
-                ]
-            ),
-        )
-        return TX_TTYPE
-
-    if action == "cancel":
-        context.user_data.clear()
-        await q.edit_message_text("لغو شد.")
-        return ConversationHandler.END
-
-    if action == "tt":
-        if len(parts) != 3:
-            await q.edit_message_text("خطا.")
-            return ConversationHandler.END
-        ttype = parts[2]
-        if ttype not in ("work_in", "work_out", "personal_out"):
-            await q.edit_message_text("نوع نامعتبر.")
-            return ConversationHandler.END
-
-        context.user_data["tx_ttype"] = ttype
-
-        # ask for date (text)
-        today_g = today_g_str()
-        today_j = g_to_j_str(today_g)
-        await q.edit_message_text(
-            "تاریخ را وارد کنید:\n"
-            f"- امروز (میلادی): {today_g}\n"
-            f"- امروز (جلالی): {today_j}\n\n"
-            "فرمت مجاز:\n"
-            "✅ میلادی: YYYY-MM-DD\n"
-            "✅ جلالی: YYYY/MM/DD\n\n"
-            "برای انتخاب امروز، فقط بنویسید: امروز",
-            reply_markup=None,
-        )
-        return TX_DATE
-
-    if action == "list":
-        if len(parts) != 3:
-            await q.edit_message_text("خطا.")
-            return ConversationHandler.END
-        which = parts[2]
-        if which == "today":
-            start = end = today_g_str()
-            title = "📄 لیست امروز"
-        else:
-            # month range in Gregorian based on Tehran time
-            today = datetime.now(TZ).date()
-            start = date(today.year, today.month, 1).strftime("%Y-%m-%d")
-            # next month start - 1 day
-            if today.month == 12:
-                nm = date(today.year + 1, 1, 1)
-            else:
-                nm = date(today.year, today.month + 1, 1)
-            end = (nm - datetime.resolution).date().strftime("%Y-%m-%d")  # safe-ish
-            # better end: last day of month
-            # We'll compute last day properly:
-            # (We avoid extra imports; do it cleanly)
-            if today.month == 12:
-                nm2 = date(today.year + 1, 1, 1)
-            else:
-                nm2 = date(today.year, today.month + 1, 1)
-            end = (nm2 - datetime.timedelta(days=1)).strftime("%Y-%m-%d")  # type: ignore
-            title = "📄 لیست این ماه"
-
-        text = build_tx_list_text(scope, owner, start, end)
-        await q.edit_message_text(text, parse_mode=ParseMode.HTML)
-        return ConversationHandler.END
-
-    await q.edit_message_text("دستور ناشناخته.")
-    return ConversationHandler.END
-
-
 def fetch_categories(scope: str, owner: int, grp: str) -> List[sqlite3.Row]:
     with db_conn() as conn:
         rows = conn.execute(
@@ -612,228 +476,6 @@ def fetch_categories(scope: str, owner: int, grp: str) -> List[sqlite3.Row]:
             (scope, owner, grp),
         ).fetchall()
         return list(rows)
-
-
-async def tx_date_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    if not access_allowed(user.id):
-        await deny_update(update, context)
-        return ConversationHandler.END
-
-    t = (update.message.text or "").strip()
-    if t == "امروز":
-        g = today_g_str()
-    else:
-        g = parse_date_to_g(t)
-
-    if not g:
-        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید.")
-        return TX_DATE
-
-    context.user_data["tx_date_g"] = g
-
-    ttype = context.user_data.get("tx_ttype")
-    if not ttype:
-        await update.effective_chat.send_message("خطا: نوع تراکنش مشخص نیست.")
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    scope, owner = resolve_scope_owner(user.id)
-    ensure_installment(scope, owner)
-    cats = fetch_categories(scope, owner, ttype)
-
-    # Build inline categories buttons
-    rows = []
-    for r in cats[:12]:
-        rows.append([(f"{r['name']}", f"{CB_TX}:cat:{r['id']}")])
-    if len(cats) > 12:
-        # still stable: show "more" by letting user type category name (fallback)
-        rows.append([("✍️ وارد کردن دستی نام نوع", f"{CB_TX}:cat_manual")])
-    rows.append([("➕ افزودن نوع جدید", f"{CB_TX}:cat_new")])
-    rows.append([("⬅️ لغو", f"{CB_TX}:cancel")])
-
-    await update.effective_chat.send_message(
-        f"نوع ({ttype_label(ttype)}) را انتخاب کنید:",
-        reply_markup=ikb(rows),
-    )
-    return TX_CAT_PICK
-
-
-async def tx_cat_pick_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    q = update.callback_query
-    user = update.effective_user
-    data = q.data or ""
-
-    await q.answer()
-
-    parts = data.split(":")
-    if len(parts) < 2 or parts[0] != CB_TX:
-        await q.edit_message_text("خطا.")
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    action = parts[1]
-
-    if action == "cancel":
-        context.user_data.clear()
-        await q.edit_message_text("لغو شد.")
-        return ConversationHandler.END
-
-    if action == "cat_new":
-        await q.edit_message_text("نام نوع جدید را وارد کنید:")
-        return TX_CAT_NEW
-
-    if action == "cat_manual":
-        await q.edit_message_text("نام نوع را دستی وارد کنید:")
-        return TX_CAT_NEW
-
-    if action == "cat":
-        if len(parts) != 3:
-            await q.edit_message_text("خطا.")
-            context.user_data.clear()
-            return ConversationHandler.END
-        cat_id = parts[2]
-        try:
-            cid = int(cat_id)
-        except ValueError:
-            await q.edit_message_text("نوع نامعتبر.")
-            context.user_data.clear()
-            return ConversationHandler.END
-
-        scope, owner = resolve_scope_owner(user.id)
-        ttype = context.user_data.get("tx_ttype")
-        if not ttype:
-            await q.edit_message_text("خطا.")
-            context.user_data.clear()
-            return ConversationHandler.END
-
-        with db_conn() as conn:
-            row = conn.execute(
-                "SELECT name FROM categories WHERE id=? AND scope=? AND owner_user_id=? AND grp=?",
-                (cid, scope, owner, ttype),
-            ).fetchone()
-        if not row:
-            await q.edit_message_text("نوع پیدا نشد.")
-            return TX_CAT_PICK
-
-        context.user_data["tx_category"] = row["name"]
-        await q.edit_message_text("مبلغ را وارد کنید (عدد صحیح، بدون اعشار):")
-        return TX_AMOUNT
-
-    await q.edit_message_text("دستور ناشناخته.")
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
-async def tx_cat_new_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    if not access_allowed(user.id):
-        await deny_update(update, context)
-        return ConversationHandler.END
-
-    name = (update.message.text or "").strip()
-    if not name:
-        await update.effective_chat.send_message("نام نمی‌تواند خالی باشد. دوباره وارد کنید:")
-        return TX_CAT_NEW
-
-    # save category if not exists, and select it
-    scope, owner = resolve_scope_owner(user.id)
-    ttype = context.user_data.get("tx_ttype")
-    if not ttype:
-        await update.effective_chat.send_message("خطا: نوع تراکنش مشخص نیست.")
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    ensure_installment(scope, owner)
-
-    with db_conn() as conn:
-        try:
-            conn.execute(
-                """
-                INSERT INTO categories(scope, owner_user_id, grp, name, is_locked)
-                VALUES(?, ?, ?, ?, 0)
-                """,
-                (scope, owner, ttype, name),
-            )
-            conn.commit()
-        except sqlite3.IntegrityError:
-            pass
-
-    context.user_data["tx_category"] = name
-    await update.effective_chat.send_message("مبلغ را وارد کنید (عدد صحیح، بدون اعشار):")
-    return TX_AMOUNT
-
-
-async def tx_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    if not access_allowed(user.id):
-        await deny_update(update, context)
-        return ConversationHandler.END
-
-    t = (update.message.text or "").strip().replace(",", "").replace("،", "")
-    if not re.fullmatch(r"\d+", t):
-        await update.effective_chat.send_message("❌ مبلغ نامعتبر است. فقط عدد وارد کنید:")
-        return TX_AMOUNT
-
-    amount = int(t)
-    context.user_data["tx_amount"] = amount
-    await update.effective_chat.send_message("توضیحات (اختیاری) را وارد کنید یا /skip بزنید:")
-    return TX_DESC
-
-
-async def tx_desc_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    return await finalize_tx(update, context, description=None)
-
-
-async def tx_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    desc = (update.message.text or "").strip()
-    return await finalize_tx(update, context, description=desc if desc else None)
-
-
-async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, description: Optional[str]) -> int:
-    user = update.effective_user
-    if not access_allowed(user.id):
-        await deny_update(update, context)
-        return ConversationHandler.END
-
-    ttype = context.user_data.get("tx_ttype")
-    date_g = context.user_data.get("tx_date_g")
-    category = context.user_data.get("tx_category")
-    amount = context.user_data.get("tx_amount")
-
-    if not all([ttype, date_g, category]) or amount is None:
-        await update.effective_chat.send_message("خطا: اطلاعات ناقص است.")
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    scope, owner = resolve_scope_owner(user.id)
-    ensure_installment(scope, owner)
-
-    ts = now_tehran_str()
-    with db_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO transactions(
-                scope, owner_user_id, actor_user_id, date_g, ttype, category,
-                amount, description, created_at, updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?)
-            """,
-            (scope, owner, user.id, date_g, ttype, category, int(amount), description, ts, ts),
-        )
-        conn.commit()
-
-    date_j = g_to_j_str(date_g)
-    msg = (
-        "✅ تراکنش ثبت شد.\n\n"
-        f"📅 تاریخ: {date_g} | {date_j}\n"
-        f"🔖 نوع: {ttype_label(ttype)}\n"
-        f"🏷 دسته: {category}\n"
-        f"💵 مبلغ: {amount}\n"
-        f"📝 توضیح: {description or '-'}\n"
-    )
-    await update.effective_chat.send_message(msg, reply_markup=KB_MAIN)
-    context.user_data.clear()
-    return ConversationHandler.END
 
 
 def build_tx_list_text(scope: str, owner: int, start_g: str, end_g: str) -> str:
@@ -864,110 +506,368 @@ def build_tx_list_text(scope: str, owner: int, start_g: str, end_g: str) -> str:
     return "\n".join(lines)
 
 
-# ------------------------
-# Reports: callbacks + conversation
-# ------------------------
-async def rep_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     user = update.effective_user
-    data = q.data or ""
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
     await q.answer()
 
     scope, owner = resolve_scope_owner(user.id)
     ensure_installment(scope, owner)
 
+    data = q.data or ""
     parts = data.split(":")
     if len(parts) < 2:
         await q.edit_message_text("خطا.")
         return ConversationHandler.END
 
     action = parts[1]
-    if action == "back":
-        await q.edit_message_text("🏠 منوی اصلی", reply_markup=None)
-        await update.effective_chat.send_message("🏠 منوی اصلی:", reply_markup=KB_MAIN)
-        return ConversationHandler.END
 
-    if action == "sum":
+    if action == "add":
+        context.user_data.clear()
+        await q.edit_message_text(
+            "نوع تراکنش را انتخاب کنید:",
+            reply_markup=ikb(
+                [
+                    [("💰 درآمد کاری", f"{CB_TX}:tt:work_in")],
+                    [("🏢 هزینه کاری", f"{CB_TX}:tt:work_out")],
+                    [("👤 هزینه شخصی", f"{CB_TX}:tt:personal_out")],
+                    [("⬅️ لغو", f"{CB_TX}:cancel")],
+                ]
+            ),
+        )
+        return TX_TTYPE
+
+    if action == "list":
         if len(parts) != 3:
             await q.edit_message_text("خطا.")
             return ConversationHandler.END
         which = parts[2]
         if which == "today":
             start = end = today_g_str()
-            title = "📅 خلاصه امروز"
+            title = "📄 لیست امروز"
         else:
-            today = datetime.now(TZ).date()
-            start = date(today.year, today.month, 1).strftime("%Y-%m-%d")
-            # last day of month
-            if today.month == 12:
-                nm = date(today.year + 1, 1, 1)
-            else:
-                nm = date(today.year, today.month + 1, 1)
-            end = (nm - datetime.timedelta(days=1)).strftime("%Y-%m-%d")  # type: ignore
-            title = "🗓 خلاصه این ماه"
+            # month range of "today" (Gregorian month)
+            start, end = month_range_g_for_date(today_g_str())
+            title = "📄 لیست این ماه (میلادی)"
 
-        text = build_summary_text(scope, owner, start, end, title=title)
-        await q.edit_message_text(text, parse_mode=ParseMode.HTML)
+        text = f"<b>{title}</b>\n\n" + build_tx_list_text(scope, owner, start, end)
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=tx_menu_ikb())
         return ConversationHandler.END
 
-    if action == "range":
+    if action == "cancel":
         context.user_data.clear()
+        await q.edit_message_text("لغو شد.", reply_markup=tx_menu_ikb())
+        return ConversationHandler.END
+
+    if action == "tt":
+        if len(parts) != 3:
+            await q.edit_message_text("خطا.")
+            return ConversationHandler.END
+        ttype = parts[2]
+        if ttype not in ("work_in", "work_out", "personal_out"):
+            await q.edit_message_text("نوع نامعتبر.")
+            return ConversationHandler.END
+
+        context.user_data["tx_ttype"] = ttype
+
+        # Date mode menu (Inline - 3 options)
+        today_g = today_g_str()
+        today_j = g_to_j_str(today_g)
+
         await q.edit_message_text(
-            "تاریخ شروع را وارد کنید:\n"
-            "✅ میلادی: YYYY-MM-DD\n"
-            "✅ جلالی: YYYY/MM/DD"
+            "📅 تاریخ را انتخاب کنید:\n\n"
+            f"امروز (میلادی): {today_g}\n"
+            f"امروز (شمسی): {today_j}\n\n"
+            "🔸 توجه: محاسبات «این ماه» فقط بر اساس ماه میلادی انجام می‌شود.\n"
+            "اگر تاریخ شمسی بدهید، تبدیل می‌کنیم و ماه میلادی ملاک است.",
+            reply_markup=ikb(
+                [
+                    [("✅ امروز", f"{CB_TX}:date:today")],
+                    [("🗓 وارد کردن تاریخ میلادی", f"{CB_TX}:date:g")],
+                    [("🧿 وارد کردن تاریخ شمسی", f"{CB_TX}:date:j")],
+                    [("⬅️ لغو", f"{CB_TX}:cancel")],
+                ]
+            ),
         )
-        return RP_RANGE_START
+        return TX_DATE_MODE
+
+    if action == "date":
+        if len(parts) != 3:
+            await q.edit_message_text("خطا.")
+            return ConversationHandler.END
+
+        mode = parts[2]
+        if mode == "today":
+            context.user_data["tx_date_g"] = today_g_str()
+        elif mode == "g":
+            await q.edit_message_text("تاریخ میلادی را وارد کنید (YYYY-MM-DD):")
+            return TX_DATE_G
+        elif mode == "j":
+            await q.edit_message_text("تاریخ شمسی را وارد کنید (YYYY/MM/DD):")
+            return TX_DATE_J
+        else:
+            await q.edit_message_text("حالت نامعتبر.")
+            return ConversationHandler.END
+
+        # if today chosen -> go to category selection
+        ttype = context.user_data.get("tx_ttype")
+        if not ttype:
+            context.user_data.clear()
+            await q.edit_message_text("خطا: نوع تراکنش مشخص نیست.")
+            return ConversationHandler.END
+
+        await q.edit_message_text("✅ تاریخ ثبت شد. حالا نوع/دسته را انتخاب کنید...")
+        await send_category_picker(update, context)
+        return TX_CAT_PICK
 
     await q.edit_message_text("دستور ناشناخته.")
     return ConversationHandler.END
 
 
-async def rep_range_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def tx_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not access_allowed(user.id):
-        await deny_update(update, context)
+        await deny_update(update)
         return ConversationHandler.END
 
-    t = (update.message.text or "").strip()
-    g = parse_date_to_g(t)
+    g = parse_gregorian(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید:")
-        return RP_RANGE_START
+        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید (YYYY-MM-DD):")
+        return TX_DATE_G
 
-    context.user_data["rp_start"] = g
-    await update.effective_chat.send_message("تاریخ پایان را وارد کنید:")
-    return RP_RANGE_END
+    context.user_data["tx_date_g"] = g
+    await update.effective_chat.send_message("✅ تاریخ ثبت شد. حالا نوع/دسته را انتخاب کنید...")
+    await send_category_picker(update, context)
+    return TX_CAT_PICK
 
 
-async def rep_range_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def tx_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not access_allowed(user.id):
-        await deny_update(update, context)
+        await deny_update(update)
         return ConversationHandler.END
 
-    t = (update.message.text or "").strip()
-    g2 = parse_date_to_g(t)
-    if not g2:
-        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید:")
-        return RP_RANGE_END
+    g = parse_jalali_to_g(update.message.text or "")
+    if not g:
+        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید (YYYY/MM/DD):")
+        return TX_DATE_J
 
-    g1 = context.user_data.get("rp_start")
-    if not g1:
-        await update.effective_chat.send_message("خطا.")
+    # store converted Gregorian (month calculations always Gregorian)
+    context.user_data["tx_date_g"] = g
+    await update.effective_chat.send_message(
+        f"✅ تبدیل شد به میلادی: {g}\nحالا نوع/دسته را انتخاب کنید..."
+    )
+    await send_category_picker(update, context)
+    return TX_CAT_PICK
+
+
+async def send_category_picker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    ttype = context.user_data.get("tx_ttype")
+    if ttype not in ("work_in", "work_out", "personal_out"):
+        await update.effective_chat.send_message("خطا: نوع تراکنش مشخص نیست.")
+        return
+
+    scope, owner = resolve_scope_owner(user.id)
+    ensure_installment(scope, owner)
+
+    cats = fetch_categories(scope, owner, ttype)
+    rows = []
+    for r in cats[:12]:
+        rows.append([(f"{r['name']}", f"{CB_TX}:cat:{r['id']}")])
+    if len(cats) > 12:
+        rows.append([("✍️ وارد کردن دستی نام نوع", f"{CB_TX}:cat_manual")])
+    rows.append([("➕ افزودن نوع جدید", f"{CB_TX}:cat_new")])
+    rows.append([("⬅️ لغو", f"{CB_TX}:cancel")])
+
+    await update.effective_chat.send_message(
+        f"🏷 نوع ({ttype_label(ttype)}) را انتخاب کنید:",
+        reply_markup=ikb(rows),
+    )
+
+
+async def tx_cat_pick_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    data = q.data or ""
+    parts = data.split(":")
+    if len(parts) < 2 or parts[0] != CB_TX:
+        await q.edit_message_text("خطا.")
         context.user_data.clear()
         return ConversationHandler.END
 
-    if g2 < g1:
-        g1, g2 = g2, g1
+    action = parts[1]
 
-    scope, owner = resolve_scope_owner(user.id)
-    text = build_summary_text(scope, owner, g1, g2, title="📆 گزارش بازه دلخواه")
-    await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=KB_MAIN)
+    if action == "cancel":
+        context.user_data.clear()
+        await q.edit_message_text("لغو شد.", reply_markup=tx_menu_ikb())
+        return ConversationHandler.END
+
+    if action == "cat_new":
+        await q.edit_message_text("نام نوع جدید را وارد کنید:")
+        return TX_CAT_NEW
+
+    if action == "cat_manual":
+        await q.edit_message_text("نام نوع را دستی وارد کنید:")
+        return TX_CAT_NEW
+
+    if action == "cat":
+        if len(parts) != 3:
+            await q.edit_message_text("خطا.")
+            context.user_data.clear()
+            return ConversationHandler.END
+        try:
+            cid = int(parts[2])
+        except ValueError:
+            await q.edit_message_text("نوع نامعتبر.")
+            context.user_data.clear()
+            return ConversationHandler.END
+
+        scope, owner = resolve_scope_owner(user.id)
+        ttype = context.user_data.get("tx_ttype")
+        if ttype not in ("work_in", "work_out", "personal_out"):
+            await q.edit_message_text("خطا.")
+            context.user_data.clear()
+            return ConversationHandler.END
+
+        with db_conn() as conn:
+            row = conn.execute(
+                "SELECT name FROM categories WHERE id=? AND scope=? AND owner_user_id=? AND grp=?",
+                (cid, scope, owner, ttype),
+            ).fetchone()
+        if not row:
+            await q.edit_message_text("نوع پیدا نشد.")
+            return TX_CAT_PICK
+
+        context.user_data["tx_category"] = row["name"]
+        await q.edit_message_text("💵 مبلغ را وارد کنید (عدد صحیح، بدون اعشار):")
+        return TX_AMOUNT
+
+    await q.edit_message_text("دستور ناشناخته.")
     context.user_data.clear()
     return ConversationHandler.END
 
 
+async def tx_cat_new_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+
+    name = (update.message.text or "").strip()
+    if not name:
+        await update.effective_chat.send_message("نام نمی‌تواند خالی باشد. دوباره وارد کنید:")
+        return TX_CAT_NEW
+
+    scope, owner = resolve_scope_owner(user.id)
+    ttype = context.user_data.get("tx_ttype")
+    if ttype not in ("work_in", "work_out", "personal_out"):
+        await update.effective_chat.send_message("خطا: نوع تراکنش مشخص نیست.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    ensure_installment(scope, owner)
+
+    with db_conn() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO categories(scope, owner_user_id, grp, name, is_locked) VALUES(?,?,?,?,0)",
+                (scope, owner, ttype, name),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
+
+    context.user_data["tx_category"] = name
+    await update.effective_chat.send_message("💵 مبلغ را وارد کنید (عدد صحیح، بدون اعشار):")
+    return TX_AMOUNT
+
+
+async def tx_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+
+    t = (update.message.text or "").strip().replace(",", "").replace("،", "")
+    if not re.fullmatch(r"\d+", t):
+        await update.effective_chat.send_message("❌ مبلغ نامعتبر است. فقط عدد وارد کنید:")
+        return TX_AMOUNT
+
+    context.user_data["tx_amount"] = int(t)
+    await update.effective_chat.send_message("📝 توضیحات (اختیاری) را وارد کنید یا /skip بزنید:")
+    return TX_DESC
+
+
+async def tx_desc_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await finalize_tx(update, context, description=None)
+
+
+async def tx_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    desc = (update.message.text or "").strip()
+    return await finalize_tx(update, context, description=desc if desc else None)
+
+
+async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, description: Optional[str]) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+
+    ttype = context.user_data.get("tx_ttype")
+    date_g = context.user_data.get("tx_date_g")
+    category = context.user_data.get("tx_category")
+    amount = context.user_data.get("tx_amount")
+
+    if ttype not in ("work_in", "work_out", "personal_out") or not date_g or not category or amount is None:
+        await update.effective_chat.send_message("خطا: اطلاعات ناقص است.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    ensure_installment(scope, owner)
+
+    ts = now_tehran_str()
+    with db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO transactions(
+                scope, owner_user_id, actor_user_id, date_g, ttype, category,
+                amount, description, created_at, updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)
+            """,
+            (scope, owner, user.id, date_g, ttype, category, int(amount), description, ts, ts),
+        )
+        conn.commit()
+
+    date_j = g_to_j_str(date_g)
+    msg = (
+        "✅ تراکنش ثبت شد.\n\n"
+        f"📅 تاریخ (میلادی): {date_g}\n"
+        f"📅 تاریخ (شمسی): {date_j}\n"
+        f"🔖 نوع: {ttype_label(ttype)}\n"
+        f"🏷 دسته: {category}\n"
+        f"💵 مبلغ: {amount}\n"
+        f"📝 توضیح: {description or '-'}\n"
+    )
+
+    is_primary = (user.id == ADMIN_CHAT_ID)
+    await update.effective_chat.send_message(msg, reply_markup=main_menu_ikb(is_primary))
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# ------------------------
+# Reports
+# ------------------------
 def build_summary_text(scope: str, owner: int, start_g: str, end_g: str, title: str) -> str:
     with db_conn() as conn:
         rows = conn.execute(
@@ -991,7 +891,8 @@ def build_summary_text(scope: str, owner: int, start_g: str, end_g: str, title: 
 
     return (
         f"<b>{title}</b>\n"
-        f"📅 بازه: <b>{start_g}</b> ({sj1}) تا <b>{end_g}</b> ({sj2})\n\n"
+        f"📅 بازه (میلادی): <b>{start_g}</b> تا <b>{end_g}</b>\n"
+        f"📅 بازه (شمسی): {sj1} تا {sj2}\n\n"
         f"💰 درآمد کاری: <b>{w_in}</b>\n"
         f"🏢 هزینه کاری: <b>{w_out}</b>\n"
         f"👤 هزینه شخصی: <b>{p_out}</b>\n\n"
@@ -999,15 +900,18 @@ def build_summary_text(scope: str, owner: int, start_g: str, end_g: str, title: 
     )
 
 
-# ------------------------
-# Settings & Admin callbacks
-# ------------------------
-async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def rep_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     user = update.effective_user
-    data = q.data or ""
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
     await q.answer()
 
+    scope, owner = resolve_scope_owner(user.id)
+    ensure_installment(scope, owner)
+
+    data = q.data or ""
     parts = data.split(":")
     if len(parts) < 2:
         await q.edit_message_text("خطا.")
@@ -1015,91 +919,124 @@ async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     action = parts[1]
 
-    if action == "home":
-        await q.edit_message_text("🏠 منوی اصلی", reply_markup=None)
-        await update.effective_chat.send_message("🏠 منوی اصلی:", reply_markup=KB_MAIN)
-        return ConversationHandler.END
-
-    if action == "cats":
-        await q.edit_message_text("🧩 مدیریت نوع‌ها:", reply_markup=cats_manage_ikb())
-        return ConversationHandler.END
-
-    if action == "admin":
-        if user.id != ADMIN_CHAT_ID:
-            await q.edit_message_text("⛔ این بخش فقط برای ادمین اصلی فعال است.")
-            return ConversationHandler.END
-        await q.edit_message_text("🛡 بخش ادمین:", reply_markup=admin_menu_ikb())
-        return ConversationHandler.END
-
-    await q.edit_message_text("دستور ناشناخته.")
-    return ConversationHandler.END
-
-
-async def admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    q = update.callback_query
-    user = update.effective_user
-    data = q.data or ""
-    await q.answer()
-
-    if user.id != ADMIN_CHAT_ID:
-        await q.edit_message_text("⛔ این بخش فقط برای ادمین اصلی فعال است.")
-        return ConversationHandler.END
-
-    parts = data.split(":")
-    if len(parts) < 2:
-        await q.edit_message_text("خطا.")
-        return ConversationHandler.END
-
-    action = parts[1]
-
-    if action == "back":
-        await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu_ikb(True))
-        return ConversationHandler.END
-
-    if action == "admins":
-        await q.edit_message_text("👥 مدیریت ادمین‌ها:", reply_markup=admins_manage_ikb())
-        return ConversationHandler.END
-
-    if action == "back2":
-        await q.edit_message_text("🛡 بخش ادمین:", reply_markup=admin_menu_ikb())
-        return ConversationHandler.END
-
-    if action == "share":
-        cur = get_setting("share_enabled")
-        newv = "0" if cur == "1" else "1"
-        set_setting("share_enabled", newv)
-        await q.edit_message_text("✅ تنظیم شد.", reply_markup=admin_menu_ikb())
-        return ConversationHandler.END
-
-    if action == "add":
-        context.user_data.clear()
-        await q.edit_message_text("🆔 user_id عددی ادمین جدید را وارد کنید:")
-        return ADM_ADD_UID
-
-    if action == "list":
-        text, markup = build_admins_list()
-        await q.edit_message_text(text, reply_markup=markup)
-        return ConversationHandler.END
-
-    if action == "del":
+    if action == "sum":
         if len(parts) != 3:
             await q.edit_message_text("خطا.")
             return ConversationHandler.END
-        try:
-            uid = int(parts[2])
-        except ValueError:
-            await q.edit_message_text("آیدی نامعتبر.")
-            return ConversationHandler.END
+        which = parts[2]
 
-        with db_conn() as conn:
-            conn.execute("DELETE FROM admins WHERE user_id=?", (uid,))
-            conn.commit()
-        text, markup = build_admins_list()
-        await q.edit_message_text("✅ حذف شد.\n\n" + text, reply_markup=markup)
+        if which == "today":
+            start = end = today_g_str()
+            title = "📅 خلاصه امروز"
+        else:
+            start, end = month_range_g_for_date(today_g_str())  # Gregorian month
+            title = "🗓 خلاصه این ماه (میلادی)"
+
+        text = build_summary_text(scope, owner, start, end, title=title)
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=reports_menu_ikb())
         return ConversationHandler.END
+
+    if action == "range":
+        context.user_data.clear()
+        await q.edit_message_text(
+            "تاریخ شروع را وارد کنید:\n"
+            "✅ میلادی: YYYY-MM-DD\n"
+            "✅ شمسی: YYYY/MM/DD\n\n"
+            "🔸 اگر شمسی بدهید تبدیل می‌کنیم و ماه/محاسبات میلادی است."
+        )
+        return RP_RANGE_START
 
     await q.edit_message_text("دستور ناشناخته.")
     return ConversationHandler.END
+
+
+def parse_any_date_to_g(text: str) -> Optional[str]:
+    g = parse_gregorian(text)
+    if g:
+        return g
+    return parse_jalali_to_g(text)
+
+
+async def rep_range_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+
+    g = parse_any_date_to_g(update.message.text or "")
+    if not g:
+        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید:")
+        return RP_RANGE_START
+
+    context.user_data["rp_start"] = g
+    await update.effective_chat.send_message("تاریخ پایان را وارد کنید:")
+    return RP_RANGE_END
+
+
+async def rep_range_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+
+    g2 = parse_any_date_to_g(update.message.text or "")
+    if not g2:
+        await update.effective_chat.send_message("❌ تاریخ نامعتبر است. دوباره وارد کنید:")
+        return RP_RANGE_END
+
+    g1 = context.user_data.get("rp_start")
+    if not g1:
+        await update.effective_chat.send_message("خطا.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if g2 < g1:
+        g1, g2 = g2, g1
+
+    scope, owner = resolve_scope_owner(user.id)
+    text = build_summary_text(scope, owner, g1, g2, title="📆 گزارش بازه دلخواه")
+    is_primary = (user.id == ADMIN_CHAT_ID)
+    await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=main_menu_ikb(is_primary))
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# ------------------------
+# Settings + Admin + Categories (same logic, inline)
+# ------------------------
+async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return
+    await q.answer()
+
+    data = q.data or ""
+    parts = data.split(":")
+    if len(parts) != 2:
+        await q.edit_message_text("خطا.")
+        return
+
+    action = parts[1]
+    is_primary = (user.id == ADMIN_CHAT_ID)
+
+    if action == "cats":
+        await q.edit_message_text("🧩 مدیریت نوع‌ها:", reply_markup=cats_manage_ikb())
+        return
+
+    if action == "admin":
+        if not is_primary:
+            await q.edit_message_text("⛔ این بخش فقط برای ادمین اصلی فعال است.")
+            return
+        await q.edit_message_text("🛡 بخش ادمین:", reply_markup=admin_menu_ikb())
+        return
+
+    if action == "back":
+        await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu_ikb(is_primary))
+        return
+
+    await q.edit_message_text("دستور ناشناخته.")
 
 
 def build_admins_list() -> Tuple[str, InlineKeyboardMarkup]:
@@ -1119,6 +1056,72 @@ def build_admins_list() -> Tuple[str, InlineKeyboardMarkup]:
 
     btn_rows.append([("⬅️ بازگشت", f"{CB_ADM}:back2")])
     return "\n".join(lines), ikb(btn_rows)
+
+
+async def admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    if user.id != ADMIN_CHAT_ID:
+        await q.edit_message_text("⛔ این بخش فقط برای ادمین اصلی فعال است.")
+        return ConversationHandler.END
+
+    data = q.data or ""
+    parts = data.split(":")
+    if len(parts) < 2:
+        await q.edit_message_text("خطا.")
+        return ConversationHandler.END
+
+    action = parts[1]
+
+    if action == "admins":
+        await q.edit_message_text("👥 مدیریت ادمین‌ها:", reply_markup=admins_manage_ikb())
+        return ConversationHandler.END
+
+    if action == "back2":
+        await q.edit_message_text("🛡 بخش ادمین:", reply_markup=admin_menu_ikb())
+        return ConversationHandler.END
+
+    if action == "share":
+        cur = get_setting("share_enabled")
+        set_setting("share_enabled", "0" if cur == "1" else "1")
+        await q.edit_message_text("✅ تنظیم شد.", reply_markup=admin_menu_ikb())
+        return ConversationHandler.END
+
+    if action == "add":
+        context.user_data.clear()
+        await q.edit_message_text("🆔 user_id عددی ادمین جدید را وارد کنید:")
+        return ADM_ADD_UID
+
+    if action == "list":
+        text, markup = build_admins_list()
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        return ConversationHandler.END
+
+    if action == "del":
+        if len(parts) != 3:
+            await q.edit_message_text("خطا.")
+            return ConversationHandler.END
+        try:
+            uid = int(parts[2])
+        except ValueError:
+            await q.edit_message_text("آیدی نامعتبر.")
+            return ConversationHandler.END
+
+        with db_conn() as conn:
+            conn.execute("DELETE FROM admins WHERE user_id=?", (uid,))
+            conn.commit()
+
+        text, markup = build_admins_list()
+        await q.edit_message_text("✅ حذف شد.\n\n" + text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        return ConversationHandler.END
+
+    await q.edit_message_text("دستور ناشناخته.")
+    return ConversationHandler.END
 
 
 async def adm_add_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1172,34 +1175,52 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         conn.commit()
 
-    await update.effective_chat.send_message("✅ ادمین اضافه شد.", reply_markup=KB_MAIN)
+    is_primary = (user.id == ADMIN_CHAT_ID)
+    await update.effective_chat.send_message("✅ ادمین اضافه شد.", reply_markup=main_menu_ikb(is_primary))
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # ------------------------
-# Categories management (callbacks + conversation)
+# Categories management
 # ------------------------
+def build_cat_list(scope: str, owner: int, grp: str) -> Tuple[str, InlineKeyboardMarkup]:
+    rows = fetch_categories(scope, owner, grp)
+    lines = [f"🧩 <b>{grp_label(grp)}</b>\n"]
+    btn_rows = []
+
+    if not rows:
+        lines.append("— (خالی)")
+    else:
+        for r in rows[:30]:
+            lock = "🔒 " if int(r["is_locked"]) == 1 else ""
+            lines.append(f"• {lock}{r['name']}")
+            if not (int(r["is_locked"]) == 1 and r["name"] == INSTALLMENT_NAME and grp == "personal_out"):
+                btn_rows.append([("🗑 حذف", f"{CB_CAT}:del:{r['id']}")])
+
+    btn_rows.append([("➕ افزودن", f"{CB_CAT}:add:{grp}")])
+    btn_rows.append([("⬅️ بازگشت", f"{CB_SET}:cats")])
+    return "\n".join(lines), ikb(btn_rows)
+
+
 async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     user = update.effective_user
-    data = q.data or ""
+    if not access_allowed(user.id):
+        await deny_update(update)
+        return ConversationHandler.END
     await q.answer()
 
     scope, owner = resolve_scope_owner(user.id)
     ensure_installment(scope, owner)
 
+    data = q.data or ""
     parts = data.split(":")
     if len(parts) < 2:
         await q.edit_message_text("خطا.")
         return ConversationHandler.END
 
     action = parts[1]
-
-    if action == "back":
-        is_primary = (user.id == ADMIN_CHAT_ID)
-        await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu_ikb(is_primary))
-        return ConversationHandler.END
 
     if action == "grp":
         if len(parts) != 3:
@@ -1212,13 +1233,11 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         context.user_data.clear()
         context.user_data["cat_grp"] = grp
-
         text, markup = build_cat_list(scope, owner, grp)
-        await q.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
         return ConversationHandler.END
 
     if action == "add":
-        # ct:add:<grp>
         if len(parts) != 3:
             await q.edit_message_text("خطا.")
             return ConversationHandler.END
@@ -1233,7 +1252,6 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return CAT_ADD_NAME
 
     if action == "del":
-        # ct:del:<id>
         if len(parts) != 3:
             await q.edit_message_text("خطا.")
             return ConversationHandler.END
@@ -1260,40 +1278,17 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         grp = row["grp"]
         text, markup = build_cat_list(scope, owner, grp)
-        await q.edit_message_text("✅ حذف شد.\n\n" + text, reply_markup=markup, parse_mode=ParseMode.HTML)
-        return ConversationHandler.END
-
-    if action == "back_grp":
-        await q.edit_message_text("🧩 مدیریت نوع‌ها:", reply_markup=cats_manage_ikb())
+        await q.edit_message_text("✅ حذف شد.\n\n" + text, parse_mode=ParseMode.HTML, reply_markup=markup)
         return ConversationHandler.END
 
     await q.edit_message_text("دستور ناشناخته.")
     return ConversationHandler.END
 
 
-def build_cat_list(scope: str, owner: int, grp: str) -> Tuple[str, InlineKeyboardMarkup]:
-    rows = fetch_categories(scope, owner, grp)
-    lines = [f"🧩 <b>{grp_label(grp)}</b>\n"]
-    btn_rows = []
-
-    if not rows:
-        lines.append("— (خالی)")
-    else:
-        for r in rows[:30]:
-            lock = "🔒 " if int(r["is_locked"]) == 1 else ""
-            lines.append(f"• {lock}{r['name']}")
-            if not (int(r["is_locked"]) == 1 and r["name"] == INSTALLMENT_NAME and grp == "personal_out"):
-                btn_rows.append([("🗑 حذف", f"{CB_CAT}:del:{r['id']}")])
-
-    btn_rows.append([("➕ افزودن", f"{CB_CAT}:add:{grp}")])
-    btn_rows.append([("⬅️ بازگشت", f"{CB_CAT}:back_grp")])
-    return "\n".join(lines), ikb(btn_rows)
-
-
 async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not access_allowed(user.id):
-        await deny_update(update, context)
+        await deny_update(update)
         return ConversationHandler.END
 
     name = (update.message.text or "").strip()
@@ -1320,22 +1315,22 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         except sqlite3.IntegrityError:
             pass
 
-    # show list again
     text, markup = build_cat_list(scope, owner, grp)
-    await update.effective_chat.send_message("✅ ثبت شد.\n\n" + text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    await update.effective_chat.send_message("✅ ثبت شد.\n\n" + text, parse_mode=ParseMode.HTML, reply_markup=markup)
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # ------------------------
-# Fallback / Unknown
+# Unknown / fallback
 # ------------------------
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not access_allowed(user.id):
-        await deny_update(update, context)
+        await deny_update(update)
         return
-    await update.effective_chat.send_message("دستور نامعتبر است. از منو استفاده کنید.", reply_markup=KB_MAIN)
+    is_primary = (user.id == ADMIN_CHAT_ID)
+    await update.effective_chat.send_message("از /start شروع کنید یا از دکمه‌ها استفاده کنید.", reply_markup=main_menu_ikb(is_primary))
 
 
 # ------------------------
@@ -1343,21 +1338,25 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ------------------------
 def build_app() -> Application:
     init_db()
-
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Access gate for callbacks (group 0 so it runs before others)
-    app.add_handler(CallbackQueryHandler(cb_access_gate, pattern=r"^(tx|rp|st|ad|ct):",), group=0)
-
     # /start
-    app.add_handler(CommandHandler("start", start), group=1)
+    app.add_handler(CommandHandler("start", start))
 
-    # Transactions conversation (inline-driven + message steps)
+    # Main menu callbacks
+    app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|rp|st)$"))
+
+    # Settings callbacks
+    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|admin|back)$"))
+
+    # Transactions menu callbacks + conversation
     tx_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(tx_cb, pattern=r"^tx:(add|list:today|list:month|back)$")],
+        entry_points=[CallbackQueryHandler(tx_cb, pattern=r"^tx:(add|list:(today|month))$")],
         states={
             TX_TTYPE: [CallbackQueryHandler(tx_cb, pattern=r"^tx:(tt:(work_in|work_out|personal_out)|cancel)$")],
-            TX_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_input)],
+            TX_DATE_MODE: [CallbackQueryHandler(tx_cb, pattern=r"^tx:(date:(today|g|j)|cancel)$")],
+            TX_DATE_G: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_g_input)],
+            TX_DATE_J: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_j_input)],
             TX_CAT_PICK: [CallbackQueryHandler(tx_cat_pick_cb, pattern=r"^tx:(cat:\d+|cat_new|cat_manual|cancel)$")],
             TX_CAT_NEW: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_cat_new_input)],
             TX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_amount_input)],
@@ -1366,21 +1365,18 @@ def build_app() -> Application:
                 MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input),
             ],
         },
-        fallbacks=[
-            CallbackQueryHandler(tx_cb, pattern=r"^tx:cancel$"),
-            CommandHandler("start", start),
-        ],
+        fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
         name="tx_conv",
         persistent=False,
     )
-    # Additional callback entry for list and other tx ops
-    app.add_handler(CallbackQueryHandler(tx_cb, pattern=r"^tx:(list:(today|month)|back|cancel|tt:|add|cat:|cat_new|cat_manual)"), group=2)
-    app.add_handler(tx_conv, group=3)
+    # also handle tx menu buttons outside conv (safe)
+    app.add_handler(CallbackQueryHandler(tx_cb, pattern=r"^tx:(add|list:(today|month)|cancel|tt:|date:).*"))
+    app.add_handler(tx_conv)
 
     # Reports conversation
     rep_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(rep_cb, pattern=r"^rp:(sum:(today|month)|range|back)$")],
+        entry_points=[CallbackQueryHandler(rep_cb, pattern=r"^rp:(sum:(today|month)|range)$")],
         states={
             RP_RANGE_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, rep_range_start)],
             RP_RANGE_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, rep_range_end)],
@@ -1390,15 +1386,12 @@ def build_app() -> Application:
         name="rep_conv",
         persistent=False,
     )
-    app.add_handler(CallbackQueryHandler(rep_cb, pattern=r"^rp:(sum:(today|month)|range|back)$"), group=2)
-    app.add_handler(rep_conv, group=3)
+    app.add_handler(CallbackQueryHandler(rep_cb, pattern=r"^rp:(sum:(today|month)|range)$"))
+    app.add_handler(rep_conv)
 
-    # Settings callbacks
-    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|admin|home)$"), group=2)
-
-    # Admin callbacks + conversation (only primary admin)
+    # Admin conversation + callbacks
     adm_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_cb, pattern=r"^ad:(add)$")],
+        entry_points=[CallbackQueryHandler(admin_cb, pattern=r"^ad:add$")],
         states={
             ADM_ADD_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_uid)],
             ADM_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_name)],
@@ -1408,10 +1401,10 @@ def build_app() -> Application:
         name="adm_conv",
         persistent=False,
     )
-    app.add_handler(CallbackQueryHandler(admin_cb, pattern=r"^ad:(admins|share|list|del:\d+|back|back2|add)$"), group=2)
-    app.add_handler(adm_conv, group=3)
+    app.add_handler(CallbackQueryHandler(admin_cb, pattern=r"^ad:(admins|share|list|del:\d+|back2|add)$"))
+    app.add_handler(adm_conv)
 
-    # Categories callbacks + conversation
+    # Categories conversation + callbacks
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
         states={CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_add_name)]},
@@ -1420,21 +1413,15 @@ def build_app() -> Application:
         name="cat_conv",
         persistent=False,
     )
-    app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|back|back_grp|add:(work_in|work_out|personal_out))$"), group=2)
-    app.add_handler(cat_conv, group=3)
+    app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|add:(work_in|work_out|personal_out))$"))
+    app.add_handler(cat_conv)
 
-    # Main menu text router
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_menu_router), group=10)
-
-    # Unknown
+    # Unknowns
     app.add_handler(MessageHandler(filters.ALL, unknown), group=99)
 
     return app
 
 
-# ------------------------
-# Run
-# ------------------------
 def main() -> None:
     app = build_app()
     logger.info("%s started. TZ=%s DB=%s", PROJECT_NAME, "Asia/Tehran", DB_PATH)
