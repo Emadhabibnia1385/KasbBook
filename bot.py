@@ -7,7 +7,7 @@ import re
 import sqlite3
 import logging
 from datetime import datetime, date
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 
 import pytz
 import jdatetime
@@ -52,6 +52,7 @@ CB_CT = "ct"    # categories
 CB_TX = "tx"    # transaction flow + menus
 CB_DL = "dl"    # daily list
 CB_DTX = "dtx"  # tx detail/edit
+CB_RP = "rp"    # reports (global/year/month)
 
 # =========================
 # ENV
@@ -232,6 +233,7 @@ def resolve_scope_owner(user_id: int) -> Tuple[str, int]:
     if mode == ACCESS_PUBLIC:
         return ("private", user_id)
 
+    # admin_only
     share_enabled = get_setting("share_enabled")
     if share_enabled == "1":
         return ("shared", ADMIN_CHAT_ID)
@@ -289,10 +291,24 @@ def ikb(rows: List[List[tuple]]) -> InlineKeyboardMarkup:
     )
 
 
+def start_text() -> str:
+    return (
+        "📊 KasbBook | مدیریت مالی کسب‌وکار\n\n"
+        "با KasbBook می‌تونی:\n"
+        "• درآمدها و هزینه‌ها رو ثبت کنی\n"
+        "• گزارش روزانه، ماهانه و سالانه ببینی\n"
+        "• پس‌انداز و سود واقعی کارت رو تحلیل کنی\n\n"
+        "برای شروع از منوی زیر استفاده کن 👇\n\n"
+        "🚀 شروع ربات با دستور: /start\n"
+        "👨‍💻 Developer: @emadhabibnia"
+    )
+
+
 def main_menu() -> InlineKeyboardMarkup:
     return ikb(
         [
             [("📌 تراکنش‌ها", f"{CB_M}:tx")],
+            [("📊 گزارش", f"{CB_M}:report")],
             [("⚙️ تنظیمات", f"{CB_M}:st")],
         ]
     )
@@ -332,7 +348,7 @@ def access_menu(user_id: int) -> InlineKeyboardMarkup:
         rows.append([(f"🔁 اشتراک اطلاعات: {sh_txt}", f"{CB_AC}:share")])
         rows.append([("👥 مدیریت ادمین‌ها", f"{CB_AD}:panel")])
 
-    rows.append([("⬅️ بازگشت", f"{CB_ST}:back")])
+    rows.append([("⬅️ بازگشت", f"{CB_M}:home")])
     return ikb(rows)
 
 
@@ -342,7 +358,7 @@ def cats_root_menu() -> InlineKeyboardMarkup:
             [("💰 درآمد کاری", f"{CB_CT}:grp:work_in")],
             [("🏢 هزینه کاری", f"{CB_CT}:grp:work_out")],
             [("👤 هزینه شخصی", f"{CB_CT}:grp:personal_out")],
-            [("⬅️ بازگشت", f"{CB_ST}:back")],
+            [("⬅️ بازگشت", f"{CB_M}:home")],
         ]
     )
 
@@ -400,6 +416,10 @@ def cat_pick_keyboard(scope: str, owner: int, grp: str, back_cb: str) -> InlineK
     return InlineKeyboardMarkup(rows)
 
 
+def fmt_num(n: int) -> str:
+    return f"{int(n):,}"
+
+
 # =========================
 # Access denied
 # =========================
@@ -440,16 +460,14 @@ ADM_ADD_UID, ADM_ADD_NAME = range(2)
 CAT_ADD_NAME = 0
 
 TX_DATE_MENU, TX_DATE_G, TX_DATE_J, TX_TTYPE, TX_CAT_PICK, TX_CAT_ADD_NAME, TX_AMOUNT, TX_DESC = range(8)
-
 DL_DATE_MENU, DL_DATE_G, DL_DATE_J = range(3)
-
 ED_AMOUNT, ED_DESC = range(2)
-
 
 # =========================
 # /start
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Remove any reply-keyboard (we use inline only). Must not send empty text.
     try:
         await update.effective_chat.send_message(ZWSP, reply_markup=ReplyKeyboardRemove())
     except Exception:
@@ -461,7 +479,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.effective_chat.send_message(
-        rtl(f"🏠 {PROJECT_NAME}\n\nیک گزینه انتخاب کنید:"),
+        rtl(start_text()),
         reply_markup=main_menu(),
     )
 
@@ -479,13 +497,19 @@ async def main_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     action = (q.data or "").split(":")[1]
     if action == "home":
-        await q.edit_message_text(rtl("🏠 منوی اصلی:"), reply_markup=main_menu())
-    elif action == "tx":
+        await q.edit_message_text(rtl(start_text()), reply_markup=main_menu())
+        return
+    if action == "tx":
         await q.edit_message_text(rtl("📌 تراکنش‌ها:"), reply_markup=tx_menu())
-    elif action == "st":
+        return
+    if action == "st":
         await q.edit_message_text(rtl("⚙️ تنظیمات:"), reply_markup=settings_menu(user.id))
-    else:
-        await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=main_menu())
+        return
+    if action == "report":
+        await report_root(update, context, edit=True)
+        return
+
+    await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=main_menu())
 
 
 # =========================
@@ -510,7 +534,7 @@ async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await q.edit_message_text(rtl("🔐 دسترسی ربات:"), reply_markup=access_menu(user.id))
         return
     if action == "back":
-        await q.edit_message_text(rtl("⚙️ تنظیمات:"), reply_markup=settings_menu(user.id))
+        await q.edit_message_text(rtl(start_text()), reply_markup=main_menu())
         return
 
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=settings_menu(user.id))
@@ -572,7 +596,7 @@ def build_admin_panel_kb() -> InlineKeyboardMarkup:
             ]
         )
 
-    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_ST}:access")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_AC}:noop")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -586,7 +610,7 @@ async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await q.answer()
 
     if not is_primary_admin(user.id):
-        await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
+        await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=main_menu())
         return ConversationHandler.END
 
     if get_setting("access_mode") != ACCESS_ADMIN_ONLY:
@@ -1097,7 +1121,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     origin = context.user_data.get("tx_origin")
     daily_g = context.user_data.get("tx_daily_gdate")
 
-    # ✅ اگر از لیست روزانه آمده: فقط همان لیست روزانه با گزارش بالای صفحه را رفرش کن (بدون متن تراکنش ثبت شد)
+    # If from daily list: refresh daily list only (no "transaction saved" box)
     if origin == "daily" and isinstance(daily_g, str):
         await update.effective_chat.send_message(
             daily_list_text(scope, owner, daily_g),
@@ -1106,7 +1130,6 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
         context.user_data.clear()
         return ConversationHandler.END
 
-    # در حالت منوی تراکنش‌ها: کوتاه
     await update.effective_chat.send_message(rtl("✅ ثبت شد."), reply_markup=tx_menu())
     context.user_data.clear()
     return ConversationHandler.END
@@ -1164,14 +1187,10 @@ def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
     return int(w_in), int(w_out), int(p_non), int(inst)
 
 
-def _fmt_num(n: int) -> str:
-    # 100000 -> 100,000
-    return f"{int(n):,}"
-
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
 
-    w_in, w_out, p_non_install, inst = _day_sums(scope, owner, gdate)
+    w_in, w_out, p_non_install, _inst = _day_sums(scope, owner, gdate)
     net = w_in - w_out
     savings = net - p_non_install
 
@@ -1179,15 +1198,13 @@ def daily_list_text(scope: str, owner: int, gdate: str) -> str:
         f"📅 {gdate}  |  {g_to_j(gdate)}",
         "",
         "📊 گزارش روز",
-        " ",
-        f"💰 درآمد: {_fmt_num(w_in)}",
-        f"🏢 هزینه کاری: {_fmt_num(w_out)}",
-        f"➖ خالص کاری: {_fmt_num(net)}",
-        f"👤 هزینه شخصی(بدون قسط): {_fmt_num(p_non_install)}",
-        f"💾 پس‌انداز: {_fmt_num(savings)}",
+        f"💰 درآمد: {fmt_num(w_in)}",
+        f"🏢 هزینه کاری: {fmt_num(w_out)}",
+        f"➖ خالص کاری: {fmt_num(net)}",
+        f"👤 هزینه شخصی(بدون قسط): {fmt_num(p_non_install)}",
+        f"💾 پس‌انداز: {fmt_num(savings)}",
     ]
     return rtl("\n".join(lines))
-
 
 
 def _short_add_labels() -> Tuple[str, str, str]:
@@ -1207,7 +1224,7 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
 
     a1, a2, a3 = _short_add_labels()
 
-    # سه گزینه کنار هم
+    # 3 add buttons inline
     rows.append(
         [
             InlineKeyboardButton(a1, callback_data=f"{CB_DL}:add:{gdate}:work_in"),
@@ -1235,11 +1252,11 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
             rows.append([InlineKeyboardButton("خالی", callback_data=f"{CB_DL}:noop")])
             return
 
-        # هر ردیف: دو دکمه جدا (دسته/نوع) و (مبلغ)
+        # Each row: two buttons (category + amount), both open details
         for t in txs:
             open_cb = f"{CB_DTX}:open:{gdate}:{t['id']}"
             cat_txt = (t["category"] or "")[:24]
-            amt_txt = str(int(t["amount"]))
+            amt_txt = fmt_num(int(t["amount"]))
             rows.append(
                 [
                     InlineKeyboardButton(cat_txt, callback_data=open_cb),
@@ -1296,7 +1313,6 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await q.edit_message_text(daily_list_text(scope, owner, gdate), reply_markup=daily_rows_kb(scope, owner, gdate))
         return ConversationHandler.END
 
-    # add handled by tx conversation entry
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=tx_menu())
     return ConversationHandler.END
 
@@ -1386,7 +1402,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"📅 تاریخ (شمسی): {g_to_j(tx['date_g'])}",
             f"🔖 نوع: {ttype_label(tx['ttype'])}",
             f"🏷 دسته: {tx['category']}",
-            f"💵 مبلغ: {int(tx['amount'])}",
+            f"💵 مبلغ: {fmt_num(int(tx['amount']))}",
             f"📝 توضیح: {(tx['description'] or '-').strip()}",
         ]
         await q.edit_message_text(rtl("\n".join(lines)), reply_markup=tx_view_kb(gdate, tx_id))
@@ -1446,7 +1462,6 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
             conn.commit()
 
-        # بازگشت به جزئیات
         tx2 = get_tx(scope, owner, tx_id)
         lines = [
             "✅ ویرایش شد.",
@@ -1457,7 +1472,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"📅 تاریخ (شمسی): {g_to_j(tx2['date_g'])}",
             f"🔖 نوع: {ttype_label(tx2['ttype'])}",
             f"🏷 دسته: {tx2['category']}",
-            f"💵 مبلغ: {int(tx2['amount'])}",
+            f"💵 مبلغ: {fmt_num(int(tx2['amount']))}",
             f"📝 توضیح: {(tx2['description'] or '-').strip()}",
         ]
         await q.edit_message_text(rtl("\n".join(lines)), reply_markup=tx_view_kb(gdate, tx_id))
@@ -1535,6 +1550,226 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # =========================
+# Reports (global/year/month)
+# =========================
+MONTHS = [
+    ("Jan", 1), ("Feb", 2), ("Mar", 3),
+    ("Apr", 4), ("May", 5), ("Jun", 6),
+    ("Jul", 7), ("Aug", 8), ("Sep", 9),
+    ("Oct", 10), ("Nov", 11), ("Dec", 12),
+]
+
+def sums_for_range(scope: str, owner: int, start_g: str, end_g_exclusive: str) -> Dict[str, int]:
+    """
+    Computes sums in [start_g, end_g_exclusive).
+    Returns: income(work_in), work_out, personal_non_install, net, savings
+    """
+    ensure_installment(scope, owner)
+    with db_conn() as conn:
+        w_in = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='work_in'
+            """,
+            (scope, owner, start_g, end_g_exclusive),
+        ).fetchone()["s"]
+
+        w_out = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='work_out'
+            """,
+            (scope, owner, start_g, end_g_exclusive),
+        ).fetchone()["s"]
+
+        p_non = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='personal_out' AND category<>?
+            """,
+            (scope, owner, start_g, end_g_exclusive, INSTALLMENT_NAME),
+        ).fetchone()["s"]
+
+    w_in = int(w_in)
+    w_out = int(w_out)
+    p_non = int(p_non)
+    net = w_in - w_out
+    savings = net - p_non
+    return {"income": w_in, "work_out": w_out, "personal": p_non, "net": net, "savings": savings}
+
+
+def sums_all(scope: str, owner: int) -> Dict[str, int]:
+    ensure_installment(scope, owner)
+    with db_conn() as conn:
+        w_in = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE scope=? AND owner_user_id=? AND ttype='work_in'",
+            (scope, owner),
+        ).fetchone()["s"]
+        w_out = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE scope=? AND owner_user_id=? AND ttype='work_out'",
+            (scope, owner),
+        ).fetchone()["s"]
+        p_non = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND ttype='personal_out' AND category<>?
+            """,
+            (scope, owner, INSTALLMENT_NAME),
+        ).fetchone()["s"]
+
+    w_in = int(w_in)
+    w_out = int(w_out)
+    p_non = int(p_non)
+    net = w_in - w_out
+    savings = net - p_non
+    return {"income": w_in, "work_out": w_out, "personal": p_non, "net": net, "savings": savings}
+
+
+def report_lines(title: str, s: Dict[str, int]) -> str:
+    lines = [
+        title,
+        "",
+        f"💰 درآمد: {fmt_num(s['income'])}",
+        f"🏢 هزینه کاری: {fmt_num(s['work_out'])}",
+        f"➖ خالص کاری: {fmt_num(s['net'])}",
+        f"👤 هزینه شخصی(بدون قسط): {fmt_num(s['personal'])}",
+        f"💾 پس‌انداز: {fmt_num(s['savings'])}",
+    ]
+    return rtl("\n".join(lines))
+
+
+def years_with_data(scope: str, owner: int) -> List[int]:
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT SUBSTR(date_g,1,4) AS y
+            FROM transactions
+            WHERE scope=? AND owner_user_id=?
+            ORDER BY y DESC
+            """,
+            (scope, owner),
+        ).fetchall()
+    out: List[int] = []
+    for r in rows:
+        try:
+            out.append(int(r["y"]))
+        except Exception:
+            pass
+    return out
+
+
+def report_root_kb(years: List[int]) -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+    # years as inline rows (3 per row)
+    buf: List[InlineKeyboardButton] = []
+    for y in years:
+        buf.append(InlineKeyboardButton(str(y), callback_data=f"{CB_RP}:y:{y}"))
+        if len(buf) == 3:
+            rows.append(buf)
+            buf = []
+    if buf:
+        rows.append(buf)
+
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_M}:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def report_year_kb(year: int) -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+    # 12 months grid
+    i = 0
+    while i < 12:
+        row = []
+        for _ in range(3):
+            if i >= 12:
+                break
+            name, mnum = MONTHS[i]
+            row.append(InlineKeyboardButton(name, callback_data=f"{CB_RP}:m:{year}:{mnum:02d}"))
+            i += 1
+        rows.append(row)
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_RP}:root")])
+    return InlineKeyboardMarkup(rows)
+
+
+def report_month_kb(year: int) -> InlineKeyboardMarkup:
+    return ikb(
+        [
+            [("⬅️ بازگشت", f"{CB_RP}:y:{year}")],
+        ]
+    )
+
+
+async def report_root(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool) -> None:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return
+
+    scope, owner = resolve_scope_owner(user.id)
+    s = sums_all(scope, owner)
+    years = years_with_data(scope, owner)
+
+    text = report_lines("📊 گزارش کلی", s)
+    kb = report_root_kb(years) if years else ikb([[("⬅️ بازگشت", f"{CB_M}:home")]])
+
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=kb)
+    else:
+        await update.effective_chat.send_message(text, reply_markup=kb)
+
+
+async def report_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    act = parts[1]
+
+    scope, owner = resolve_scope_owner(user.id)
+
+    if act == "root":
+        await report_root(update, context, edit=True)
+        return
+
+    if act == "y":
+        year = int(parts[2])
+        start = f"{year:04d}-01-01"
+        end = f"{year+1:04d}-01-01"
+        s = sums_for_range(scope, owner, start, end)
+
+        text = report_lines(f"📊 گزارش سال {year}", s)
+        await q.edit_message_text(text, reply_markup=report_year_kb(year))
+        return
+
+    if act == "m":
+        year = int(parts[2])
+        month = int(parts[3])
+
+        # date range
+        start = f"{year:04d}-{month:02d}-01"
+        if month == 12:
+            end = f"{year+1:04d}-01-01"
+        else:
+            end = f"{year:04d}-{month+1:02d}-01"
+
+        s = sums_for_range(scope, owner, start, end)
+        mname = dict((mnum, name) for name, mnum in MONTHS).get(month, f"{month:02d}")
+        text = report_lines(f"📊 گزارش {mname} {year}", s)
+        await q.edit_message_text(text, reply_markup=report_month_kb(year))
+        return
+
+    await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=main_menu())
+
+
+# =========================
 # Unknown callback
 # =========================
 async def unknown_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1558,10 +1793,25 @@ def build_app() -> Application:
 
     app.add_handler(CommandHandler("start", start))
 
-    app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st)$"))
+    app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st|report)$"))
 
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
+
+    # allow returning from admin panel back to access menu
+    async def ac_noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        q = update.callback_query
+        user = update.effective_user
+        if not access_allowed(user.id):
+            await deny(update)
+            return
+        await q.answer()
+        if is_primary_admin(user.id):
+            await q.edit_message_text(rtl("🔐 دسترسی ربات:"), reply_markup=access_menu(user.id))
+        else:
+            await q.edit_message_text(rtl(start_text()), reply_markup=main_menu())
+
+    app.add_handler(CallbackQueryHandler(ac_noop, pattern=r"^ac:noop$"))
 
     app.add_handler(CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:(panel|del:\d+|noop|add)$"))
     adm_conv = ConversationHandler(
@@ -1639,10 +1889,13 @@ def build_app() -> Application:
     )
     app.add_handler(edit_desc_conv)
 
+    # Reports
+    app.add_handler(CallbackQueryHandler(report_cb, pattern=r"^rp:(root|y:\d{4}|m:\d{4}:\d{2})$"))
+
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
-            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:).+",
+            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:).+",
         ),
         group=90,
     )
@@ -1658,4 +1911,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
