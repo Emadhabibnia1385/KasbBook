@@ -456,7 +456,6 @@ async def main_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     elif action == "st":
         await q.edit_message_text("⚙️ تنظیمات:", reply_markup=settings_menu(user.id))
     else:
-        # do nothing aggressive
         await q.edit_message_text("دستور ناشناخته.")
 
 
@@ -582,7 +581,7 @@ async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             conn.execute("DELETE FROM admins WHERE user_id=?", (uid,))
             conn.commit()
 
-        await q.edit_message_text("✅ حذف شد.", reply_markup=build_admin_panel_kb())
+        await q.edit_message_text("✅ حذف شد.\n\n👥 مدیریت ادمین‌ها:", reply_markup=build_admin_panel_kb())
         return ConversationHandler.END
 
     if act == "add":
@@ -645,8 +644,11 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         conn.commit()
 
-    # stay on admin panel (NO main menu)
-    await update.effective_chat.send_message("✅ اضافه شد.", reply_markup=build_admin_panel_kb())
+    # ✅ REQUIRED: keep title "👥 مدیریت ادمین‌ها:" after added
+    await update.effective_chat.send_message(
+        "✅ اضافه شد.\n\n👥 مدیریت ادمین‌ها:",
+        reply_markup=build_admin_panel_kb(),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -740,7 +742,7 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             conn.commit()
 
         grp = row["grp"]
-        await q.edit_message_text("✅ حذف شد.", reply_markup=build_cat_kb(scope, owner, grp))
+        await q.edit_message_text(f"✅ حذف شد.\n\n🧩 {grp_label(grp)}", reply_markup=build_cat_kb(scope, owner, grp))
         return ConversationHandler.END
 
     await q.edit_message_text("دستور ناشناخته.")
@@ -777,8 +779,11 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         except sqlite3.IntegrityError:
             pass
 
-    # stay on same category panel
-    await update.effective_chat.send_message("✅ اضافه شد.", reply_markup=build_cat_kb(scope, owner, grp))
+    # ✅ REQUIRED: keep group title after added
+    await update.effective_chat.send_message(
+        f"✅ اضافه شد.\n\n🧩 {grp_label(grp)}",
+        reply_markup=build_cat_kb(scope, owner, grp),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1090,7 +1095,6 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
         )
         conn.commit()
 
-    # stay inside tx menu (NO main menu)
     await update.effective_chat.send_message(
         "✅ تراکنش ثبت شد.\n"
         f"📅 {date_g_} ({g_to_j(date_g_)})\n"
@@ -1209,15 +1213,13 @@ async def rp_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     scope, owner = resolve_scope_owner(user.id)
     text = summary_text(scope, owner, g1, g2, "📆 گزارش بازه دلخواه")
-
-    # stay in reports menu (NO main menu)
     await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=rp_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # ---------------------------
-# UNKNOWN callback (does NOT show menus automatically)
+# UNKNOWN callback (no menus)
 # ---------------------------
 async def unknown_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -1225,7 +1227,6 @@ async def unknown_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not access_allowed(user.id):
         await deny(update)
         return
-    # فقط جواب بده، منو نفرست
     try:
         await q.answer("دکمه نامعتبر/قدیمی است.", show_alert=False)
     except Exception:
@@ -1239,17 +1240,13 @@ def build_app() -> Application:
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Only /start shows main menu automatically
     app.add_handler(CommandHandler("start", start))
 
-    # Main navigation
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|rp|st)$"))
 
-    # Settings
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
-    # Admin panel + conversation for adding admin
     app.add_handler(CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:(panel|del:\d+|noop)$"))
     adm_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:add$")],
@@ -1264,7 +1261,6 @@ def build_app() -> Application:
     )
     app.add_handler(adm_conv)
 
-    # Categories conversation
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
         states={CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_add_name)]},
@@ -1276,7 +1272,6 @@ def build_app() -> Application:
     app.add_handler(cat_conv)
     app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
 
-    # Transactions conversation
     tx_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(tx_cb, pattern=r"^tx:(add|list:(today|month))$")],
         states={
@@ -1299,7 +1294,6 @@ def build_app() -> Application:
     )
     app.add_handler(tx_conv)
 
-    # Reports conversation
     rp_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(rp_cb, pattern=r"^rp:(sum:(today|month)|range)$")],
         states={
@@ -1313,7 +1307,6 @@ def build_app() -> Application:
     )
     app.add_handler(rp_conv)
 
-    # Unknown callbacks ONLY (no menu)
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
@@ -1321,9 +1314,6 @@ def build_app() -> Application:
         ),
         group=90,
     )
-
-    # IMPORTANT:
-    # No unknown_text handler -> so no automatic "از /start..." menu ever.
 
     return app
 
