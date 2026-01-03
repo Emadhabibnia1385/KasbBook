@@ -4,6 +4,8 @@
 
 import os
 import re
+import io
+import shutil
 import sqlite3
 import logging
 from datetime import datetime, date
@@ -18,7 +20,10 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     ReplyKeyboardRemove,
+    BotCommand,
+    Document,
 )
+from telegram.constants import ChatType
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -52,7 +57,11 @@ CB_CT = "ct"    # categories
 CB_TX = "tx"    # transaction flow + menus
 CB_DL = "dl"    # daily list
 CB_DTX = "dtx"  # tx detail/edit
-CB_RP = "rp"    # reports (global/year/month)
+CB_RP = "rp"    # reports
+CB_DB = "db"    # database/backup
+
+# Job name
+JOB_BACKUP = "kasbbook_auto_backup"
 
 # =========================
 # ENV
@@ -145,10 +154,18 @@ def init_db() -> None:
             """
         )
 
-        if conn.execute("SELECT 1 FROM settings WHERE k='access_mode'").fetchone() is None:
-            conn.execute("INSERT INTO settings(k,v) VALUES('access_mode', ?)", (ACCESS_ADMIN_ONLY,))
-        if conn.execute("SELECT 1 FROM settings WHERE k='share_enabled'").fetchone() is None:
-            conn.execute("INSERT INTO settings(k,v) VALUES('share_enabled', '0')")
+        def _ensure_setting(key: str, default: str) -> None:
+            if conn.execute("SELECT 1 FROM settings WHERE k=?", (key,)).fetchone() is None:
+                conn.execute("INSERT INTO settings(k,v) VALUES(?,?)", (key, default))
+
+        _ensure_setting("access_mode", ACCESS_ADMIN_ONLY)
+        _ensure_setting("share_enabled", "0")
+
+        # Backup settings
+        _ensure_setting("backup_enabled", "0")                 # 0/1
+        _ensure_setting("backup_target_type", "chat")          # chat/channel
+        _ensure_setting("backup_target_id", str(ADMIN_CHAT_ID))  # default admin chat id
+        _ensure_setting("backup_interval_hours", "1")          # integer hours
 
         conn.commit()
 
@@ -300,7 +317,7 @@ def start_text() -> str:
         "• پس‌انداز و سود واقعی کارت رو تحلیل کنی\n\n"
         "برای شروع از منوی زیر استفاده کن 👇\n\n"
         "🚀 شروع ربات با دستور: /start\n"
-        "\n\n👨‍💻 Developer: @emadhabibnia"
+        "👨‍💻 Developer: @emadhabibnia"
     )
 
 
@@ -328,6 +345,7 @@ def settings_menu(user_id: int) -> InlineKeyboardMarkup:
     rows = [[("🧩 مدیریت دسته‌ها", f"{CB_ST}:cats")]]
     if is_primary_admin(user_id):
         rows.append([("🔐 دسترسی ربات", f"{CB_ST}:access")])
+        rows.append([("🗄 دیتابیس", f"{CB_ST}:db")])
     rows.append([("⬅️ بازگشت", f"{CB_M}:home")])
     return ikb(rows)
 
@@ -379,43 +397,6 @@ def ttype_label(ttype: str) -> str:
     }.get(ttype, ttype)
 
 
-def build_cat_kb(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
-    ensure_installment(scope, owner)
-    rows: List[List[InlineKeyboardButton]] = []
-
-    rows.append([InlineKeyboardButton("➕ افزودن دسته", callback_data=f"{CB_CT}:add:{grp}")])
-
-    cats = fetch_cats(scope, owner, grp)
-    for r in cats[:120]:
-        nm = r["name"]
-        locked = int(r["is_locked"]) == 1
-        is_install = (grp == "personal_out" and nm == INSTALLMENT_NAME and locked)
-
-        if is_install:
-            rows.append([InlineKeyboardButton(f"🔒 {nm}", callback_data=f"{CB_CT}:noop")])
-        else:
-            rows.append(
-                [
-                    InlineKeyboardButton(nm, callback_data=f"{CB_CT}:noop"),
-                    InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_CT}:del:{r['id']}"),
-                ]
-            )
-
-    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_ST}:cats")])
-    return InlineKeyboardMarkup(rows)
-
-
-def cat_pick_keyboard(scope: str, owner: int, grp: str, back_cb: str) -> InlineKeyboardMarkup:
-    ensure_installment(scope, owner)
-    cats = fetch_cats(scope, owner, grp)
-    rows: List[List[InlineKeyboardButton]] = []
-    for r in cats[:90]:
-        rows.append([InlineKeyboardButton(r["name"], callback_data=f"{CB_TX}:cat:{r['id']}")])
-    rows.append([InlineKeyboardButton("➕ افزودن دسته جدید", callback_data=f"{CB_TX}:cat_add")])
-    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=back_cb)])
-    return InlineKeyboardMarkup(rows)
-
-
 def fmt_num(n: int) -> str:
     return f"{int(n):,}"
 
@@ -446,11 +427,11 @@ async def deny(update: Update) -> None:
         except Exception:
             pass
         try:
-            await q.edit_message_text(text)
+            await q.edit_message_text(rtl(text))
         except Exception:
-            await update.effective_chat.send_message(text)
+            await update.effective_chat.send_message(rtl(text))
     else:
-        await update.effective_chat.send_message(text)
+        await update.effective_chat.send_message(rtl(text))
 
 
 # =========================
@@ -462,6 +443,24 @@ CAT_ADD_NAME = 0
 TX_DATE_MENU, TX_DATE_G, TX_DATE_J, TX_TTYPE, TX_CAT_PICK, TX_CAT_ADD_NAME, TX_AMOUNT, TX_DESC = range(8)
 DL_DATE_MENU, DL_DATE_G, DL_DATE_J = range(3)
 ED_AMOUNT, ED_DESC = range(2)
+
+# DB conversations
+DB_SET_TARGET_ID, DB_SET_INTERVAL, DB_RESTORE_WAIT_DOC = range(3)
+
+# =========================
+# Commands setup (NO BotFather needed)
+# =========================
+async def setup_commands(app: Application) -> None:
+    try:
+        await app.bot.set_my_commands(
+            [
+                BotCommand("start", "شروع ربات"),
+            ]
+        )
+        logger.info("Bot commands set successfully.")
+    except Exception as e:
+        logger.warning("Failed to set bot commands: %s", e)
+
 
 # =========================
 # /start
@@ -533,8 +532,11 @@ async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         await q.edit_message_text(rtl("🔐 دسترسی ربات:"), reply_markup=access_menu(user.id))
         return
-    if action == "back":
-        await q.edit_message_text(rtl(start_text()), reply_markup=main_menu())
+    if action == "db":
+        if not is_primary_admin(user.id):
+            await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
+            return
+        await q.edit_message_text(rtl(db_menu_text()), reply_markup=db_menu_kb())
         return
 
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=settings_menu(user.id))
@@ -765,6 +767,32 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+def build_cat_kb(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
+    ensure_installment(scope, owner)
+    rows: List[List[InlineKeyboardButton]] = []
+
+    rows.append([InlineKeyboardButton("➕ افزودن دسته", callback_data=f"{CB_CT}:add:{grp}")])
+
+    cats = fetch_cats(scope, owner, grp)
+    for r in cats[:120]:
+        nm = r["name"]
+        locked = int(r["is_locked"]) == 1
+        is_install = (grp == "personal_out" and nm == INSTALLMENT_NAME and locked)
+
+        if is_install:
+            rows.append([InlineKeyboardButton(f"🔒 {nm}", callback_data=f"{CB_CT}:noop")])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(nm, callback_data=f"{CB_CT}:noop"),
+                    InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_CT}:del:{r['id']}"),
+                ]
+            )
+
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_ST}:cats")])
+    return InlineKeyboardMarkup(rows)
+
+
 async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not access_allowed(user.id):
@@ -804,8 +832,19 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 # =========================
-# Transaction flow (FULL)
+# Transaction flow
 # =========================
+def cat_pick_keyboard(scope: str, owner: int, grp: str, back_cb: str) -> InlineKeyboardMarkup:
+    ensure_installment(scope, owner)
+    cats = fetch_cats(scope, owner, grp)
+    rows: List[List[InlineKeyboardButton]] = []
+    for r in cats[:90]:
+        rows.append([InlineKeyboardButton(r["name"], callback_data=f"{CB_TX}:cat:{r['id']}")])
+    rows.append([InlineKeyboardButton("➕ افزودن دسته جدید", callback_data=f"{CB_TX}:cat_add")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=back_cb)])
+    return InlineKeyboardMarkup(rows)
+
+
 def tx_date_menu_kb(back_cb: str) -> InlineKeyboardMarkup:
     g = today_g()
     j = g_to_j(g)
@@ -1121,7 +1160,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     origin = context.user_data.get("tx_origin")
     daily_g = context.user_data.get("tx_daily_gdate")
 
-    # If from daily list: refresh daily list only (no "transaction saved" box)
+    # If from daily list: refresh daily list only
     if origin == "daily" and isinstance(daily_g, str):
         await update.effective_chat.send_message(
             daily_list_text(scope, owner, daily_g),
@@ -1152,10 +1191,6 @@ def daily_pick_menu() -> InlineKeyboardMarkup:
 
 
 def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
-    """
-    returns:
-      work_in_sum, work_out_sum, personal_out_non_install_sum, installment_sum
-    """
     with db_conn() as conn:
         w_in = conn.execute(
             "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_in'",
@@ -1224,7 +1259,6 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
 
     a1, a2, a3 = _short_add_labels()
 
-    # 3 add buttons inline
     rows.append(
         [
             InlineKeyboardButton(a1, callback_data=f"{CB_DL}:add:{gdate}:work_in"),
@@ -1252,7 +1286,6 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
             rows.append([InlineKeyboardButton("خالی", callback_data=f"{CB_DL}:noop")])
             return
 
-        # Each row: two buttons (category + amount), both open details
         for t in txs:
             open_cb = f"{CB_DTX}:open:{gdate}:{t['id']}"
             cat_txt = (t["category"] or "")[:24]
@@ -1296,7 +1329,10 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if mode == "today":
             gdate = today_g()
             scope, owner = resolve_scope_owner(user.id)
-            await q.edit_message_text(daily_list_text(scope, owner, gdate), reply_markup=daily_rows_kb(scope, owner, gdate))
+            await q.edit_message_text(
+                daily_list_text(scope, owner, gdate),
+                reply_markup=daily_rows_kb(scope, owner, gdate),
+            )
             return ConversationHandler.END
 
         if mode == "g":
@@ -1310,7 +1346,10 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if act == "show":
         gdate = data[2]
         scope, owner = resolve_scope_owner(user.id)
-        await q.edit_message_text(daily_list_text(scope, owner, gdate), reply_markup=daily_rows_kb(scope, owner, gdate))
+        await q.edit_message_text(
+            daily_list_text(scope, owner, gdate),
+            reply_markup=daily_rows_kb(scope, owner, gdate),
+        )
         return ConversationHandler.END
 
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=tx_menu())
@@ -1329,7 +1368,10 @@ async def dl_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return DL_DATE_G
 
     scope, owner = resolve_scope_owner(user.id)
-    await update.effective_chat.send_message(daily_list_text(scope, owner, g), reply_markup=daily_rows_kb(scope, owner, g))
+    await update.effective_chat.send_message(
+        daily_list_text(scope, owner, g),
+        reply_markup=daily_rows_kb(scope, owner, g),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1347,13 +1389,16 @@ async def dl_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     scope, owner = resolve_scope_owner(user.id)
     await update.effective_chat.send_message(rtl(f"✅ تبدیل شد به میلادی: {g}"))
-    await update.effective_chat.send_message(daily_list_text(scope, owner, g), reply_markup=daily_rows_kb(scope, owner, g))
+    await update.effective_chat.send_message(
+        daily_list_text(scope, owner, g),
+        reply_markup=daily_rows_kb(scope, owner, g),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # =========================
-# TX detail/edit (from daily)
+# TX detail/edit
 # =========================
 def get_tx(scope: str, owner: int, tx_id: int) -> Optional[sqlite3.Row]:
     with db_conn() as conn:
@@ -1559,11 +1604,8 @@ MONTHS = [
     ("Oct", 10), ("Nov", 11), ("Dec", 12),
 ]
 
+
 def sums_for_range(scope: str, owner: int, start_g: str, end_g_exclusive: str) -> Dict[str, int]:
-    """
-    Computes sums in [start_g, end_g_exclusive).
-    Returns: income(work_in), work_out, personal_non_install, net, savings
-    """
     ensure_installment(scope, owner)
     with db_conn() as conn:
         w_in = conn.execute(
@@ -1664,7 +1706,6 @@ def years_with_data(scope: str, owner: int) -> List[int]:
 
 def report_root_kb(years: List[int]) -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
-    # years as inline rows (3 per row)
     buf: List[InlineKeyboardButton] = []
     for y in years:
         buf.append(InlineKeyboardButton(str(y), callback_data=f"{CB_RP}:y:{y}"))
@@ -1680,7 +1721,6 @@ def report_root_kb(years: List[int]) -> InlineKeyboardMarkup:
 
 def report_year_kb(year: int) -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
-    # 12 months grid
     i = 0
     while i < 12:
         row = []
@@ -1696,11 +1736,7 @@ def report_year_kb(year: int) -> InlineKeyboardMarkup:
 
 
 def report_month_kb(year: int) -> InlineKeyboardMarkup:
-    return ikb(
-        [
-            [("⬅️ بازگشت", f"{CB_RP}:y:{year}")],
-        ]
-    )
+    return ikb([[("⬅️ بازگشت", f"{CB_RP}:y:{year}")]])
 
 
 async def report_root(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool) -> None:
@@ -1753,7 +1789,6 @@ async def report_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         year = int(parts[2])
         month = int(parts[3])
 
-        # date range
         start = f"{year:04d}-{month:02d}-01"
         if month == 12:
             end = f"{year+1:04d}-01-01"
@@ -1767,6 +1802,417 @@ async def report_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=main_menu())
+
+
+# =========================
+# Database / Backup / Restore
+# =========================
+def db_menu_text() -> str:
+    enabled = get_setting("backup_enabled") == "1"
+    ttype = get_setting("backup_target_type")
+    tid = get_setting("backup_target_id")
+    try:
+        hours = int(get_setting("backup_interval_hours"))
+    except Exception:
+        hours = 1
+
+    dest = "آیدی" if ttype == "chat" else "کانال"
+    onoff = "روشن ✅" if enabled else "خاموش ❌"
+    return (
+        "🗄 دیتابیس\n\n"
+        f"🕒 بکاپ خودکار: {onoff}\n"
+        f"📍 مقصد بکاپ: {dest}\n"
+        f"🆔 مقصد فعلی: {tid}\n"
+        f"⏱ هر چند ساعت: {hours}\n"
+    )
+
+
+def db_menu_kb() -> InlineKeyboardMarkup:
+    enabled = get_setting("backup_enabled") == "1"
+    onoff = "روشن ✅" if enabled else "خاموش ❌"
+    return ikb(
+        [
+            [("📥 گرفتن بکاپ (الان)", f"{CB_DB}:backup_now")],
+            [("📤 وارد کردن بکاپ", f"{CB_DB}:restore")],
+            [(f"🕒 بکاپ خودکار: {onoff}", f"{CB_DB}:toggle")],
+            [("📍 مقصد بکاپ", f"{CB_DB}:target")],
+            [("⏱ هر چند ساعت", f"{CB_DB}:interval")],
+            [("⬅️ بازگشت", f"{CB_M}:home")],
+        ]
+    )
+
+
+def db_target_kb() -> InlineKeyboardMarkup:
+    return ikb(
+        [
+            [("👤 ارسال بکاپ به یک آیدی", f"{CB_DB}:target:chat")],
+            [("📣 ارسال بکاپ به کانال", f"{CB_DB}:target:channel")],
+            [("⬅️ بازگشت", f"{CB_ST}:db")],
+        ]
+    )
+
+
+def backup_filename() -> str:
+    ts = datetime.now(TZ).strftime("%Y-%m-%d_%H-%M-%S")
+    return f"kasbbook_backup_{ts}.db"
+
+
+def make_backup_bytes() -> bytes:
+    # Safe sqlite backup
+    src = sqlite3.connect(DB_PATH)
+    try:
+        dst = sqlite3.connect(":memory:")
+        try:
+            src.backup(dst)
+            dst.commit()
+            # dump memory db to bytes by saving to temp file-like via iterdump is slow
+            # Better: use backup to a temp file, then read bytes.
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+    # Use a temp file on disk for reliable bytes
+    tmp_path = f"/tmp/{backup_filename()}"
+    src2 = sqlite3.connect(DB_PATH)
+    try:
+        dst2 = sqlite3.connect(tmp_path)
+        try:
+            src2.backup(dst2)
+            dst2.commit()
+        finally:
+            dst2.close()
+    finally:
+        src2.close()
+
+    with open(tmp_path, "rb") as f:
+        data = f.read()
+    try:
+        os.remove(tmp_path)
+    except Exception:
+        pass
+    return data
+
+
+async def send_backup_file(context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Only used by job; reads settings
+    enabled = get_setting("backup_enabled") == "1"
+    if not enabled:
+        return
+
+    ttype = get_setting("backup_target_type")
+    tid = get_setting("backup_target_id")
+    try:
+        target_id = int(tid)
+    except Exception:
+        target_id = ADMIN_CHAT_ID
+
+    fname = backup_filename()
+    data = make_backup_bytes()
+
+    bio = io.BytesIO(data)
+    bio.name = fname
+
+    caption = rtl(f"🗄 بکاپ دیتابیس\n\n📦 {fname}")
+    try:
+        await context.bot.send_document(
+            chat_id=target_id,
+            document=bio,
+            filename=fname,
+            caption=caption,
+        )
+    except Exception as e:
+        logger.warning("Auto-backup send failed: %s", e)
+
+
+def schedule_backup_job(app: Application) -> None:
+    # remove old
+    try:
+        for j in app.job_queue.get_jobs_by_name(JOB_BACKUP):
+            j.schedule_removal()
+    except Exception:
+        pass
+
+    if get_setting("backup_enabled") != "1":
+        return
+
+    try:
+        hours = int(get_setting("backup_interval_hours"))
+        if hours <= 0:
+            hours = 1
+    except Exception:
+        hours = 1
+
+    # run first after interval (you can change to 60 sec if needed)
+    seconds = hours * 3600
+
+    app.job_queue.run_repeating(
+        callback=lambda ctx: send_backup_file(ctx),
+        interval=seconds,
+        first=seconds,
+        name=JOB_BACKUP,
+    )
+    logger.info("Auto-backup scheduled every %s hour(s).", hours)
+
+
+async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    if not is_primary_admin(user.id):
+        await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
+        return ConversationHandler.END
+
+    parts = (q.data or "").split(":")
+    act = parts[1] if len(parts) > 1 else ""
+
+    if act == "open":
+        await q.edit_message_text(rtl(db_menu_text()), reply_markup=db_menu_kb())
+        return ConversationHandler.END
+
+    if act == "backup_now":
+        fname = backup_filename()
+        data = make_backup_bytes()
+        bio = io.BytesIO(data)
+        bio.name = fname
+        await q.edit_message_text(rtl("در حال ارسال بکاپ..."), reply_markup=db_menu_kb())
+        await context.bot.send_document(
+            chat_id=user.id,
+            document=bio,
+            filename=fname,
+            caption=rtl(f"🗄 بکاپ دیتابیس\n\n📦 {fname}"),
+        )
+        await q.edit_message_text(rtl(db_menu_text()), reply_markup=db_menu_kb())
+        return ConversationHandler.END
+
+    if act == "restore":
+        context.user_data.clear()
+        await q.edit_message_text(
+            rtl(
+                "📤 وارد کردن بکاپ\n\n"
+                "لطفاً فایل بکاپ با فرمت .db را همینجا ارسال کنید.\n\n"
+                "⚠️ توجه: قبل از جایگزینی، از دیتابیس فعلی بکاپ اضطراری گرفته می‌شود."
+            )
+        )
+        return DB_RESTORE_WAIT_DOC
+
+    if act == "toggle":
+        cur = get_setting("backup_enabled")
+        set_setting("backup_enabled", "0" if cur == "1" else "1")
+        schedule_backup_job(context.application)
+        await q.edit_message_text(rtl(db_menu_text()), reply_markup=db_menu_kb())
+        return ConversationHandler.END
+
+    if act == "target":
+        await q.edit_message_text(
+            rtl(
+                "📍 مقصد بکاپ\n\n"
+                "یکی از گزینه‌ها را انتخاب کنید:\n"
+                "• ارسال به آیدی: یک چت خصوصی/گروه با آیدی عددی\n"
+                "• ارسال به کانال: آیدی عددی کانال (مثل -100...)\n\n"
+                "ℹ️ اگر کانال را انتخاب می‌کنید، حتماً ربات را در کانال Add کنید و اجازه ارسال بدهید."
+            ),
+            reply_markup=db_target_kb(),
+        )
+        return ConversationHandler.END
+
+    if act == "interval":
+        context.user_data.clear()
+        await q.edit_message_text(
+            rtl(
+                "⏱ فاصله بکاپ خودکار\n\n"
+                "عدد را به ساعت وارد کنید.\n"
+                "مثال: 1 یعنی هر 1 ساعت\n\n"
+                f"پیش‌فرض: {get_setting('backup_interval_hours')}"
+            )
+        )
+        return DB_SET_INTERVAL
+
+    if act == "target" and len(parts) >= 3:
+        # handled below by pattern
+        return ConversationHandler.END
+
+    # target choice handler
+    if act == "target" and len(parts) == 3:
+        return ConversationHandler.END
+
+    await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=db_menu_kb())
+    return ConversationHandler.END
+
+
+async def db_target_choice_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    if not is_primary_admin(user.id):
+        await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
+        return ConversationHandler.END
+
+    parts = (q.data or "").split(":")
+    # db:target:chat or db:target:channel
+    target_type = parts[2]
+
+    if target_type == "chat":
+        set_setting("backup_target_type", "chat")
+        default_id = get_setting("backup_target_id") or str(ADMIN_CHAT_ID)
+        await q.edit_message_text(
+            rtl(
+                "👤 ارسال بکاپ به آیدی\n\n"
+                f"آیدی عددی مقصد را وارد کنید.\n"
+                f"اگر چیزی وارد نکنید /skip بزنید → پیش‌فرض: {ADMIN_CHAT_ID}\n\n"
+                f"مقدار فعلی: {default_id}"
+            )
+        )
+        context.user_data.clear()
+        context.user_data["db_target_type"] = "chat"
+        return DB_SET_TARGET_ID
+
+    if target_type == "channel":
+        set_setting("backup_target_type", "channel")
+        default_id = get_setting("backup_target_id") or str(ADMIN_CHAT_ID)
+        await q.edit_message_text(
+            rtl(
+                "📣 ارسال بکاپ به کانال\n\n"
+                "آیدی عددی کانال را وارد کنید (مثل -1001234567890).\n\n"
+                "⚠️ حتماً ربات را در کانال Add کنید و اجازه ارسال پیام بدهید.\n\n"
+                f"مقدار فعلی: {default_id}"
+            )
+        )
+        context.user_data.clear()
+        context.user_data["db_target_type"] = "channel"
+        return DB_SET_TARGET_ID
+
+    await q.edit_message_text(rtl("گزینه نامعتبر."), reply_markup=db_menu_kb())
+    return ConversationHandler.END
+
+
+async def db_set_target_id_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    if not is_primary_admin(user.id):
+        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    t = (update.message.text or "").strip()
+    if not t:
+        # keep default
+        set_setting("backup_target_id", str(ADMIN_CHAT_ID))
+        await update.effective_chat.send_message(rtl("✅ مقصد روی آیدی پیش‌فرض ادمین اصلی تنظیم شد."))
+    else:
+        if not re.fullmatch(r"-?\d+", t):
+            await update.effective_chat.send_message(rtl("❌ فقط آیدی عددی وارد کنید (مثلاً 123 یا -100...)."))
+            return DB_SET_TARGET_ID
+        set_setting("backup_target_id", t)
+        await update.effective_chat.send_message(rtl("✅ مقصد بکاپ ثبت شد."))
+
+    schedule_backup_job(context.application)
+    await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def db_set_interval_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    if not is_primary_admin(user.id):
+        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    t = (update.message.text or "").strip()
+    if not re.fullmatch(r"\d+", t):
+        await update.effective_chat.send_message(rtl("❌ فقط عدد وارد کنید (ساعت):"))
+        return DB_SET_INTERVAL
+
+    hours = int(t)
+    if hours <= 0:
+        hours = 1
+
+    set_setting("backup_interval_hours", str(hours))
+    schedule_backup_job(context.application)
+    await update.effective_chat.send_message(rtl("✅ فاصله بکاپ خودکار ثبت شد."))
+    await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    if not is_primary_admin(user.id):
+        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        return ConversationHandler.END
+
+    msg = update.message
+    if not msg or not msg.document:
+        await update.effective_chat.send_message(rtl("❌ لطفاً یک فایل .db ارسال کنید."))
+        return DB_RESTORE_WAIT_DOC
+
+    doc: Document = msg.document
+    fname = (doc.file_name or "").lower()
+    if not fname.endswith(".db"):
+        await update.effective_chat.send_message(rtl("❌ فقط فایل با پسوند .db قابل قبول است."))
+        return DB_RESTORE_WAIT_DOC
+
+    # Download backup file to temp
+    file = await context.bot.get_file(doc.file_id)
+    tmp_in = f"/tmp/restore_{datetime.now(TZ).strftime('%Y%m%d_%H%M%S')}.db"
+    await file.download_to_drive(custom_path=tmp_in)
+
+    # Emergency backup current DB to /tmp and also send to admin
+    try:
+        emergency_name = f"kasbbook_emergency_{datetime.now(TZ).strftime('%Y-%m-%d_%H-%M-%S')}.db"
+        data = make_backup_bytes()
+        bio = io.BytesIO(data)
+        bio.name = emergency_name
+        await update.effective_chat.send_message(rtl("🧯 بکاپ اضطراری از دیتابیس فعلی گرفته شد."))
+        await context.bot.send_document(
+            chat_id=user.id,
+            document=bio,
+            filename=emergency_name,
+            caption=rtl(f"🧯 بکاپ اضطراری قبل از ریستور\n\n📦 {emergency_name}"),
+        )
+    except Exception as e:
+        logger.warning("Failed to send emergency backup: %s", e)
+
+    # Replace DB
+    try:
+        # stop auto backup job briefly
+        schedule_backup_job(context.application)  # will re-schedule after restore based on settings
+
+        shutil.move(tmp_in, DB_PATH)
+
+        # re-init tables/settings if needed
+        init_db()
+
+        await update.effective_chat.send_message(rtl("✅ بکاپ با موفقیت وارد شد."))
+    except Exception as e:
+        logger.exception("Restore failed: %s", e)
+        await update.effective_chat.send_message(rtl("❌ خطا در ریستور بکاپ."))
+        return ConversationHandler.END
+
+    # reschedule job
+    schedule_backup_job(context.application)
+
+    await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
+    return ConversationHandler.END
 
 
 # =========================
@@ -1791,11 +2237,18 @@ def build_app() -> Application:
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # schedule commands + auto backup after bot starts
+    async def _post_init(application: Application) -> None:
+        await setup_commands(application)
+        schedule_backup_job(application)
+
+    app.post_init = _post_init
+
     app.add_handler(CommandHandler("start", start))
 
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st|report)$"))
 
-    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
+    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|db)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
     # allow returning from admin panel back to access menu
@@ -1892,10 +2345,44 @@ def build_app() -> Application:
     # Reports
     app.add_handler(CallbackQueryHandler(report_cb, pattern=r"^rp:(root|y:\d{4}|m:\d{4}:\d{2})$"))
 
+    # Database menu callbacks
+    app.add_handler(CallbackQueryHandler(db_cb, pattern=r"^db:(open|backup_now|restore|toggle|target|interval)$"))
+    app.add_handler(CallbackQueryHandler(db_target_choice_cb, pattern=r"^db:target:(chat|channel)$"))
+
+    db_target_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(db_target_choice_cb, pattern=r"^db:target:(chat|channel)$")],
+        states={
+            DB_SET_TARGET_ID: [
+                CommandHandler("skip", db_set_target_id_input),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, db_set_target_id_input),
+            ],
+        },
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(db_target_conv)
+
+    db_interval_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(db_cb, pattern=r"^db:interval$")],
+        states={DB_SET_INTERVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, db_set_interval_input)]},
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(db_interval_conv)
+
+    db_restore_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(db_cb, pattern=r"^db:restore$")],
+        states={DB_RESTORE_WAIT_DOC: [MessageHandler(filters.Document.ALL, db_restore_wait_doc)]},
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(db_restore_conv)
+
+    # Unknown callbacks
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
-            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:).+",
+            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:|db:).+",
         ),
         group=90,
     )
