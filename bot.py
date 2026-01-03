@@ -1,5 +1,5 @@
 # bot.py
-# KasbBook - Finance Manager Telegram Bot (Inline-only, SQLite)
+# KasbBook - Inline-only Finance Manager Telegram Bot (SQLite)
 # Python 3.10+ | python-telegram-bot v20+ | sqlite3 | pytz | jdatetime | python-dotenv
 
 import os
@@ -40,24 +40,23 @@ ACCESS_ADMIN_ONLY = "admin_only"   # default
 ACCESS_PUBLIC = "public"
 
 INSTALLMENT_NAME = "قسط"
-RLM = "\u200f"     # RTL mark
-ZWSP = "\u200b"    # zero-width space (non-empty text)
+RLM = "\u200f"       # RTL mark
+ZWSP = "\u200b"      # non-empty invisible char
 
 # Callback prefixes (short)
 CB_M = "m"      # main
-CB_TX = "tx"    # transactions
 CB_ST = "st"    # settings
-CB_AC = "ac"    # access settings
+CB_AC = "ac"    # access
 CB_AD = "ad"    # admin manage
 CB_CT = "ct"    # categories
+CB_TX = "tx"    # transaction flow + menus
 CB_DL = "dl"    # daily list
-CB_DTX = "dtx"  # tx detail/edit (from daily list)
+CB_DTX = "dtx"  # tx detail/edit
 
 # =========================
 # ENV
 # =========================
 load_dotenv()
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID")
 ADMIN_USERNAME_RAW = os.getenv("ADMIN_USERNAME")
@@ -88,7 +87,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(PROJECT_NAME)
-
 
 # =========================
 # DB helpers
@@ -230,12 +228,6 @@ def access_allowed(user_id: int) -> bool:
 
 
 def resolve_scope_owner(user_id: int) -> Tuple[str, int]:
-    """
-    public: always private per user
-    admin_only:
-        share=1 => shared, owner=ADMIN_CHAT_ID (all admins write to main admin data)
-        share=0 => private per admin (like public, but only admins allowed)
-    """
     mode = get_setting("access_mode")
     if mode == ACCESS_PUBLIC:
         return ("private", user_id)
@@ -285,13 +277,13 @@ def fetch_cats(scope: str, owner: int, grp: str) -> List[sqlite3.Row]:
 
 
 # =========================
-# UI helpers (Inline-only)
+# UI helpers
 # =========================
 def rtl(text: str) -> str:
     return "\n".join([RLM + ln for ln in (text or "").splitlines()])
 
 
-def ikb(rows: List[List[Tuple[str, str]]]) -> InlineKeyboardMarkup:
+def ikb(rows: List[List[tuple]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(t, callback_data=cb) for (t, cb) in row] for row in rows]
     )
@@ -309,9 +301,7 @@ def main_menu() -> InlineKeyboardMarkup:
 def tx_menu() -> InlineKeyboardMarkup:
     return ikb(
         [
-            [("➕ اضافه کردن درآمد جدید", f"{CB_TX}:new:work_in")],
-            [("➕ اضافه کردن هزینه جدید", f"{CB_TX}:new:work_out")],
-            [("➕ اضافه کردن هزینه شخصی", f"{CB_TX}:new:personal_out")],
+            [("➕ اضافه کردن تراکنش جدید", f"{CB_TX}:new")],
             [("📄 لیست روزانه", f"{CB_DL}:pick")],
             [("⬅️ بازگشت", f"{CB_M}:home")],
         ]
@@ -336,7 +326,6 @@ def access_menu(user_id: int) -> InlineKeyboardMarkup:
         [(f"🌐 حالت همگانی {p}", f"{CB_AC}:mode:{ACCESS_PUBLIC}")],
     ]
 
-    # only in admin_only we show share + admin management
     if mode == ACCESS_ADMIN_ONLY and is_primary_admin(user_id):
         sh = get_setting("share_enabled")
         sh_txt = "روشن ✅" if sh == "1" else "خاموش ❌"
@@ -378,7 +367,6 @@ def build_cat_kb(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
     ensure_installment(scope, owner)
     rows: List[List[InlineKeyboardButton]] = []
 
-    # Add on top
     rows.append([InlineKeyboardButton("➕ افزودن دسته", callback_data=f"{CB_CT}:add:{grp}")])
 
     cats = fetch_cats(scope, owner, grp)
@@ -413,7 +401,7 @@ def cat_pick_keyboard(scope: str, owner: int, grp: str, back_cb: str) -> InlineK
 
 
 # =========================
-# Access denied message
+# Access denied
 # =========================
 def denied_text(user_id: int, username: Optional[str]) -> str:
     u = (username or "").strip()
@@ -448,19 +436,13 @@ async def deny(update: Update) -> None:
 # =========================
 # Conversation states
 # =========================
-# Add admin
 ADM_ADD_UID, ADM_ADD_NAME = range(2)
-
-# Categories add
 CAT_ADD_NAME = 0
 
-# Transaction add flow (date is auto: today or preselected)
-TX_CAT_PICK, TX_CAT_ADD_NAME, TX_AMOUNT, TX_DESC = range(4)
+TX_DATE_MENU, TX_DATE_G, TX_DATE_J, TX_TTYPE, TX_CAT_PICK, TX_CAT_ADD_NAME, TX_AMOUNT, TX_DESC = range(8)
 
-# Daily list date pick
 DL_DATE_MENU, DL_DATE_G, DL_DATE_J = range(3)
 
-# Edit tx
 ED_AMOUNT, ED_DESC = range(2)
 
 
@@ -468,7 +450,6 @@ ED_AMOUNT, ED_DESC = range(2)
 # /start
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # remove any reply keyboard (we never use it, but safe)
     try:
         await update.effective_chat.send_message(ZWSP, reply_markup=ReplyKeyboardRemove())
     except Exception:
@@ -486,7 +467,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # =========================
-# Main menu callbacks
+# Main callbacks
 # =========================
 async def main_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -557,7 +538,6 @@ async def access_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await q.edit_message_text(rtl("حالت نامعتبر."), reply_markup=access_menu(user.id))
             return
         set_setting("access_mode", mode)
-        # when switched to public, share_enabled still stays but not used (OK)
         await q.edit_message_text(rtl("✅ انجام شد."), reply_markup=access_menu(user.id))
         return
 
@@ -574,7 +554,7 @@ async def access_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # =========================
-# Admin management (panel list + delete, add via convo)
+# Admin management
 # =========================
 def build_admin_panel_kb() -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
@@ -800,9 +780,179 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 # =========================
-# Transactions (NEW) - date is fixed (today or selected)
+# Transaction flow (FULL)
 # =========================
-async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+def tx_date_menu_kb(back_cb: str) -> InlineKeyboardMarkup:
+    g = today_g()
+    j = g_to_j(g)
+    return ikb(
+        [
+            [(f"✅ امروز ({g} / {j})", f"{CB_TX}:date:today")],
+            [("🗓 تاریخ میلادی", f"{CB_TX}:date:g")],
+            [("🧿 تاریخ شمسی", f"{CB_TX}:date:j")],
+            [("⬅️ بازگشت", back_cb)],
+        ]
+    )
+
+
+def tx_ttype_kb(back_cb: str) -> InlineKeyboardMarkup:
+    return ikb(
+        [
+            [("💰 درآمد کاری", f"{CB_TX}:tt:work_in")],
+            [("🏢 هزینه کاری", f"{CB_TX}:tt:work_out")],
+            [("👤 هزینه شخصی", f"{CB_TX}:tt:personal_out")],
+            [("⬅️ بازگشت", back_cb)],
+        ]
+    )
+
+
+async def tx_entry_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    context.user_data.clear()
+    context.user_data["tx_origin"] = "menu"
+
+    await q.edit_message_text(
+        rtl("📅 تاریخ را انتخاب کنید:"),
+        reply_markup=tx_date_menu_kb(back_cb=f"{CB_M}:tx"),
+    )
+    return TX_DATE_MENU
+
+
+async def tx_entry_from_daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    gdate = parts[2]
+    ttype = parts[3]
+    if ttype not in ("work_in", "work_out", "personal_out"):
+        await q.edit_message_text(rtl("نوع نامعتبر."), reply_markup=tx_menu())
+        return ConversationHandler.END
+
+    context.user_data.clear()
+    context.user_data["tx_origin"] = "daily"
+    context.user_data["tx_date_g"] = gdate
+    context.user_data["tx_ttype"] = ttype
+    context.user_data["tx_daily_gdate"] = gdate
+
+    scope, owner = resolve_scope_owner(user.id)
+    await q.edit_message_text(
+        rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})\n🔖 نوع: {ttype_label(ttype)}"),
+        reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=f"{CB_DL}:show:{gdate}"),
+    )
+    return TX_CAT_PICK
+
+
+async def tx_date_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    mode = parts[2]
+
+    if mode == "today":
+        gdate = today_g()
+        context.user_data["tx_date_g"] = gdate
+        await q.edit_message_text(
+            rtl(f"🔖 نوع تراکنش را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})"),
+            reply_markup=tx_ttype_kb(back_cb=f"{CB_M}:tx"),
+        )
+        return TX_TTYPE
+
+    if mode == "g":
+        await q.edit_message_text(rtl("تاریخ میلادی را وارد کنید (YYYY-MM-DD):"))
+        return TX_DATE_G
+
+    if mode == "j":
+        await q.edit_message_text(rtl("تاریخ شمسی را وارد کنید (YYYY/MM/DD):"))
+        return TX_DATE_J
+
+    await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=tx_menu())
+    return ConversationHandler.END
+
+
+async def tx_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+
+    g = parse_gregorian(update.message.text or "")
+    if not g:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
+        return TX_DATE_G
+
+    context.user_data["tx_date_g"] = g
+    await update.effective_chat.send_message(
+        rtl(f"🔖 نوع تراکنش را انتخاب کنید:\n\n📅 تاریخ: {g} ({g_to_j(g)})"),
+        reply_markup=tx_ttype_kb(back_cb=f"{CB_M}:tx"),
+    )
+    return TX_TTYPE
+
+
+async def tx_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+
+    g = parse_jalali_to_g(update.message.text or "")
+    if not g:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
+        return TX_DATE_J
+
+    context.user_data["tx_date_g"] = g
+    await update.effective_chat.send_message(rtl(f"✅ تبدیل شد به میلادی: {g}"))
+    await update.effective_chat.send_message(
+        rtl(f"🔖 نوع تراکنش را انتخاب کنید:\n\n📅 تاریخ: {g} ({g_to_j(g)})"),
+        reply_markup=tx_ttype_kb(back_cb=f"{CB_M}:tx"),
+    )
+    return TX_TTYPE
+
+
+async def tx_ttype_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    ttype = parts[2]
+    if ttype not in ("work_in", "work_out", "personal_out"):
+        await q.edit_message_text(rtl("نوع نامعتبر."), reply_markup=tx_menu())
+        return ConversationHandler.END
+
+    gdate = context.user_data.get("tx_date_g")
+    if not gdate:
+        await q.edit_message_text(rtl("خطا: تاریخ مشخص نیست."), reply_markup=tx_menu())
+        return ConversationHandler.END
+
+    context.user_data["tx_ttype"] = ttype
+    scope, owner = resolve_scope_owner(user.id)
+    await q.edit_message_text(
+        rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})\n🔖 نوع: {ttype_label(ttype)}"),
+        reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=f"{CB_M}:tx"),
+    )
+    return TX_CAT_PICK
+
+
+async def tx_cat_pick_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     user = update.effective_user
     if not access_allowed(user.id):
@@ -813,71 +963,41 @@ async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     parts = (q.data or "").split(":")
     act = parts[1]
 
-    # open tx menu
-    if act == "menu":
-        await q.edit_message_text(rtl("📌 تراکنش‌ها:"), reply_markup=tx_menu())
-        return ConversationHandler.END
-
-    # start new tx with known ttype and known date (today by default)
-    if act == "new":
-        ttype = parts[2]
-        if ttype not in ("work_in", "work_out", "personal_out"):
-            await q.edit_message_text(rtl("دسته‌بندی نامعتبر."), reply_markup=tx_menu())
-            return ConversationHandler.END
-
-        context.user_data.clear()
-        context.user_data["tx_ttype"] = ttype
-        context.user_data["tx_date_g"] = today_g()  # fixed here
-        context.user_data["tx_back_cb"] = f"{CB_M}:tx"
-
-        scope, owner = resolve_scope_owner(user.id)
-        await q.edit_message_text(
-            rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {context.user_data['tx_date_g']} ({g_to_j(context.user_data['tx_date_g'])})"),
-            reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=f"{CB_M}:tx"),
-        )
-        return TX_CAT_PICK
-
-    # category picked
-    if act == "cat":
-        try:
-            cid = int(parts[2])
-        except Exception:
-            await q.edit_message_text(rtl("دسته نامعتبر."), reply_markup=tx_menu())
-            context.user_data.clear()
-            return ConversationHandler.END
-
-        ttype = context.user_data.get("tx_ttype")
-        gdate = context.user_data.get("tx_date_g")
-        if ttype not in ("work_in", "work_out", "personal_out") or not gdate:
-            await q.edit_message_text(rtl("خطا: اطلاعات ناقص."), reply_markup=tx_menu())
-            context.user_data.clear()
-            return ConversationHandler.END
-
-        scope, owner = resolve_scope_owner(user.id)
-        with db_conn() as conn:
-            row = conn.execute(
-                "SELECT name FROM categories WHERE id=? AND scope=? AND owner_user_id=? AND grp=?",
-                (cid, scope, owner, ttype),
-            ).fetchone()
-        if not row:
-            await q.edit_message_text(rtl("دسته پیدا نشد. دوباره انتخاب کنید."))
-            return TX_CAT_PICK
-
-        context.user_data["tx_category"] = row["name"]
-        await q.edit_message_text(rtl("💵 مبلغ را وارد کنید (عدد صحیح):"))
-        return TX_AMOUNT
-
     if act == "cat_add":
         await q.edit_message_text(rtl("نام دسته جدید را وارد کنید:"))
         return TX_CAT_ADD_NAME
 
-    if act == "cancel":
-        context.user_data.clear()
-        await q.edit_message_text(rtl("لغو شد."), reply_markup=tx_menu())
+    if act != "cat":
+        await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=tx_menu())
         return ConversationHandler.END
 
-    await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=tx_menu())
-    return ConversationHandler.END
+    try:
+        cid = int(parts[2])
+    except Exception:
+        await q.edit_message_text(rtl("دسته نامعتبر."), reply_markup=tx_menu())
+        return ConversationHandler.END
+
+    ttype = context.user_data.get("tx_ttype")
+    gdate = context.user_data.get("tx_date_g")
+    if ttype not in ("work_in", "work_out", "personal_out") or not gdate:
+        await q.edit_message_text(rtl("خطا: اطلاعات ناقص."), reply_markup=tx_menu())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM categories WHERE id=? AND scope=? AND owner_user_id=? AND grp=?",
+            (cid, scope, owner, ttype),
+        ).fetchone()
+
+    if not row:
+        await q.edit_message_text(rtl("دسته پیدا نشد. دوباره انتخاب کنید."))
+        return TX_CAT_PICK
+
+    context.user_data["tx_category"] = row["name"]
+    await q.edit_message_text(rtl("💵 مبلغ را وارد کنید (عدد صحیح):"))
+    return TX_AMOUNT
 
 
 async def tx_cat_add_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -974,23 +1094,31 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
         )
         conn.commit()
 
+    origin = context.user_data.get("tx_origin")
+    daily_g = context.user_data.get("tx_daily_gdate")
+
     lines = [
         "✅ تراکنش ثبت شد.",
         "",
         f"📅 تاریخ (میلادی): {date_g_}",
         f"📅 تاریخ (شمسی): {g_to_j(date_g_)}",
-        f"🔖 دسته‌بندی: {ttype_label(ttype)}",
+        f"🔖 نوع: {ttype_label(ttype)}",
         f"🏷 دسته: {category}",
         f"💵 مبلغ: {amount}",
         f"📝 توضیح: {desc or '-'}",
     ]
-    await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=tx_menu())
+
+    if origin == "daily" and isinstance(daily_g, str):
+        await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=daily_rows_kb(scope, owner, daily_g))
+    else:
+        await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=tx_menu())
+
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # =========================
-# Daily list (pick date -> show 3 sections + clickable rows)
+# Daily list
 # =========================
 def daily_pick_menu() -> InlineKeyboardMarkup:
     g = today_g()
@@ -1007,71 +1135,39 @@ def daily_pick_menu() -> InlineKeyboardMarkup:
 
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
-
-    def fetch(ttype: str) -> List[sqlite3.Row]:
-        with db_conn() as conn:
-            return list(
-                conn.execute(
-                    """
-                    SELECT id, category, amount
-                    FROM transactions
-                    WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype=?
-                    ORDER BY id DESC
-                    LIMIT 80
-                    """,
-                    (scope, owner, gdate, ttype),
-                ).fetchall()
-            )
-
-    income = fetch("work_in")
-    work_exp = fetch("work_out")
-    pers_exp = fetch("personal_out")
-
     lines: List[str] = []
-    lines += ["📄 لیست روزانه", f"📅 تاریخ: {gdate} ({g_to_j(gdate)})", ""]
-
-    # درآمدها
-    lines += ["لیست درامد ها", "نوع درامد\t\tمبلغ"]
-    if not income:
-        lines += ["خالی    بنویسه درصورتی که  هیچ هزینه ای نبود"]
-    else:
-        for r in income:
-            lines.append(f"{r['category']}\t\t{int(r['amount'])}")
-    lines += [""]
-
-    # هزینه‌ها
-    lines += ["لیست هزینه ها", "نوع هزینه\t\tمبلغ"]
-    if not work_exp:
-        lines += ["خالی    بنویسه درصورتی که  هیچ هزینه ای نبود"]
-    else:
-        for r in work_exp:
-            lines.append(f"{r['category']}\t\t{int(r['amount'])}")
-    lines += [""]
-
-    # هزینه‌های شخصی
-    lines += ["لیست هزینه های شخصی", "نوع هزینه شخصی\t\tمبلغ"]
-    if not pers_exp:
-        lines += ["خالی    بنویسه درصورتی که  هیچ هزینه ای نبود"]
-    else:
-        for r in pers_exp:
-            lines.append(f"{r['category']}\t\t{int(r['amount'])}")
-
+    lines += ["📄 لیست روزانه", f"📅 تاریخ: {gdate} ({g_to_j(gdate)})"]
     return rtl("\n".join(lines))
+
+
+def _short_add_labels() -> Tuple[str, str, str]:
+    # کوتاه و کنار هم
+    return ("درآمد جدید", "هزینه جدید", "شخصی جدید")
+
+
+def _section_title(ttype: str) -> str:
+    return {
+        "work_in": "— لیست درآمد ها —",
+        "work_out": "— لیست هزینه ها —",
+        "personal_out": "— لیست هزینه های شخصی —",
+    }[ttype]
 
 
 def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
     rows: List[List[InlineKeyboardButton]] = []
 
-    # top 3 add buttons (for this date)
-    rows.append([
-        InlineKeyboardButton("➕ اضافه کردن درامد جدید", callback_data=f"{CB_DL}:add:{gdate}:work_in"),
-        InlineKeyboardButton("➕ اضافه کردن هزینه جدید", callback_data=f"{CB_DL}:add:{gdate}:work_out"),
-    ])
-    rows.append([
-        InlineKeyboardButton("➕ اضافه کردن هزینه شخصی", callback_data=f"{CB_DL}:add:{gdate}:personal_out"),
-    ])
+    a1, a2, a3 = _short_add_labels()
 
-    def add_section(ttype: str, title: str):
+    # ✅ سه گزینه کنار هم
+    rows.append(
+        [
+            InlineKeyboardButton(a1, callback_data=f"{CB_DL}:add:{gdate}:work_in"),
+            InlineKeyboardButton(a2, callback_data=f"{CB_DL}:add:{gdate}:work_out"),
+            InlineKeyboardButton(a3, callback_data=f"{CB_DL}:add:{gdate}:personal_out"),
+        ]
+    )
+
+    def add_section(ttype: str):
         with db_conn() as conn:
             txs = conn.execute(
                 """
@@ -1084,19 +1180,27 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
                 (scope, owner, gdate, ttype),
             ).fetchall()
 
-        rows.append([InlineKeyboardButton(f"— {title} —", callback_data=f"{CB_DL}:noop")])
+        rows.append([InlineKeyboardButton(_section_title(ttype), callback_data=f"{CB_DL}:noop")])
 
         if not txs:
             rows.append([InlineKeyboardButton("خالی", callback_data=f"{CB_DL}:noop")])
             return
 
+        # ✅ هر ردیف: دو دکمه جدا (نوع/دسته) و (مبلغ)
         for t in txs:
-            txt = f"{t['category']} | {int(t['amount'])}"
-            rows.append([InlineKeyboardButton(txt, callback_data=f"{CB_DTX}:open:{gdate}:{t['id']}")])
+            open_cb = f"{CB_DTX}:open:{gdate}:{t['id']}"
+            cat_txt = (t["category"] or "")[:24]  # کوتاه‌سازی اگر طولانی شد
+            amt_txt = str(int(t["amount"]))
+            rows.append(
+                [
+                    InlineKeyboardButton(cat_txt, callback_data=open_cb),
+                    InlineKeyboardButton(amt_txt, callback_data=open_cb),
+                ]
+            )
 
-    add_section("work_in", "لیست درامد ها")
-    add_section("work_out", "لیست هزینه ها")
-    add_section("personal_out", "لیست هزینه های شخصی")
+    add_section("work_in")
+    add_section("work_out")
+    add_section("personal_out")
 
     rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_M}:tx")])
     return InlineKeyboardMarkup(rows)
@@ -1138,24 +1242,8 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return DL_DATE_J
 
     if act == "add":
-        # dl:add:<gdate>:<ttype> -> start tx flow with preselected date
-        gdate = data[2]
-        ttype = data[3]
-        if ttype not in ("work_in", "work_out", "personal_out"):
-            await q.edit_message_text(rtl("دسته‌بندی نامعتبر."), reply_markup=tx_menu())
-            return ConversationHandler.END
-
-        context.user_data.clear()
-        context.user_data["tx_ttype"] = ttype
-        context.user_data["tx_date_g"] = gdate
-        context.user_data["tx_back_cb"] = f"{CB_DL}:show:{gdate}"
-
-        scope, owner = resolve_scope_owner(user.id)
-        await q.edit_message_text(
-            rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})"),
-            reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=f"{CB_DL}:show:{gdate}"),
-        )
-        return TX_CAT_PICK
+        # handled by tx_entry_from_daily ConversationHandler entrypoint
+        return ConversationHandler.END
 
     if act == "show":
         gdate = data[2]
@@ -1196,17 +1284,14 @@ async def dl_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return DL_DATE_J
 
     scope, owner = resolve_scope_owner(user.id)
-    await update.effective_chat.send_message(
-        rtl(f"✅ تبدیل شد به میلادی: {g}\n"),
-        reply_markup=None,
-    )
+    await update.effective_chat.send_message(rtl(f"✅ تبدیل شد به میلادی: {g}"))
     await update.effective_chat.send_message(daily_list_text(scope, owner, g), reply_markup=daily_rows_kb(scope, owner, g))
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # =========================
-# TX Details from daily list: show description + edit buttons
+# TX detail/edit (from daily)
 # =========================
 def get_tx(scope: str, owner: int, tx_id: int) -> Optional[sqlite3.Row]:
     with db_conn() as conn:
@@ -1253,7 +1338,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "",
             f"📅 تاریخ (میلادی): {tx['date_g']}",
             f"📅 تاریخ (شمسی): {g_to_j(tx['date_g'])}",
-            f"🔖 دسته‌بندی: {ttype_label(tx['ttype'])}",
+            f"🔖 نوع: {ttype_label(tx['ttype'])}",
             f"🏷 دسته: {tx['category']}",
             f"💵 مبلغ: {int(tx['amount'])}",
             f"📝 توضیح: {(tx['description'] or '-').strip()}",
@@ -1266,7 +1351,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             conn.execute("DELETE FROM transactions WHERE id=? AND scope=? AND owner_user_id=?", (tx_id, scope, owner))
             conn.commit()
         await q.edit_message_text(
-            rtl("✅ حذف شد.\n\n") + daily_list_text(scope, owner, gdate),
+            daily_list_text(scope, owner, gdate),
             reply_markup=daily_rows_kb(scope, owner, gdate),
         )
         return ConversationHandler.END
@@ -1315,7 +1400,6 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
             conn.commit()
 
-        # return to tx detail
         tx2 = get_tx(scope, owner, tx_id)
         lines = [
             "✅ ویرایش شد.",
@@ -1324,7 +1408,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "",
             f"📅 تاریخ (میلادی): {tx2['date_g']}",
             f"📅 تاریخ (شمسی): {g_to_j(tx2['date_g'])}",
-            f"🔖 دسته‌بندی: {ttype_label(tx2['ttype'])}",
+            f"🔖 نوع: {ttype_label(tx2['ttype'])}",
             f"🏷 دسته: {tx2['category']}",
             f"💵 مبلغ: {int(tx2['amount'])}",
             f"📝 توضیح: {(tx2['description'] or '-').strip()}",
@@ -1371,7 +1455,7 @@ async def edit_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "",
         f"📅 تاریخ (میلادی): {tx['date_g']}",
         f"📅 تاریخ (شمسی): {g_to_j(tx['date_g'])}",
-        f"🔖 دسته‌بندی: {ttype_label(tx['ttype'])}",
+        f"🔖 نوع: {ttype_label(tx['ttype'])}",
         f"🏷 دسته: {tx['category']}",
         f"💵 مبلغ: {int(tx['amount'])}",
         f"📝 توضیح: {(tx['description'] or '-').strip()}",
@@ -1414,7 +1498,7 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "",
         f"📅 تاریخ (میلادی): {tx['date_g']}",
         f"📅 تاریخ (شمسی): {g_to_j(tx['date_g'])}",
-        f"🔖 دسته‌بندی: {ttype_label(tx['ttype'])}",
+        f"🔖 نوع: {ttype_label(tx['ttype'])}",
         f"🏷 دسته: {tx['category']}",
         f"💵 مبلغ: {int(tx['amount'])}",
         f"📝 توضیح: {(tx['description'] or '-').strip()}",
@@ -1424,7 +1508,7 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # =========================
-# Unknown callbacks
+# Unknown callback
 # =========================
 async def unknown_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -1445,50 +1529,13 @@ def build_app() -> Application:
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # start
+    # /start
     app.add_handler(CommandHandler("start", start))
 
     # main
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st)$"))
 
-    # transactions menu show (when entering from main)
-    async def open_tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        q = update.callback_query
-        user = update.effective_user
-        if not access_allowed(user.id):
-            await deny(update)
-            return
-        await q.answer()
-        await q.edit_message_text(rtl("📌 تراکنش‌ها:"), reply_markup=tx_menu())
-
-    # We map m:tx -> open_tx by main_cb already, but keep no extra
-
-    # tx add flow (all callback actions)
-    app.add_handler(CallbackQueryHandler(tx_cb, pattern=r"^tx:(new:(work_in|work_out|personal_out)|cat:\d+|cat_add|cancel|menu)$"))
-
-    # tx conversation (text inputs)
-    tx_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(tx_cb, pattern=r"^tx:new:(work_in|work_out|personal_out)$"),
-            CallbackQueryHandler(daily_cb, pattern=r"^dl:add:\d{4}-\d{2}-\d{2}:(work_in|work_out|personal_out)$"),
-        ],
-        states={
-            TX_CAT_PICK: [CallbackQueryHandler(tx_cb, pattern=r"^tx:(cat:\d+|cat_add|cancel)$")],
-            TX_CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_cat_add_name_input)],
-            TX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_amount_input)],
-            TX_DESC: [
-                CommandHandler("skip", tx_desc_skip),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start)],
-        allow_reentry=True,
-        name="tx_conv",
-        persistent=False,
-    )
-    app.add_handler(tx_conv)
-
-    # settings
+    # settings + access
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
@@ -1502,24 +1549,20 @@ def build_app() -> Application:
         },
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
-        name="adm_conv",
-        persistent=False,
     )
     app.add_handler(adm_conv)
 
     # categories
+    app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
         states={CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_add_name)]},
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
-        name="cat_conv",
-        persistent=False,
     )
     app.add_handler(cat_conv)
-    app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
 
-    # daily list pick + date input convo
+    # daily list
     dl_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(daily_cb, pattern=r"^dl:pick$")],
         states={
@@ -1529,26 +1572,44 @@ def build_app() -> Application:
         },
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
-        name="dl_conv",
-        persistent=False,
     )
     app.add_handler(dl_conv)
 
-    # daily list other callbacks
-    app.add_handler(CallbackQueryHandler(daily_cb, pattern=r"^dl:(d:(today|g|j)|show:\d{4}-\d{2}-\d{2}|noop|add:\d{4}-\d{2}-\d{2}:(work_in|work_out|personal_out))$"))
+    app.add_handler(CallbackQueryHandler(daily_cb, pattern=r"^dl:(d:(today|g|j)|show:\d{4}-\d{2}-\d{2}|noop)$"))
 
-    # tx detail/edit callbacks
+    # tx create conversation (menu + daily)
+    tx_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(tx_entry_from_menu, pattern=r"^tx:new$"),
+            CallbackQueryHandler(tx_entry_from_daily, pattern=r"^dl:add:\d{4}-\d{2}-\d{2}:(work_in|work_out|personal_out)$"),
+        ],
+        states={
+            TX_DATE_MENU: [CallbackQueryHandler(tx_date_menu_cb, pattern=r"^tx:date:(today|g|j)$")],
+            TX_DATE_G: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_g_input)],
+            TX_DATE_J: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_j_input)],
+            TX_TTYPE: [CallbackQueryHandler(tx_ttype_cb, pattern=r"^tx:tt:(work_in|work_out|personal_out)$")],
+            TX_CAT_PICK: [CallbackQueryHandler(tx_cat_pick_cb, pattern=r"^tx:(cat:\d+|cat_add)$")],
+            TX_CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_cat_add_name_input)],
+            TX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_amount_input)],
+            TX_DESC: [
+                CommandHandler("skip", tx_desc_skip),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input),
+            ],
+        },
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(tx_conv)
+
+    # tx detail/edit
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:(open|del|amt|desc|cat):\d{4}-\d{2}-\d{2}:\d+$"))
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:setcat:\d{4}-\d{2}-\d{2}:\d+:\d+$"))
 
-    # edit amount / desc convos
     edit_amt_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(dtx_cb, pattern=r"^dtx:amt:\d{4}-\d{2}-\d{2}:\d+$")],
         states={ED_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_amount_input)]},
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
-        name="edit_amt_conv",
-        persistent=False,
     )
     app.add_handler(edit_amt_conv)
 
@@ -1557,16 +1618,14 @@ def build_app() -> Application:
         states={ED_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_desc_input)]},
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
-        name="edit_desc_conv",
-        persistent=False,
     )
     app.add_handler(edit_desc_conv)
 
-    # unknown callbacks
+    # Unknown callback
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
-            pattern=r"^(?!m:|tx:|st:|ac:|ad:|ct:|dl:|dtx:).+",
+            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:).+",
         ),
         group=90,
     )
