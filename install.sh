@@ -20,7 +20,7 @@ header() {
   echo -e "${C}║${N}                                                                        ${C}║${N}"
   echo -e "${C}║${N}              ${B}📊 KasbBook - Finance Manager Telegram Bot${N}                ${C}║${N}"
   echo -e "${C}║${N}                                                                        ${C}║${N}"
-  echo -e "${C}║${N}                 ${B}Developer:${N} t.me/EmadHabibnia1385                       ${C}║${N}"
+  echo -e "${C}║${N}                 ${B}Developer:${N} t.me/EmadHabibnia                           ${C}║${N}"
   echo -e "${C}║${N}                 ${B}Channel:${N}  t.me/KasbBook                                ${C}║${N}"
   echo -e "${C}║${N}                                                                        ${C}║${N}"
   echo -e "${C}╚════════════════════════════════════════════════════════════════════════╝${N}"
