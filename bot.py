@@ -1097,22 +1097,17 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     origin = context.user_data.get("tx_origin")
     daily_g = context.user_data.get("tx_daily_gdate")
 
-    lines = [
-        "✅ تراکنش ثبت شد.",
-        "",
-        f"📅 تاریخ (میلادی): {date_g_}",
-        f"📅 تاریخ (شمسی): {g_to_j(date_g_)}",
-        f"🔖 نوع: {ttype_label(ttype)}",
-        f"🏷 دسته: {category}",
-        f"💵 مبلغ: {amount}",
-        f"📝 توضیح: {desc or '-'}",
-    ]
-
+    # ✅ اگر از لیست روزانه آمده: فقط همان لیست روزانه با گزارش بالای صفحه را رفرش کن (بدون متن تراکنش ثبت شد)
     if origin == "daily" and isinstance(daily_g, str):
-        await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=daily_rows_kb(scope, owner, daily_g))
-    else:
-        await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=tx_menu())
+        await update.effective_chat.send_message(
+            daily_list_text(scope, owner, daily_g),
+            reply_markup=daily_rows_kb(scope, owner, daily_g),
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
 
+    # در حالت منوی تراکنش‌ها: کوتاه
+    await update.effective_chat.send_message(rtl("✅ ثبت شد."), reply_markup=tx_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1133,15 +1128,63 @@ def daily_pick_menu() -> InlineKeyboardMarkup:
     )
 
 
+def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
+    """
+    returns:
+      work_in_sum, work_out_sum, personal_out_non_install_sum, installment_sum
+    """
+    with db_conn() as conn:
+        w_in = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_in'",
+            (scope, owner, gdate),
+        ).fetchone()["s"]
+        w_out = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_out'",
+            (scope, owner, gdate),
+        ).fetchone()["s"]
+
+        inst = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) AS s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='personal_out' AND category=?
+            """,
+            (scope, owner, gdate, INSTALLMENT_NAME),
+        ).fetchone()["s"]
+
+        p_non = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) AS s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='personal_out' AND category<>?
+            """,
+            (scope, owner, gdate, INSTALLMENT_NAME),
+        ).fetchone()["s"]
+
+    return int(w_in), int(w_out), int(p_non), int(inst)
+
+
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
+
+    w_in, w_out, p_non_install, inst = _day_sums(scope, owner, gdate)
+    net = w_in - w_out
+    savings = net - p_non_install
+
     lines: List[str] = []
-    lines += ["📄 لیست روزانه", f"📅 تاریخ: {gdate} ({g_to_j(gdate)})"]
+    lines.append(f"📅 تاریخ: {gdate} ({g_to_j(gdate)})")
+    lines.append("")
+    lines.append("گزارش")
+    lines.append(f"درامد آن روز: {w_in}")
+    lines.append(f"هزینه کاری آن روز: {w_out}")
+    lines.append(f"درامد خالص آن روز = درامد - هزینه کاری: {net}")
+    lines.append(f"هزینه شخصی (بدون قسط): {p_non_install}")
+    lines.append(f"پس انداز = درامد خالص - هزینه شخصی: {savings}")
+
     return rtl("\n".join(lines))
 
 
 def _short_add_labels() -> Tuple[str, str, str]:
-    # کوتاه و کنار هم
     return ("درآمد جدید", "هزینه جدید", "شخصی جدید")
 
 
@@ -1158,7 +1201,7 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
 
     a1, a2, a3 = _short_add_labels()
 
-    # ✅ سه گزینه کنار هم
+    # سه گزینه کنار هم
     rows.append(
         [
             InlineKeyboardButton(a1, callback_data=f"{CB_DL}:add:{gdate}:work_in"),
@@ -1186,10 +1229,10 @@ def daily_rows_kb(scope: str, owner: int, gdate: str) -> InlineKeyboardMarkup:
             rows.append([InlineKeyboardButton("خالی", callback_data=f"{CB_DL}:noop")])
             return
 
-        # ✅ هر ردیف: دو دکمه جدا (نوع/دسته) و (مبلغ)
+        # هر ردیف: دو دکمه جدا (دسته/نوع) و (مبلغ)
         for t in txs:
             open_cb = f"{CB_DTX}:open:{gdate}:{t['id']}"
-            cat_txt = (t["category"] or "")[:24]  # کوتاه‌سازی اگر طولانی شد
+            cat_txt = (t["category"] or "")[:24]
             amt_txt = str(int(t["amount"]))
             rows.append(
                 [
@@ -1241,16 +1284,13 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await q.edit_message_text(rtl("تاریخ شمسی را وارد کنید (YYYY/MM/DD):"))
             return DL_DATE_J
 
-    if act == "add":
-        # handled by tx_entry_from_daily ConversationHandler entrypoint
-        return ConversationHandler.END
-
     if act == "show":
         gdate = data[2]
         scope, owner = resolve_scope_owner(user.id)
         await q.edit_message_text(daily_list_text(scope, owner, gdate), reply_markup=daily_rows_kb(scope, owner, gdate))
         return ConversationHandler.END
 
+    # add handled by tx conversation entry
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=tx_menu())
     return ConversationHandler.END
 
@@ -1400,6 +1440,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
             conn.commit()
 
+        # بازگشت به جزئیات
         tx2 = get_tx(scope, owner, tx_id)
         lines = [
             "✅ ویرایش شد.",
@@ -1447,20 +1488,10 @@ async def edit_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         conn.commit()
 
     context.user_data.clear()
-    tx = get_tx(scope, owner, tx_id)
-    lines = [
-        "✅ ویرایش شد.",
-        "",
-        "🧾 جزئیات تراکنش",
-        "",
-        f"📅 تاریخ (میلادی): {tx['date_g']}",
-        f"📅 تاریخ (شمسی): {g_to_j(tx['date_g'])}",
-        f"🔖 نوع: {ttype_label(tx['ttype'])}",
-        f"🏷 دسته: {tx['category']}",
-        f"💵 مبلغ: {int(tx['amount'])}",
-        f"📝 توضیح: {(tx['description'] or '-').strip()}",
-    ]
-    await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=tx_view_kb(gdate, tx_id))
+    await update.effective_chat.send_message(
+        daily_list_text(scope, owner, gdate),
+        reply_markup=daily_rows_kb(scope, owner, gdate),
+    )
     return ConversationHandler.END
 
 
@@ -1490,20 +1521,10 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         conn.commit()
 
     context.user_data.clear()
-    tx = get_tx(scope, owner, tx_id)
-    lines = [
-        "✅ ویرایش شد.",
-        "",
-        "🧾 جزئیات تراکنش",
-        "",
-        f"📅 تاریخ (میلادی): {tx['date_g']}",
-        f"📅 تاریخ (شمسی): {g_to_j(tx['date_g'])}",
-        f"🔖 نوع: {ttype_label(tx['ttype'])}",
-        f"🏷 دسته: {tx['category']}",
-        f"💵 مبلغ: {int(tx['amount'])}",
-        f"📝 توضیح: {(tx['description'] or '-').strip()}",
-    ]
-    await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=tx_view_kb(gdate, tx_id))
+    await update.effective_chat.send_message(
+        daily_list_text(scope, owner, gdate),
+        reply_markup=daily_rows_kb(scope, owner, gdate),
+    )
     return ConversationHandler.END
 
 
@@ -1529,17 +1550,13 @@ def build_app() -> Application:
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # /start
     app.add_handler(CommandHandler("start", start))
 
-    # main
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st)$"))
 
-    # settings + access
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
-    # admin management
     app.add_handler(CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:(panel|del:\d+|noop|add)$"))
     adm_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:add$")],
@@ -1552,7 +1569,6 @@ def build_app() -> Application:
     )
     app.add_handler(adm_conv)
 
-    # categories
     app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
@@ -1562,7 +1578,6 @@ def build_app() -> Application:
     )
     app.add_handler(cat_conv)
 
-    # daily list
     dl_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(daily_cb, pattern=r"^dl:pick$")],
         states={
@@ -1574,10 +1589,8 @@ def build_app() -> Application:
         allow_reentry=True,
     )
     app.add_handler(dl_conv)
-
     app.add_handler(CallbackQueryHandler(daily_cb, pattern=r"^dl:(d:(today|g|j)|show:\d{4}-\d{2}-\d{2}|noop)$"))
 
-    # tx create conversation (menu + daily)
     tx_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(tx_entry_from_menu, pattern=r"^tx:new$"),
@@ -1601,7 +1614,6 @@ def build_app() -> Application:
     )
     app.add_handler(tx_conv)
 
-    # tx detail/edit
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:(open|del|amt|desc|cat):\d{4}-\d{2}-\d{2}:\d+$"))
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:setcat:\d{4}-\d{2}-\d{2}:\d+:\d+$"))
 
@@ -1621,7 +1633,6 @@ def build_app() -> Application:
     )
     app.add_handler(edit_desc_conv)
 
-    # Unknown callback
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
