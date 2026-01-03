@@ -1,4 +1,3 @@
-````html
 <div align="center">
 <img src="./KasbBook_LOGO.png" alt="KasbBook Logo" width="260"/>
 
