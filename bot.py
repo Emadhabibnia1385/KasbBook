@@ -1913,13 +1913,11 @@ async def send_backup_file(context: ContextTypes.DEFAULT_TYPE) -> None:
     bio = io.BytesIO(data)
     bio.name = fname
 
-    caption = rtl(f"🗄 بکاپ دیتابیس\n\n📦 {fname}")
     try:
         await context.bot.send_document(
             chat_id=target_id,
             document=bio,
             filename=fname,
-            caption=caption,
         )
     except Exception as e:
         logger.warning("Auto-backup send failed: %s", e)
@@ -1985,7 +1983,6 @@ async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             chat_id=user.id,
             document=bio,
             filename=fname,
-            caption=rtl(f"🗄 بکاپ دیتابیس\n\n📦 {fname}"),
         )
         await q.edit_message_text(rtl(db_menu_text()), reply_markup=db_menu_kb())
         return ConversationHandler.END
@@ -2187,7 +2184,6 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_id=user.id,
             document=bio,
             filename=emergency_name,
-            caption=rtl(f"🧯 بکاپ اضطراری قبل از ریستور\n\n📦 {emergency_name}"),
         )
     except Exception as e:
         logger.warning("Failed to send emergency backup: %s", e)
@@ -2398,3 +2394,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
