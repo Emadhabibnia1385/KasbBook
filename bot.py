@@ -1,5 +1,5 @@
 # bot.py
-# KasbBook Telegram Finance Bot (Inline-only, stable)
+# KasbBook - Inline-only stable bot
 # Python 3.10+ | python-telegram-bot v20+ | sqlite3 | pytz | jdatetime | python-dotenv
 
 import os
@@ -55,7 +55,6 @@ CB_CT = "ct"    # categories
 # ENV
 # ---------------------------
 load_dotenv()
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID")
 ADMIN_USERNAME_RAW = os.getenv("ADMIN_USERNAME")
@@ -239,12 +238,6 @@ def access_allowed(user_id: int) -> bool:
 
 
 def resolve_scope_owner(user_id: int) -> Tuple[str, int]:
-    """
-    public: always private per user
-    admin_only:
-        share=1 => shared, owner=ADMIN_CHAT_ID
-        share=0 => private per admin
-    """
     mode = get_setting("access_mode")
     if mode == ACCESS_PUBLIC:
         return ("private", user_id)
@@ -300,7 +293,7 @@ def tx_menu() -> InlineKeyboardMarkup:
         [
             [("➕ ثبت تراکنش", f"{CB_TX}:add")],
             [("📄 لیست امروز", f"{CB_TX}:list:today"), ("📄 لیست این ماه (میلادی)", f"{CB_TX}:list:month")],
-            [("⬅️ منوی اصلی", f"{CB_M}:home")],
+            [("⬅️ بازگشت", f"{CB_M}:home")],
         ]
     )
 
@@ -310,7 +303,7 @@ def rp_menu() -> InlineKeyboardMarkup:
         [
             [("📅 خلاصه امروز", f"{CB_RP}:sum:today"), ("🗓 خلاصه این ماه (میلادی)", f"{CB_RP}:sum:month")],
             [("📆 بازه دلخواه", f"{CB_RP}:range")],
-            [("⬅️ منوی اصلی", f"{CB_M}:home")],
+            [("⬅️ بازگشت", f"{CB_M}:home")],
         ]
     )
 
@@ -319,7 +312,7 @@ def settings_menu(user_id: int) -> InlineKeyboardMarkup:
     rows = [[("🧩 مدیریت نوع‌ها", f"{CB_ST}:cats")]]
     if is_primary_admin(user_id):
         rows.append([("🔐 دسترسی ربات", f"{CB_ST}:access")])
-    rows.append([("⬅️ منوی اصلی", f"{CB_M}:home")])
+    rows.append([("⬅️ بازگشت", f"{CB_M}:home")])
     return ikb(rows)
 
 
@@ -332,12 +325,11 @@ def access_menu(user_id: int) -> InlineKeyboardMarkup:
         [(f"👑 حالت ادمین {a}", f"{CB_AC}:mode:{ACCESS_ADMIN_ONLY}")],
         [(f"🌐 حالت همگانی {p}", f"{CB_AC}:mode:{ACCESS_PUBLIC}")],
     ]
-    # share فقط در حالت ادمین و فقط برای ادمین اصلی
     if mode == ACCESS_ADMIN_ONLY and is_primary_admin(user_id):
         sh = get_setting("share_enabled")
         sh_txt = "روشن ✅" if sh == "1" else "خاموش ❌"
-        rows.append([(f"🔁 اشتراک اطلاعات بین ادمین‌ها: {sh_txt}", f"{CB_AC}:share")])
-        rows.append([("👥 مدیریت ادمین‌ها", f"{CB_AD}:menu")])
+        rows.append([(f"🔁 اشتراک اطلاعات: {sh_txt}", f"{CB_AC}:share")])
+        rows.append([("👥 مدیریت ادمین‌ها", f"{CB_AD}:panel")])
 
     rows.append([("⬅️ بازگشت", f"{CB_ST}:back")])
     return ikb(rows)
@@ -349,7 +341,7 @@ def cats_root_menu() -> InlineKeyboardMarkup:
             [("💰 درآمد کاری", f"{CB_CT}:grp:work_in")],
             [("🏢 هزینه کاری", f"{CB_CT}:grp:work_out")],
             [("👤 هزینه شخصی", f"{CB_CT}:grp:personal_out")],
-            [("⬅️ منوی اصلی", f"{CB_M}:home")],
+            [("⬅️ بازگشت", f"{CB_ST}:back")],
         ]
     )
 
@@ -386,7 +378,6 @@ def denied_text(user_id: int, username: Optional[str]) -> str:
 
 
 async def deny(update: Update) -> None:
-    # remove old reply keyboard without empty text error
     try:
         await update.effective_chat.send_message("\u200b", reply_markup=ReplyKeyboardRemove())
     except Exception:
@@ -433,7 +424,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.effective_chat.send_message(
-        f"سلام! به {PROJECT_NAME} خوش آمدید.\n\nاز منوی زیر انتخاب کنید:",
+        f"🏠 {PROJECT_NAME}\n\nیک گزینه انتخاب کنید:",
         reply_markup=main_menu(),
     )
 
@@ -511,7 +502,7 @@ async def access_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await q.edit_message_text("حالت نامعتبر.", reply_markup=access_menu(user.id))
             return
         set_setting("access_mode", mode)
-        await q.edit_message_text("✅ تنظیم شد.\n\n🔐 دسترسی ربات:", reply_markup=access_menu(user.id))
+        await q.edit_message_text("✅ انجام شد.", reply_markup=access_menu(user.id))
         return
 
     if act == "share":
@@ -520,46 +511,37 @@ async def access_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         cur = get_setting("share_enabled")
         set_setting("share_enabled", "0" if cur == "1" else "1")
-        await q.edit_message_text("✅ تنظیم شد.\n\n🔐 دسترسی ربات:", reply_markup=access_menu(user.id))
+        await q.edit_message_text("✅ انجام شد.", reply_markup=access_menu(user.id))
         return
 
     await q.edit_message_text("دستور ناشناخته.", reply_markup=access_menu(user.id))
 
 
 # ---------------------------
-# ADMIN MANAGEMENT (primary admin only, only in admin_only)
+# ADMIN MANAGEMENT (panel table style)
 # ---------------------------
-def admins_menu() -> InlineKeyboardMarkup:
-    return ikb(
-        [
-            [("➕ اضافه کردن ادمین", f"{CB_AD}:add")],
-            [("📋 لیست ادمین‌ها + حذف", f"{CB_AD}:list")],
-            [("⬅️ بازگشت", f"{CB_ST}:access")],
-        ]
-    )
+def build_admin_panel_kb() -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+    rows.append([InlineKeyboardButton("➕ اضافه کردن ادمین", callback_data=f"{CB_AD}:add")])
 
-
-def build_admins_list() -> Tuple[str, InlineKeyboardMarkup]:
     with db_conn() as conn:
-        rows = conn.execute(
-            "SELECT user_id, name, added_at FROM admins ORDER BY added_at DESC"
-        ).fetchall()
+        admins = conn.execute("SELECT user_id, name FROM admins ORDER BY added_at DESC").fetchall()
 
-    lines = ["📋 <b>لیست ادمین‌ها</b>\n"]
-    kb: List[List[InlineKeyboardButton]] = []
+    # each row: [name] [delete]
+    for r in admins[:60]:
+        nm = (r["name"] or "").strip() or str(r["user_id"])
+        rows.append(
+            [
+                InlineKeyboardButton(nm, callback_data=f"{CB_AD}:noop"),
+                InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_AD}:del:{r['user_id']}"),
+            ]
+        )
 
-    if not rows:
-        lines.append("— (خالی)")
-    else:
-        for r in rows[:60]:
-            lines.append(f"• {r['name']} — <code>{r['user_id']}</code> — {r['added_at']}")
-            kb.append([InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_AD}:del:{r['user_id']}")])
-
-    kb.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_AD}:menu")])
-    return "\n".join(lines), InlineKeyboardMarkup(kb)
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_ST}:access")])
+    return InlineKeyboardMarkup(rows)
 
 
-async def admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     user = update.effective_user
 
@@ -579,26 +561,22 @@ async def admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     parts = (q.data or "").split(":")
     act = parts[1]
 
-    if act == "menu":
-        await q.edit_message_text("👥 مدیریت ادمین‌ها:", reply_markup=admins_menu())
-        return ConversationHandler.END
-
-    if act == "list":
-        text, markup = build_admins_list()
-        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    if act in ("panel", "noop"):
+        await q.edit_message_text("👥 مدیریت ادمین‌ها:", reply_markup=build_admin_panel_kb())
         return ConversationHandler.END
 
     if act == "del":
         try:
             uid = int(parts[2])
         except Exception:
-            await q.edit_message_text("آیدی نامعتبر.", reply_markup=admins_menu())
+            await q.edit_message_text("آیدی نامعتبر.", reply_markup=build_admin_panel_kb())
             return ConversationHandler.END
+
         with db_conn() as conn:
             conn.execute("DELETE FROM admins WHERE user_id=?", (uid,))
             conn.commit()
-        text, markup = build_admins_list()
-        await q.edit_message_text("✅ حذف شد.\n\n" + text, parse_mode=ParseMode.HTML, reply_markup=markup)
+
+        await q.edit_message_text("✅ حذف شد.", reply_markup=build_admin_panel_kb())
         return ConversationHandler.END
 
     if act == "add":
@@ -606,7 +584,7 @@ async def admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await q.edit_message_text("🆔 user_id عددی ادمین جدید را وارد کنید:")
         return ADM_ADD_UID
 
-    await q.edit_message_text("دستور ناشناخته.", reply_markup=admins_menu())
+    await q.edit_message_text("دستور ناشناخته.", reply_markup=build_admin_panel_kb())
     return ConversationHandler.END
 
 
@@ -628,7 +606,7 @@ async def adm_add_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ADM_ADD_UID
 
     context.user_data["new_admin_uid"] = uid
-    await update.effective_chat.send_message("👤 نام ادمین را وارد کنید:")
+    await update.effective_chat.send_message("👤 نام/یوزرنیم ادمین را وارد کنید (مثلاً @ali یا Ali):")
     return ADM_ADD_NAME
 
 
@@ -655,19 +633,20 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             """
             INSERT INTO admins(user_id, name, added_at)
             VALUES(?,?,?)
-            ON CONFLICT(user_id) DO UPDATE SET name=excluded.name
+            ON CONFLICT(user_id) DO UPDATE SET name=excluded.name, added_at=excluded.added_at
             """,
             (uid, name, now_ts()),
         )
         conn.commit()
 
-    await update.effective_chat.send_message("✅ ادمین اضافه شد.")
+    # IMPORTANT: do NOT jump to start/main menu
+    await update.effective_chat.send_message("✅ اضافه شد.", reply_markup=build_admin_panel_kb())
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # ---------------------------
-# CATEGORIES (inline list + delete, add needs typing name)
+# CATEGORIES (NO TEXT LIST; only buttons)
 # ---------------------------
 def fetch_cats(scope: str, owner: int, grp: str) -> List[sqlite3.Row]:
     with db_conn() as conn:
@@ -684,31 +663,29 @@ def fetch_cats(scope: str, owner: int, grp: str) -> List[sqlite3.Row]:
         )
 
 
-def build_cat_list(scope: str, owner: int, grp: str) -> Tuple[str, InlineKeyboardMarkup]:
+def build_cat_kb(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
     ensure_installment(scope, owner)
+    rows: List[List[InlineKeyboardButton]] = []
 
-    rows = fetch_cats(scope, owner, grp)
-    lines = [f"🧩 <b>{grp_label(grp)}</b>\n"]
-    kb: List[List[InlineKeyboardButton]] = []
+    cats = fetch_cats(scope, owner, grp)
+    for r in cats[:80]:
+        nm = r["name"]
+        locked = int(r["is_locked"]) == 1
+        is_install = (grp == "personal_out" and nm == INSTALLMENT_NAME and locked)
 
-    if not rows:
-        lines.append("— (خالی)")
-    else:
-        for r in rows[:80]:
-            name = r["name"]
-            locked = int(r["is_locked"]) == 1
-            is_installment = (grp == "personal_out" and name == INSTALLMENT_NAME and locked)
+        if is_install:
+            rows.append([InlineKeyboardButton(f"🔒 {nm}", callback_data=f"{CB_CT}:noop")])
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(nm, callback_data=f"{CB_CT}:noop"),
+                    InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_CT}:del:{r['id']}"),
+                ]
+            )
 
-            lines.append(f"• {'🔒 ' if locked else ''}{name}")
-
-            btns = [InlineKeyboardButton(name, callback_data=f"{CB_CT}:noop")]
-            if not is_installment:
-                btns.append(InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_CT}:del:{r['id']}"))
-            kb.append(btns)
-
-    kb.append([InlineKeyboardButton("➕ افزودن", callback_data=f"{CB_CT}:add:{grp}")])
-    kb.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_ST}:cats")])
-    return "\n".join(lines), InlineKeyboardMarkup(kb)
+    rows.append([InlineKeyboardButton("➕ افزودن", callback_data=f"{CB_CT}:add:{grp}")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_ST}:cats")])
+    return InlineKeyboardMarkup(rows)
 
 
 async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -720,7 +697,6 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await q.answer()
 
     scope, owner = resolve_scope_owner(user.id)
-
     parts = (q.data or "").split(":")
     act = parts[1]
 
@@ -731,8 +707,7 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         grp = parts[2]
         context.user_data.clear()
         context.user_data["cat_grp"] = grp
-        text, markup = build_cat_list(scope, owner, grp)
-        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        await q.edit_message_text(f"🧩 {grp_label(grp)}", reply_markup=build_cat_kb(scope, owner, grp))
         return ConversationHandler.END
 
     if act == "add":
@@ -759,8 +734,7 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             conn.commit()
 
         grp = row["grp"]
-        text, markup = build_cat_list(scope, owner, grp)
-        await q.edit_message_text("✅ حذف شد.\n\n" + text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        await q.edit_message_text("✅ حذف شد.", reply_markup=build_cat_kb(scope, owner, grp))
         return ConversationHandler.END
 
     await q.edit_message_text("دستور ناشناخته.")
@@ -797,8 +771,8 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         except sqlite3.IntegrityError:
             pass
 
-    text, markup = build_cat_list(scope, owner, grp)
-    await update.effective_chat.send_message("✅ اضافه شد.\n\n" + text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    # IMPORTANT: no main menu, no text list
+    await update.effective_chat.send_message("✅ اضافه شد.", reply_markup=build_cat_kb(scope, owner, grp))
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -809,14 +783,12 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 def cat_pick_keyboard(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
     ensure_installment(scope, owner)
     cats = fetch_cats(scope, owner, grp)
-    kb: List[List[InlineKeyboardButton]] = []
-
-    for r in cats[:40]:
-        kb.append([InlineKeyboardButton(r["name"], callback_data=f"{CB_TX}:cat:{r['id']}")])
-
-    kb.append([InlineKeyboardButton("➕ افزودن نوع جدید", callback_data=f"{CB_TX}:cat_add")])
-    kb.append([InlineKeyboardButton("⬅️ لغو", callback_data=f"{CB_TX}:cancel")])
-    return InlineKeyboardMarkup(kb)
+    rows: List[List[InlineKeyboardButton]] = []
+    for r in cats[:60]:
+        rows.append([InlineKeyboardButton(r["name"], callback_data=f"{CB_TX}:cat:{r['id']}")])
+    rows.append([InlineKeyboardButton("➕ افزودن نوع جدید", callback_data=f"{CB_TX}:cat_add")])
+    rows.append([InlineKeyboardButton("⬅️ لغو", callback_data=f"{CB_TX}:cancel")])
+    return InlineKeyboardMarkup(rows)
 
 
 async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -844,7 +816,7 @@ async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     [("💰 درآمد کاری", f"{CB_TX}:tt:work_in")],
                     [("🏢 هزینه کاری", f"{CB_TX}:tt:work_out")],
                     [("👤 هزینه شخصی", f"{CB_TX}:tt:personal_out")],
-                    [("⬅️ لغو", f"{CB_TX}:cancel")],
+                    [("⬅️ بازگشت", f"{CB_M}:tx")],
                 ]
             ),
         )
@@ -892,7 +864,6 @@ async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if act == "tt":
         ttype = parts[2]
         context.user_data["tx_ttype"] = ttype
-
         tg = today_g()
         tj = g_to_j(tg)
         await q.edit_message_text(
@@ -918,12 +889,7 @@ async def tx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             context.user_data["tx_date_g"] = today_g()
             scope, owner = resolve_scope_owner(user.id)
             ttype = context.user_data.get("tx_ttype")
-
-            await q.edit_message_text("✅ تاریخ ثبت شد. حالا دسته را انتخاب کنید:")
-            await update.effective_chat.send_message(
-                f"🏷 دسته ({ttype_label(ttype)}) را انتخاب کنید:",
-                reply_markup=cat_pick_keyboard(scope, owner, ttype),
-            )
+            await q.edit_message_text("🏷 دسته را انتخاب کنید:", reply_markup=cat_pick_keyboard(scope, owner, ttype))
             return TX_CAT_PICK
 
         if mode == "g":
@@ -956,11 +922,7 @@ async def tx_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     scope, owner = resolve_scope_owner(user.id)
     ttype = context.user_data.get("tx_ttype")
 
-    await update.effective_chat.send_message("✅ تاریخ ثبت شد. حالا دسته را انتخاب کنید:")
-    await update.effective_chat.send_message(
-        f"🏷 دسته ({ttype_label(ttype)}) را انتخاب کنید:",
-        reply_markup=cat_pick_keyboard(scope, owner, ttype),
-    )
+    await update.effective_chat.send_message("🏷 دسته را انتخاب کنید:", reply_markup=cat_pick_keyboard(scope, owner, ttype))
     return TX_CAT_PICK
 
 
@@ -979,11 +941,8 @@ async def tx_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     scope, owner = resolve_scope_owner(user.id)
     ttype = context.user_data.get("tx_ttype")
 
-    await update.effective_chat.send_message(f"✅ تبدیل شد به میلادی: {g}\nحالا دسته را انتخاب کنید:")
-    await update.effective_chat.send_message(
-        f"🏷 دسته ({ttype_label(ttype)}) را انتخاب کنید:",
-        reply_markup=cat_pick_keyboard(scope, owner, ttype),
-    )
+    await update.effective_chat.send_message(f"✅ تبدیل شد به میلادی: {g}\n\n🏷 دسته را انتخاب کنید:",
+                                            reply_markup=cat_pick_keyboard(scope, owner, ttype))
     return TX_CAT_PICK
 
 
@@ -1097,11 +1056,11 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
         return ConversationHandler.END
 
     ttype = context.user_data.get("tx_ttype")
-    date_g = context.user_data.get("tx_date_g")
+    date_g_ = context.user_data.get("tx_date_g")
     category = context.user_data.get("tx_category")
     amount = context.user_data.get("tx_amount")
 
-    if ttype not in ("work_in", "work_out", "personal_out") or not date_g or not category or amount is None:
+    if ttype not in ("work_in", "work_out", "personal_out") or not date_g_ or not category or amount is None:
         await update.effective_chat.send_message("خطا: اطلاعات ناقص است.")
         context.user_data.clear()
         return ConversationHandler.END
@@ -1119,21 +1078,19 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
                 created_at, updated_at
             ) VALUES(?,?,?,?,?,?,?,?,?,?)
             """,
-            (scope, owner, user.id, date_g, ttype, category, int(amount), desc, ts, ts),
+            (scope, owner, user.id, date_g_, ttype, category, int(amount), desc, ts, ts),
         )
         conn.commit()
 
-    text = (
-        "✅ تراکنش ثبت شد.\n\n"
-        f"📅 تاریخ (میلادی): {date_g}\n"
-        f"📅 تاریخ (شمسی): {g_to_j(date_g)}\n"
-        f"🔖 نوع: {ttype_label(ttype)}\n"
-        f"🏷 دسته: {category}\n"
-        f"💵 مبلغ: {amount}\n"
-        f"📝 توضیح: {desc or '-'}"
+    # IMPORTANT: do NOT force main menu
+    await update.effective_chat.send_message(
+        "✅ تراکنش ثبت شد.\n"
+        f"📅 {date_g_} ({g_to_j(date_g_)})\n"
+        f"🏷 {category}\n"
+        f"💵 {amount}\n"
+        f"📝 {desc or '-'}",
+        reply_markup=tx_menu(),
     )
-
-    await update.effective_chat.send_message(text, reply_markup=main_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1161,11 +1118,10 @@ def summary_text(scope: str, owner: int, start_g: str, end_g: str, title: str) -
 
     return (
         f"<b>{title}</b>\n"
-        f"📅 بازه (میلادی): <b>{start_g}</b> تا <b>{end_g}</b>\n"
-        f"📅 بازه (شمسی): {g_to_j(start_g)} تا {g_to_j(end_g)}\n\n"
-        f"💰 درآمد کاری: <b>{w_in}</b>\n"
+        f"📅 بازه: <b>{start_g}</b> تا <b>{end_g}</b>\n"
+        f"💰 درآمد: <b>{w_in}</b>\n"
         f"🏢 هزینه کاری: <b>{w_out}</b>\n"
-        f"👤 هزینه شخصی: <b>{p_out}</b>\n\n"
+        f"👤 هزینه شخصی: <b>{p_out}</b>\n"
         f"📌 تراز: <b>{net}</b>"
     )
 
@@ -1199,8 +1155,7 @@ async def rp_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await q.edit_message_text(
             "تاریخ شروع را وارد کنید:\n"
             "✅ میلادی: YYYY-MM-DD\n"
-            "✅ شمسی: YYYY/MM/DD\n\n"
-            "🔸 شمسی تبدیل می‌شود و محاسبات بر اساس ماه میلادی است."
+            "✅ شمسی: YYYY/MM/DD"
         )
         return RP_START
 
@@ -1246,13 +1201,13 @@ async def rp_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     scope, owner = resolve_scope_owner(user.id)
     text = summary_text(scope, owner, g1, g2, "📆 گزارش بازه دلخواه")
-    await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=main_menu())
+    await update.effective_chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=rp_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
 
 # ---------------------------
-# UNKNOWN handlers (FIXED: do NOT catch valid callbacks)
+# UNKNOWN handlers (do not break valid callbacks)
 # ---------------------------
 async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -1270,9 +1225,9 @@ async def unknown_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     await q.answer()
     try:
-        await q.edit_message_text("🏠 منوی اصلی:", reply_markup=main_menu())
+        await q.edit_message_text("دکمه نامعتبر/قدیمی است.", reply_markup=main_menu())
     except Exception:
-        await update.effective_chat.send_message("🏠 منوی اصلی:", reply_markup=main_menu())
+        await update.effective_chat.send_message("دکمه نامعتبر/قدیمی است.", reply_markup=main_menu())
 
 
 # ---------------------------
@@ -1282,19 +1237,17 @@ def build_app() -> Application:
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # /start
     app.add_handler(CommandHandler("start", start))
 
-    # main nav
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|rp|st)$"))
 
-    # settings
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|back)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
-    # admin management conversation
+    # Admin panel + conversation for adding admin
+    app.add_handler(CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:(panel|del:\d+|noop)$"))
     adm_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_cb, pattern=r"^ad:add$")],
+        entry_points=[CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:add$")],
         states={
             ADM_ADD_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_uid)],
             ADM_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_name)],
@@ -1305,9 +1258,8 @@ def build_app() -> Application:
         persistent=False,
     )
     app.add_handler(adm_conv)
-    app.add_handler(CallbackQueryHandler(admin_cb, pattern=r"^ad:(menu|list|del:\d+)$"))
 
-    # categories add conversation
+    # Categories conversation
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
         states={CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_add_name)]},
@@ -1319,7 +1271,7 @@ def build_app() -> Application:
     app.add_handler(cat_conv)
     app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
 
-    # transactions conversation
+    # Transactions conversation
     tx_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(tx_cb, pattern=r"^tx:(add|list:(today|month))$")],
         states={
@@ -1330,10 +1282,7 @@ def build_app() -> Application:
             TX_CAT_PICK: [CallbackQueryHandler(tx_cat_pick_cb, pattern=r"^tx:(cat:\d+|cat_add|cancel)$")],
             TX_CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_cat_add_name_input)],
             TX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_amount_input)],
-            TX_DESC: [
-                CommandHandler("skip", tx_desc_skip),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input),
-            ],
+            TX_DESC: [CommandHandler("skip", tx_desc_skip), MessageHandler(filters.TEXT & ~filters.COMMAND, tx_desc_input)],
         },
         fallbacks=[CommandHandler("start", start)],
         allow_reentry=True,
@@ -1342,7 +1291,7 @@ def build_app() -> Application:
     )
     app.add_handler(tx_conv)
 
-    # reports conversation
+    # Reports conversation
     rp_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(rp_cb, pattern=r"^rp:(sum:(today|month)|range)$")],
         states={
@@ -1355,9 +1304,9 @@ def build_app() -> Application:
         persistent=False,
     )
     app.add_handler(rp_conv)
+    app.add_handler(CallbackQueryHandler(rp_cb, pattern=r"^rp:(sum:(today|month)|range)$"))
 
-    # UNKNOWN CALLBACKS (FIXED PATTERN)
-    # only callbacks NOT starting with known prefixes will be caught here
+    # Unknown callbacks ONLY
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
@@ -1366,9 +1315,7 @@ def build_app() -> Application:
         group=90,
     )
 
-    # unknown text (not commands)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text), group=99)
-
     return app
 
 
