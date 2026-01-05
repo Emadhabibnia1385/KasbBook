@@ -23,7 +23,6 @@ from telegram import (
     BotCommand,
     Document,
 )
-from telegram.constants import ChatType
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -162,10 +161,10 @@ def init_db() -> None:
         _ensure_setting("share_enabled", "0")
 
         # Backup settings
-        _ensure_setting("backup_enabled", "0")                 # 0/1
-        _ensure_setting("backup_target_type", "chat")          # chat/channel
+        _ensure_setting("backup_enabled", "0")                   # 0/1
+        _ensure_setting("backup_target_type", "chat")            # chat/channel
         _ensure_setting("backup_target_id", str(ADMIN_CHAT_ID))  # default admin chat id
-        _ensure_setting("backup_interval_hours", "1")          # integer hours
+        _ensure_setting("backup_interval_hours", "1")            # integer hours
 
         conn.commit()
 
@@ -641,6 +640,7 @@ async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
     if act == "add":
+        # IMPORTANT: This must be reached via ConversationHandler entrypoint
         context.user_data.clear()
         await q.edit_message_text(rtl("🆔 user_id عددی ادمین جدید را وارد کنید:"))
         return ADM_ADD_UID
@@ -1833,10 +1833,10 @@ def db_menu_kb() -> InlineKeyboardMarkup:
     return ikb(
         [
             [("📥 گرفتن بکاپ (الان)", f"{CB_DB}:backup_now")],
-            [("📤 وارد کردن بکاپ", f"{CB_DB}:restore")],
+            [("📤 وارد کردن بکاپ", f"{CB_DB}:restore")],      # Conversation entrypoint
             [(f"🕒 بکاپ خودکار: {onoff}", f"{CB_DB}:toggle")],
-            [("📍 مقصد بکاپ", f"{CB_DB}:target")],
-            [("⏱ هر چند ساعت", f"{CB_DB}:interval")],
+            [("📍 مقصد بکاپ", f"{CB_DB}:target")],           # shows choice chat/channel, then Conversation
+            [("⏱ هر چند ساعت", f"{CB_DB}:interval")],        # Conversation entrypoint
             [("⬅️ بازگشت", f"{CB_M}:home")],
         ]
     )
@@ -1858,32 +1858,18 @@ def backup_filename() -> str:
 
 
 def make_backup_bytes() -> bytes:
-    # Safe sqlite backup
+    # Safe sqlite backup to temp file, then read bytes
+    tmp_path = f"/tmp/{backup_filename()}"
     src = sqlite3.connect(DB_PATH)
     try:
-        dst = sqlite3.connect(":memory:")
+        dst = sqlite3.connect(tmp_path)
         try:
             src.backup(dst)
             dst.commit()
-            # dump memory db to bytes by saving to temp file-like via iterdump is slow
-            # Better: use backup to a temp file, then read bytes.
         finally:
             dst.close()
     finally:
         src.close()
-
-    # Use a temp file on disk for reliable bytes
-    tmp_path = f"/tmp/{backup_filename()}"
-    src2 = sqlite3.connect(DB_PATH)
-    try:
-        dst2 = sqlite3.connect(tmp_path)
-        try:
-            src2.backup(dst2)
-            dst2.commit()
-        finally:
-            dst2.close()
-    finally:
-        src2.close()
 
     with open(tmp_path, "rb") as f:
         data = f.read()
@@ -1895,12 +1881,10 @@ def make_backup_bytes() -> bytes:
 
 
 async def send_backup_file(context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Only used by job; reads settings
     enabled = get_setting("backup_enabled") == "1"
     if not enabled:
         return
 
-    ttype = get_setting("backup_target_type")
     tid = get_setting("backup_target_id")
     try:
         target_id = int(tid)
@@ -1943,7 +1927,6 @@ def schedule_backup_job(app: Application) -> None:
     except Exception:
         hours = 1
 
-    # run first after interval (you can change to 60 sec if needed)
     seconds = hours * 3600
 
     app.job_queue.run_repeating(
@@ -1956,6 +1939,11 @@ def schedule_backup_job(app: Application) -> None:
 
 
 async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    IMPORTANT:
+    - This handler MUST NOT steal callbacks that are Conversation entrypoints.
+      So: restore / interval / target:chat/channel are handled by ConversationHandlers.
+    """
     q = update.callback_query
     user = update.effective_user
 
@@ -1980,7 +1968,8 @@ async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         data = make_backup_bytes()
         bio = io.BytesIO(data)
         bio.name = fname
-        await q.edit_message_text(rtl("در حال ارسال بکاپ..."), reply_markup=db_menu_kb())
+
+        await q.edit_message_text(rtl("✅ در حال ارسال بکاپ..."), reply_markup=db_menu_kb())
         await context.bot.send_document(
             chat_id=user.id,
             document=bio,
@@ -1989,17 +1978,6 @@ async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         await q.edit_message_text(rtl(db_menu_text()), reply_markup=db_menu_kb())
         return ConversationHandler.END
-
-    if act == "restore":
-        context.user_data.clear()
-        await q.edit_message_text(
-            rtl(
-                "📤 وارد کردن بکاپ\n\n"
-                "لطفاً فایل بکاپ با فرمت .db را همینجا ارسال کنید.\n\n"
-                "⚠️ توجه: قبل از جایگزینی، از دیتابیس فعلی بکاپ اضطراری گرفته می‌شود."
-            )
-        )
-        return DB_RESTORE_WAIT_DOC
 
     if act == "toggle":
         cur = get_setting("backup_enabled")
@@ -2021,26 +1999,7 @@ async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
 
-    if act == "interval":
-        context.user_data.clear()
-        await q.edit_message_text(
-            rtl(
-                "⏱ فاصله بکاپ خودکار\n\n"
-                "عدد را به ساعت وارد کنید.\n"
-                "مثال: 1 یعنی هر 1 ساعت\n\n"
-                f"پیش‌فرض: {get_setting('backup_interval_hours')}"
-            )
-        )
-        return DB_SET_INTERVAL
-
-    if act == "target" and len(parts) >= 3:
-        # handled below by pattern
-        return ConversationHandler.END
-
-    # target choice handler
-    if act == "target" and len(parts) == 3:
-        return ConversationHandler.END
-
+    # restore / interval are handled by ConversationHandlers entrypoints
     await q.edit_message_text(rtl("دستور ناشناخته."), reply_markup=db_menu_kb())
     return ConversationHandler.END
 
@@ -2059,27 +2018,28 @@ async def db_target_choice_cb(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     parts = (q.data or "").split(":")
-    # db:target:chat or db:target:channel
-    target_type = parts[2]
+    target_type = parts[2]  # chat/channel
+
+    default_id = get_setting("backup_target_id") or str(ADMIN_CHAT_ID)
 
     if target_type == "chat":
         set_setting("backup_target_type", "chat")
-        default_id = get_setting("backup_target_id") or str(ADMIN_CHAT_ID)
+        context.user_data.clear()
+        context.user_data["db_target_type"] = "chat"
         await q.edit_message_text(
             rtl(
                 "👤 ارسال بکاپ به آیدی\n\n"
-                f"آیدی عددی مقصد را وارد کنید.\n"
-                f"اگر چیزی وارد نکنید /skip بزنید → پیش‌فرض: {ADMIN_CHAT_ID}\n\n"
+                "آیدی عددی مقصد را وارد کنید.\n"
+                f"اگر /skip بزنید → پیش‌فرض: {ADMIN_CHAT_ID}\n\n"
                 f"مقدار فعلی: {default_id}"
             )
         )
-        context.user_data.clear()
-        context.user_data["db_target_type"] = "chat"
         return DB_SET_TARGET_ID
 
     if target_type == "channel":
         set_setting("backup_target_type", "channel")
-        default_id = get_setting("backup_target_id") or str(ADMIN_CHAT_ID)
+        context.user_data.clear()
+        context.user_data["db_target_type"] = "channel"
         await q.edit_message_text(
             rtl(
                 "📣 ارسال بکاپ به کانال\n\n"
@@ -2088,8 +2048,6 @@ async def db_target_choice_cb(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"مقدار فعلی: {default_id}"
             )
         )
-        context.user_data.clear()
-        context.user_data["db_target_type"] = "channel"
         return DB_SET_TARGET_ID
 
     await q.edit_message_text(rtl("گزینه نامعتبر."), reply_markup=db_menu_kb())
@@ -2107,8 +2065,12 @@ async def db_set_target_id_input(update: Update, context: ContextTypes.DEFAULT_T
         return ConversationHandler.END
 
     t = (update.message.text or "").strip()
+
+    # handle /skip explicitly (CommandHandler also lands here)
+    if t == "/skip":
+        t = ""
+
     if not t:
-        # keep default
         set_setting("backup_target_id", str(ADMIN_CHAT_ID))
         await update.effective_chat.send_message(rtl("✅ مقصد روی آیدی پیش‌فرض ادمین اصلی تنظیم شد."))
     else:
@@ -2122,6 +2084,34 @@ async def db_set_target_id_input(update: Update, context: ContextTypes.DEFAULT_T
     await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
     context.user_data.clear()
     return ConversationHandler.END
+
+
+async def db_set_interval_prompt_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Conversation entrypoint for db:interval
+    """
+    q = update.callback_query
+    user = update.effective_user
+
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    if not is_primary_admin(user.id):
+        await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
+        return ConversationHandler.END
+
+    context.user_data.clear()
+    await q.edit_message_text(
+        rtl(
+            "⏱ فاصله بکاپ خودکار\n\n"
+            "عدد را به ساعت وارد کنید.\n"
+            "مثال: 1 یعنی هر 1 ساعت\n\n"
+            f"پیش‌فرض: {get_setting('backup_interval_hours')}"
+        )
+    )
+    return DB_SET_INTERVAL
 
 
 async def db_set_interval_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2151,6 +2141,33 @@ async def db_set_interval_input(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
+async def db_restore_prompt_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Conversation entrypoint for db:restore
+    """
+    q = update.callback_query
+    user = update.effective_user
+
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    if not is_primary_admin(user.id):
+        await q.edit_message_text(rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
+        return ConversationHandler.END
+
+    context.user_data.clear()
+    await q.edit_message_text(
+        rtl(
+            "📤 وارد کردن بکاپ\n\n"
+            "لطفاً فایل بکاپ با فرمت .db را همینجا ارسال کنید.\n\n"
+            "⚠️ توجه: قبل از جایگزینی، از دیتابیس فعلی بکاپ اضطراری گرفته می‌شود."
+        )
+    )
+    return DB_RESTORE_WAIT_DOC
+
+
 async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not access_allowed(user.id):
@@ -2176,7 +2193,7 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
     tmp_in = f"/tmp/restore_{datetime.now(TZ).strftime('%Y%m%d_%H%M%S')}.db"
     await file.download_to_drive(custom_path=tmp_in)
 
-    # Emergency backup current DB to /tmp and also send to admin
+    # Emergency backup current DB and send to admin
     try:
         emergency_name = f"kasbbook_emergency_{datetime.now(TZ).strftime('%Y-%m-%d_%H-%M-%S')}.db"
         data = make_backup_bytes()
@@ -2194,23 +2211,15 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Replace DB
     try:
-        # stop auto backup job briefly
-        schedule_backup_job(context.application)  # will re-schedule after restore based on settings
-
         shutil.move(tmp_in, DB_PATH)
-
-        # re-init tables/settings if needed
         init_db()
-
         await update.effective_chat.send_message(rtl("✅ بکاپ با موفقیت وارد شد."))
     except Exception as e:
         logger.exception("Restore failed: %s", e)
         await update.effective_chat.send_message(rtl("❌ خطا در ریستور بکاپ."))
         return ConversationHandler.END
 
-    # reschedule job
     schedule_backup_job(context.application)
-
     await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
     return ConversationHandler.END
 
@@ -2244,14 +2253,15 @@ def build_app() -> Application:
 
     app.post_init = _post_init
 
+    # ---- Commands
     app.add_handler(CommandHandler("start", start))
 
+    # ---- Main menus
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st|report)$"))
-
     app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|db)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
-    # allow returning from admin panel back to access menu
+    # ---- Allow returning from admin panel back to access menu
     async def ac_noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         q = update.callback_query
         user = update.effective_user
@@ -2266,7 +2276,13 @@ def build_app() -> Application:
 
     app.add_handler(CallbackQueryHandler(ac_noop, pattern=r"^ac:noop$"))
 
-    app.add_handler(CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:(panel|del:\d+|noop|add)$"))
+    # =========================
+    # IMPORTANT FIX:
+    # Conversation entrypoints MUST NOT be stolen by normal CallbackQueryHandlers.
+    # So: we add ConversationHandlers first (or exclude their patterns from normal handlers).
+    # =========================
+
+    # ---- Admin add conversation (entrypoint: ad:add)
     adm_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:add$")],
         states={
@@ -2278,6 +2294,42 @@ def build_app() -> Application:
     )
     app.add_handler(adm_conv)
 
+    # ---- DB target id conversation (entrypoint: db:target:chat/channel)
+    db_target_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(db_target_choice_cb, pattern=r"^db:target:(chat|channel)$")],
+        states={
+            DB_SET_TARGET_ID: [
+                CommandHandler("skip", db_set_target_id_input),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, db_set_target_id_input),
+            ],
+        },
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(db_target_conv)
+
+    # ---- DB interval conversation (entrypoint: db:interval)
+    db_interval_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(db_set_interval_prompt_cb, pattern=r"^db:interval$")],
+        states={DB_SET_INTERVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, db_set_interval_input)]},
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(db_interval_conv)
+
+    # ---- DB restore conversation (entrypoint: db:restore)
+    db_restore_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(db_restore_prompt_cb, pattern=r"^db:restore$")],
+        states={DB_RESTORE_WAIT_DOC: [MessageHandler(filters.Document.ALL, db_restore_wait_doc)]},
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(db_restore_conv)
+
+    # ---- Admin panel handlers (NOTE: ad:add removed so it won't steal entrypoint)
+    app.add_handler(CallbackQueryHandler(admin_panel_cb, pattern=r"^ad:(panel|del:\d+|noop)$"))
+
+    # ---- Categories
     app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
@@ -2287,6 +2339,7 @@ def build_app() -> Application:
     )
     app.add_handler(cat_conv)
 
+    # ---- Daily list
     dl_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(daily_cb, pattern=r"^dl:pick$")],
         states={
@@ -2300,6 +2353,7 @@ def build_app() -> Application:
     app.add_handler(dl_conv)
     app.add_handler(CallbackQueryHandler(daily_cb, pattern=r"^dl:(d:(today|g|j)|show:\d{4}-\d{2}-\d{2}|noop)$"))
 
+    # ---- Transactions
     tx_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(tx_entry_from_menu, pattern=r"^tx:new$"),
@@ -2323,6 +2377,7 @@ def build_app() -> Application:
     )
     app.add_handler(tx_conv)
 
+    # ---- TX detail/edit
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:(open|del|amt|desc|cat):\d{4}-\d{2}-\d{2}:\d+$"))
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:setcat:\d{4}-\d{2}-\d{2}:\d+:\d+$"))
 
@@ -2342,43 +2397,13 @@ def build_app() -> Application:
     )
     app.add_handler(edit_desc_conv)
 
-    # Reports
+    # ---- Reports
     app.add_handler(CallbackQueryHandler(report_cb, pattern=r"^rp:(root|y:\d{4}|m:\d{4}:\d{2})$"))
 
-    # Database menu callbacks
-    app.add_handler(CallbackQueryHandler(db_cb, pattern=r"^db:(open|backup_now|restore|toggle|target|interval)$"))
-    app.add_handler(CallbackQueryHandler(db_target_choice_cb, pattern=r"^db:target:(chat|channel)$"))
+    # ---- Database menu callbacks (NOTE: restore/interval removed to avoid stealing Conversation entrypoints)
+    app.add_handler(CallbackQueryHandler(db_cb, pattern=r"^db:(open|backup_now|toggle|target)$"))
 
-    db_target_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(db_target_choice_cb, pattern=r"^db:target:(chat|channel)$")],
-        states={
-            DB_SET_TARGET_ID: [
-                CommandHandler("skip", db_set_target_id_input),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, db_set_target_id_input),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start)],
-        allow_reentry=True,
-    )
-    app.add_handler(db_target_conv)
-
-    db_interval_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(db_cb, pattern=r"^db:interval$")],
-        states={DB_SET_INTERVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, db_set_interval_input)]},
-        fallbacks=[CommandHandler("start", start)],
-        allow_reentry=True,
-    )
-    app.add_handler(db_interval_conv)
-
-    db_restore_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(db_cb, pattern=r"^db:restore$")],
-        states={DB_RESTORE_WAIT_DOC: [MessageHandler(filters.Document.ALL, db_restore_wait_doc)]},
-        fallbacks=[CommandHandler("start", start)],
-        allow_reentry=True,
-    )
-    app.add_handler(db_restore_conv)
-
-    # Unknown callbacks
+    # ---- Unknown callbacks
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
