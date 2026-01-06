@@ -295,7 +295,7 @@ def ikb(rows: List[List[tuple]]) -> InlineKeyboardMarkup:
 def fmt_num(n: int) -> str:
     return f"{int(n):,}"
 
-
+# متن استارت (طبق درخواست شما تغییر نکند)
 def start_text() -> str:
     return (
         "📊 KasbBook | مدیریت مالی کسب‌وکار\n\n"
@@ -413,6 +413,7 @@ async def deny(update: Update) -> None:
 # =========================
 ADM_ADD_UID, ADM_ADD_NAME = range(2)
 CAT_ADD_NAME = 0
+CAT_RENAME_NAME = 1
 
 TX_DATE_MENU, TX_DATE_G, TX_DATE_J, TX_TTYPE, TX_CAT_PICK, TX_CAT_ADD_NAME, TX_AMOUNT, TX_DESC = range(8)
 DL_DATE_MENU, DL_DATE_G, DL_DATE_J = range(3)
@@ -669,6 +670,47 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 # =========================
 # Categories management
 # =========================
+async def cat_rename_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+
+    new_name = (update.message.text or "").strip()
+    if not new_name:
+        await update.effective_chat.send_message(rtl("نام خالی است. دوباره وارد کنید:"))
+        return CAT_RENAME_NAME
+
+    cid = context.user_data.get("rename_cat_id")
+    grp = context.user_data.get("rename_cat_grp")
+    old_name = context.user_data.get("rename_old_name")
+
+    scope, owner = resolve_scope_owner(user.id)
+
+    with db_conn() as conn:
+        try:
+            conn.execute(
+                "UPDATE categories SET name=? WHERE id=? AND scope=? AND owner_user_id=?",
+                (new_name, cid, scope, owner),
+            )
+
+            conn.execute(
+                """
+                UPDATE transactions
+                SET category=?, updated_at=?
+                WHERE scope=? AND owner_user_id=? AND ttype=? AND category=?
+                """,
+                (new_name, now_ts(), scope, owner, grp, old_name),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            await update.effective_chat.send_message(rtl("❌ این نام قبلاً وجود دارد."))
+            return CAT_RENAME_NAME
+
+    await update.effective_chat.send_message(rtl("✅ دسته و تراکنش‌ها ویرایش شد."))
+    context.user_data.clear()
+    return ConversationHandler.END
+
 async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     user = update.effective_user
@@ -721,6 +763,32 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await q.edit_message_text(rtl(f"✅ حذف شد.\n\n🧩 {grp_label(grp)}"), reply_markup=build_cat_kb(scope, owner, grp))
         return ConversationHandler.END
 
+    # ✅ FIX: rename handler (برای اینکه دکمه ویرایش واقعاً کار کند)
+    if act == "ren":
+        cid = int(parts[2])
+
+        with db_conn() as conn:
+            row = conn.execute(
+                "SELECT grp, name, is_locked FROM categories WHERE id=? AND scope=? AND owner_user_id=?",
+                (cid, scope, owner),
+            ).fetchone()
+
+        if not row:
+            await q.edit_message_text(rtl("پیدا نشد."))
+            return ConversationHandler.END
+
+        if row["grp"] == "personal_out" and row["name"] == INSTALLMENT_NAME and int(row["is_locked"]) == 1:
+            await q.edit_message_text(rtl("⛔ دسته «قسط» قفل است و ویرایش نمی‌شود."))
+            return ConversationHandler.END
+
+        context.user_data.clear()
+        context.user_data["rename_cat_id"] = cid
+        context.user_data["rename_cat_grp"] = row["grp"]
+        context.user_data["rename_old_name"] = row["name"]
+
+        await q.edit_message_text(rtl(f"✏️ نام جدید برای دسته «{row['name']}» را وارد کنید:"))
+        return CAT_RENAME_NAME
+
     await q.edit_message_text(rtl("دستور ناشناخته."))
     return ConversationHandler.END
 
@@ -743,6 +811,7 @@ def build_cat_kb(scope: str, owner: int, grp: str) -> InlineKeyboardMarkup:
                 [
                     InlineKeyboardButton(nm, callback_data=f"{CB_CT}:noop"),
                     InlineKeyboardButton("🗑 حذف", callback_data=f"{CB_CT}:del:{r['id']}"),
+                    InlineKeyboardButton("✏️ ویرایش", callback_data=f"{CB_CT}:ren:{r['id']}"),
                 ]
             )
 
@@ -1128,7 +1197,7 @@ def daily_pick_menu() -> InlineKeyboardMarkup:
         ]
     )
 
-def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int]:
+def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
     with db_conn() as conn:
         w_in = conn.execute(
             "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_in'",
@@ -1137,6 +1206,14 @@ def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int]:
         w_out = conn.execute(
             "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_out'",
             (scope, owner, gdate),
+        ).fetchone()["s"]
+        installment = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) AS s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='personal_out' AND category=?
+            """,
+            (scope, owner, gdate, INSTALLMENT_NAME),
         ).fetchone()["s"]
         p_non = conn.execute(
             """
@@ -1147,14 +1224,15 @@ def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int]:
             (scope, owner, gdate, INSTALLMENT_NAME),
         ).fetchone()["s"]
 
-    return int(w_in), int(w_out), int(p_non)
+    return int(w_in), int(w_out), int(installment), int(p_non)
 
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
 
-    w_in, w_out, p_non_install = _day_sums(scope, owner, gdate)
+    w_in, w_out, inst, p_non_install = _day_sums(scope, owner, gdate)
     net = w_in - w_out
-    savings = net - p_non_install
+    savings_operational = net - p_non_install
+    savings_final = savings_operational - inst
 
     lines = [
         f"📅 {gdate}  |  {g_to_j(gdate)}",
@@ -1163,8 +1241,10 @@ def daily_list_text(scope: str, owner: int, gdate: str) -> str:
         f"💰 درآمد: {fmt_num(w_in)}",
         f"🏢 هزینه کاری: {fmt_num(w_out)}",
         f"➖ خالص کاری: {fmt_num(net)}",
+        f"📄 قسط پرداختی: {fmt_num(inst)}",
         f"👤 هزینه شخصی(بدون قسط): {fmt_num(p_non_install)}",
-        f"💾 پس‌انداز: {fmt_num(savings)}",
+        f"💾 پس‌انداز عملیاتی: {fmt_num(savings_operational)}",
+        f"💾 پس‌انداز نهایی: {fmt_num(savings_final)}",
     ]
     return rtl("\n".join(lines))
 
@@ -1523,38 +1603,57 @@ def sums_for_range(scope: str, owner: int, start_g: str, end_g_exclusive: str) -
     with db_conn() as conn:
         w_in = conn.execute(
             """
-            SELECT COALESCE(SUM(amount),0) s
+            SELECT COALESCE(SUM(amount),0)
             FROM transactions
             WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='work_in'
             """,
             (scope, owner, start_g, end_g_exclusive),
-        ).fetchone()["s"]
+        ).fetchone()[0]
 
         w_out = conn.execute(
             """
-            SELECT COALESCE(SUM(amount),0) s
+            SELECT COALESCE(SUM(amount),0)
             FROM transactions
             WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='work_out'
             """,
             (scope, owner, start_g, end_g_exclusive),
-        ).fetchone()["s"]
+        ).fetchone()[0]
 
-        p_non = conn.execute(
+        installment = conn.execute(
             """
-            SELECT COALESCE(SUM(amount),0) s
+            SELECT COALESCE(SUM(amount),0)
             FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='personal_out' AND category<>?
+            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<?
+              AND ttype='personal_out' AND category=?
             """,
             (scope, owner, start_g, end_g_exclusive, INSTALLMENT_NAME),
-        ).fetchone()["s"]
+        ).fetchone()[0]
 
-    w_in = int(w_in)
-    w_out = int(w_out)
-    p_non = int(p_non)
-    net = w_in - w_out
-    savings = net - p_non
-    return {"income": w_in, "work_out": w_out, "personal": p_non, "net": net, "savings": savings}
+        personal_non_install = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0)
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<?
+              AND ttype='personal_out' AND category<>?
+            """,
+            (scope, owner, start_g, end_g_exclusive, INSTALLMENT_NAME),
+        ).fetchone()[0]
 
+    net = int(w_in) - int(w_out)
+    savings_operational = net - int(personal_non_install)
+    savings_final = savings_operational - int(installment)
+
+    return {
+        "income": int(w_in),
+        "work_out": int(w_out),
+        "net": int(net),
+        "installment": int(installment),
+        "personal": int(personal_non_install),
+        "savings_operational": int(savings_operational),
+        "savings_final": int(savings_final),
+    }
+
+# ✅ FIX: گزارش کلی هم باید همین کلیدها را برگرداند
 def sums_all(scope: str, owner: int) -> Dict[str, int]:
     ensure_installment(scope, owner)
     with db_conn() as conn:
@@ -1565,6 +1664,14 @@ def sums_all(scope: str, owner: int) -> Dict[str, int]:
         w_out = conn.execute(
             "SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE scope=? AND owner_user_id=? AND ttype='work_out'",
             (scope, owner),
+        ).fetchone()["s"]
+        installment = conn.execute(
+            """
+            SELECT COALESCE(SUM(amount),0) s
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND ttype='personal_out' AND category=?
+            """,
+            (scope, owner, INSTALLMENT_NAME),
         ).fetchone()["s"]
         p_non = conn.execute(
             """
@@ -1577,10 +1684,22 @@ def sums_all(scope: str, owner: int) -> Dict[str, int]:
 
     w_in = int(w_in)
     w_out = int(w_out)
+    installment = int(installment)
     p_non = int(p_non)
+
     net = w_in - w_out
-    savings = net - p_non
-    return {"income": w_in, "work_out": w_out, "personal": p_non, "net": net, "savings": savings}
+    savings_operational = net - p_non
+    savings_final = savings_operational - installment
+
+    return {
+        "income": w_in,
+        "work_out": w_out,
+        "net": net,
+        "installment": installment,
+        "personal": p_non,
+        "savings_operational": savings_operational,
+        "savings_final": savings_final,
+    }
 
 def report_lines(title: str, s: Dict[str, int]) -> str:
     lines = [
@@ -1589,8 +1708,12 @@ def report_lines(title: str, s: Dict[str, int]) -> str:
         f"💰 درآمد: {fmt_num(s['income'])}",
         f"🏢 هزینه کاری: {fmt_num(s['work_out'])}",
         f"➖ خالص کاری: {fmt_num(s['net'])}",
-        f"👤 هزینه شخصی(بدون قسط): {fmt_num(s['personal'])}",
-        f"💾 پس‌انداز: {fmt_num(s['savings'])}",
+        "",
+        f"📄 قسط پرداختی: {fmt_num(s['installment'])}",
+        f"👤 هزینه شخصی (بدون قسط): {fmt_num(s['personal'])}",
+        "",
+        f"💾 پس‌انداز عملیاتی: {fmt_num(s['savings_operational'])}",
+        f"💾 پس‌انداز نهایی: {fmt_num(s['savings_final'])}",
     ]
     return rtl("\n".join(lines))
 
@@ -2140,6 +2263,7 @@ def build_app() -> Application:
 
     # Categories (نمایش/حذف) - بدون add (چون add ورودی کانورسیشنه)
     app.add_handler(CallbackQueryHandler(cats_cb, pattern=r"^ct:(grp:(work_in|work_out|personal_out)|del:\d+|noop)$"))
+
     cat_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
         states={CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_add_name)]},
@@ -2147,6 +2271,16 @@ def build_app() -> Application:
         allow_reentry=True,
     )
     app.add_handler(cat_conv)
+
+    cat_rename_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:ren:\d+$")],
+        states={
+            CAT_RENAME_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_rename_name)],
+        },
+        fallbacks=[CommandHandler("start", start)],
+        allow_reentry=True,
+    )
+    app.add_handler(cat_rename_conv)
 
     # Daily list (کانورسیشن انتخاب تاریخ)
     dl_conv = ConversationHandler(
@@ -2188,7 +2322,7 @@ def build_app() -> Application:
     )
     app.add_handler(tx_conv)
 
-    # TX details (نمایش/حذف/انتخاب دسته) - بدون amt/desc (چون ورودی کانورسیشن جداست)
+    # TX details (نمایش/حذف/انتخاب دسته)
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:(open|del|cat):\d{4}-\d{2}-\d{2}:\d+$"))
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:setcat:\d{4}-\d{2}-\d{2}:\d+:\d+$"))
 
@@ -2266,5 +2400,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
