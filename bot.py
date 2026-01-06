@@ -2,8 +2,6 @@
 # KasbBook - Inline-only Finance Manager Telegram Bot (SQLite)
 # Python 3.10+ | python-telegram-bot v20+ | sqlite3 | pytz | jdatetime | python-dotenv
 #
-# ✅ این نسخه: تمام کدهای Google Sheet حذف شده
-# ✅ تمرکز: هندلرها و کانورسیشن‌ها درست و بدون تداخل (Edit amount/desc, admin add, db interval/restore/target)
 
 import os
 import re
@@ -2263,3 +2261,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
