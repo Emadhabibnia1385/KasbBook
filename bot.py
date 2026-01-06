@@ -707,9 +707,15 @@ async def cat_rename_name(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.effective_chat.send_message(rtl("❌ این نام قبلاً وجود دارد."))
             return CAT_RENAME_NAME
 
-    await update.effective_chat.send_message(rtl("✅ دسته و تراکنش‌ها ویرایش شد."))
+    # ✅ برگشت به لیست دسته‌ها (همون گروه)
+    await update.effective_chat.send_message(
+        rtl(f"✅ ویرایش شد.\n\n🧩 {grp_label(grp)}"),
+        reply_markup=build_cat_kb(scope, owner, grp),
+    )
+
     context.user_data.clear()
     return ConversationHandler.END
+
 
 async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
@@ -2400,3 +2406,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
