@@ -10,6 +10,7 @@ import json
 import shutil
 import sqlite3
 import logging
+import asyncio
 from datetime import datetime, date
 from typing import Optional, Tuple, List, Dict
 
@@ -64,13 +65,19 @@ CB_DB = "db"    # database/backup
 # Job name
 JOB_BACKUP = "kasbbook_auto_backup"
 
+# Global DB lock to reduce "database is locked"
+DB_LOCK = asyncio.Lock()
+
 # =========================
 # ENV
 # =========================
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID")
+ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID")       # backward compatible (old name)
 ADMIN_USERNAME_RAW = os.getenv("ADMIN_USERNAME")
+
+# Optional new env (recommended)
+PRIMARY_ADMIN_USER_ID_RAW = os.getenv("PRIMARY_ADMIN_USER_ID")
 
 if not BOT_TOKEN:
     raise RuntimeError("ENV BOT_TOKEN is not set")
@@ -83,6 +90,15 @@ try:
     ADMIN_CHAT_ID = int(ADMIN_CHAT_ID_RAW)
 except ValueError:
     raise RuntimeError("ENV ADMIN_CHAT_ID must be an integer")
+
+# Primary admin user_id (new env if provided; else fallback to ADMIN_CHAT_ID)
+if PRIMARY_ADMIN_USER_ID_RAW:
+    try:
+        PRIMARY_ADMIN_USER_ID = int(PRIMARY_ADMIN_USER_ID_RAW)
+    except ValueError:
+        raise RuntimeError("ENV PRIMARY_ADMIN_USER_ID must be an integer")
+else:
+    PRIMARY_ADMIN_USER_ID = ADMIN_CHAT_ID  # backward compatible
 
 ADMIN_USERNAME = (ADMIN_USERNAME_RAW or "").strip()
 if ADMIN_USERNAME.startswith("@"):
@@ -103,9 +119,13 @@ logger = logging.getLogger(PROJECT_NAME)
 # DB helpers
 # =========================
 def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    # timeout + WAL reduce lock errors (no schema/data change)
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA temp_store = MEMORY;")
     return conn
 
 def init_db() -> None:
@@ -140,6 +160,13 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date
                 ON transactions(scope, owner_user_id, date_g);
 
+            -- Performance indexes (safe: no data change)
+            CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date_type
+                ON transactions(scope, owner_user_id, date_g, ttype);
+
+            CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date_type_cat
+                ON transactions(scope, owner_user_id, date_g, ttype, category);
+
             CREATE TABLE IF NOT EXISTS categories(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
@@ -162,10 +189,10 @@ def init_db() -> None:
         _ensure_setting("share_enabled", "0")
 
         # Backup settings
-        _ensure_setting("backup_enabled", "0")                   # 0/1
-        _ensure_setting("backup_target_type", "chat")            # chat/channel
-        _ensure_setting("backup_target_id", str(ADMIN_CHAT_ID))  # default admin chat id
-        _ensure_setting("backup_interval_hours", "1")            # integer hours
+        _ensure_setting("backup_enabled", "0")                           # 0/1
+        _ensure_setting("backup_target_type", "chat")                    # chat/channel
+        _ensure_setting("backup_target_id", str(ADMIN_CHAT_ID))          # default destination chat id
+        _ensure_setting("backup_interval_hours", "1")                    # integer hours
 
         conn.commit()
 
@@ -220,10 +247,10 @@ def parse_jalali_to_g(s: str) -> Optional[str]:
         return None
 
 def is_primary_admin(user_id: int) -> bool:
-    return user_id == ADMIN_CHAT_ID
+    return user_id == PRIMARY_ADMIN_USER_ID
 
 def is_admin(user_id: int) -> bool:
-    if user_id == ADMIN_CHAT_ID:
+    if user_id == PRIMARY_ADMIN_USER_ID:
         return True
     with db_conn() as conn:
         return conn.execute("SELECT 1 FROM admins WHERE user_id=?", (user_id,)).fetchone() is not None
@@ -242,7 +269,7 @@ def resolve_scope_owner(user_id: int) -> Tuple[str, int]:
     # admin_only
     share_enabled = get_setting("share_enabled")
     if share_enabled == "1":
-        return ("shared", ADMIN_CHAT_ID)
+        return ("shared", PRIMARY_ADMIN_USER_ID)
     return ("private", user_id)
 
 def ensure_installment(scope: str, owner_user_id: int) -> None:
@@ -595,9 +622,10 @@ async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await q.edit_message_text(rtl("آیدی نامعتبر."), reply_markup=build_admin_panel_kb())
             return ConversationHandler.END
 
-        with db_conn() as conn:
-            conn.execute("DELETE FROM admins WHERE user_id=?", (uid,))
-            conn.commit()
+        async with DB_LOCK:
+            with db_conn() as conn:
+                conn.execute("DELETE FROM admins WHERE user_id=?", (uid,))
+                conn.commit()
 
         await q.edit_message_text(rtl("✅ حذف شد.\n\n👥 مدیریت ادمین‌ها:"), reply_markup=build_admin_panel_kb())
         return ConversationHandler.END
@@ -623,7 +651,7 @@ async def adm_add_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ADM_ADD_UID
 
     uid = int(t)
-    if uid == ADMIN_CHAT_ID:
+    if uid == PRIMARY_ADMIN_USER_ID:
         await update.effective_chat.send_message(rtl("ادمین اصلی را اضافه نکن. یک آیدی دیگر بده:"))
         return ADM_ADD_UID
 
@@ -649,16 +677,17 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         context.user_data.clear()
         return ConversationHandler.END
 
-    with db_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO admins(user_id, name, added_at)
-            VALUES(?,?,?)
-            ON CONFLICT(user_id) DO UPDATE SET name=excluded.name, added_at=excluded.added_at
-            """,
-            (uid, name, now_ts()),
-        )
-        conn.commit()
+    async with DB_LOCK:
+        with db_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO admins(user_id, name, added_at)
+                VALUES(?,?,?)
+                ON CONFLICT(user_id) DO UPDATE SET name=excluded.name, added_at=excluded.added_at
+                """,
+                (uid, name, now_ts()),
+            )
+            conn.commit()
 
     await update.effective_chat.send_message(
         rtl("✅ اضافه شد.\n\n👥 مدیریت ادمین‌ها:"),
@@ -687,27 +716,27 @@ async def cat_rename_name(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     scope, owner = resolve_scope_owner(user.id)
 
-    with db_conn() as conn:
-        try:
-            conn.execute(
-                "UPDATE categories SET name=? WHERE id=? AND scope=? AND owner_user_id=?",
-                (new_name, cid, scope, owner),
-            )
+    async with DB_LOCK:
+        with db_conn() as conn:
+            try:
+                conn.execute(
+                    "UPDATE categories SET name=? WHERE id=? AND scope=? AND owner_user_id=?",
+                    (new_name, cid, scope, owner),
+                )
 
-            conn.execute(
-                """
-                UPDATE transactions
-                SET category=?, updated_at=?
-                WHERE scope=? AND owner_user_id=? AND ttype=? AND category=?
-                """,
-                (new_name, now_ts(), scope, owner, grp, old_name),
-            )
-            conn.commit()
-        except sqlite3.IntegrityError:
-            await update.effective_chat.send_message(rtl("❌ این نام قبلاً وجود دارد."))
-            return CAT_RENAME_NAME
+                conn.execute(
+                    """
+                    UPDATE transactions
+                    SET category=?, updated_at=?
+                    WHERE scope=? AND owner_user_id=? AND ttype=? AND category=?
+                    """,
+                    (new_name, now_ts(), scope, owner, grp, old_name),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                await update.effective_chat.send_message(rtl("❌ این نام قبلاً وجود دارد."))
+                return CAT_RENAME_NAME
 
-    # ✅ برگشت به لیست دسته‌ها (همون گروه)
     await update.effective_chat.send_message(
         rtl(f"✅ ویرایش شد.\n\n🧩 {grp_label(grp)}"),
         reply_markup=build_cat_kb(scope, owner, grp),
@@ -715,7 +744,6 @@ async def cat_rename_name(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     context.user_data.clear()
     return ConversationHandler.END
-
 
 async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
@@ -762,14 +790,15 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 await q.edit_message_text(rtl("⛔ دسته «قسط» قفل است و حذف نمی‌شود."))
                 return ConversationHandler.END
 
-            conn.execute("DELETE FROM categories WHERE id=?", (cid,))
-            conn.commit()
+        async with DB_LOCK:
+            with db_conn() as conn:
+                conn.execute("DELETE FROM categories WHERE id=?", (cid,))
+                conn.commit()
 
         grp = row["grp"]
         await q.edit_message_text(rtl(f"✅ حذف شد.\n\n🧩 {grp_label(grp)}"), reply_markup=build_cat_kb(scope, owner, grp))
         return ConversationHandler.END
 
-    # ✅ FIX: rename handler (برای اینکه دکمه ویرایش واقعاً کار کند)
     if act == "ren":
         cid = int(parts[2])
 
@@ -844,15 +873,16 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     scope, owner = resolve_scope_owner(user.id)
     ensure_installment(scope, owner)
 
-    with db_conn() as conn:
-        try:
-            conn.execute(
-                "INSERT INTO categories(scope, owner_user_id, grp, name, is_locked) VALUES(?,?,?,?,0)",
-                (scope, owner, grp, name),
-            )
-            conn.commit()
-        except sqlite3.IntegrityError:
-            pass
+    async with DB_LOCK:
+        with db_conn() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO categories(scope, owner_user_id, grp, name, is_locked) VALUES(?,?,?,?,0)",
+                    (scope, owner, grp, name),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                pass
 
     await update.effective_chat.send_message(
         rtl(f"✅ اضافه شد.\n\n🧩 {grp_label(grp)}"),
@@ -1104,15 +1134,16 @@ async def tx_cat_add_name_input(update: Update, context: ContextTypes.DEFAULT_TY
     scope, owner = resolve_scope_owner(user.id)
     ensure_installment(scope, owner)
 
-    with db_conn() as conn:
-        try:
-            conn.execute(
-                "INSERT INTO categories(scope, owner_user_id, grp, name, is_locked) VALUES(?,?,?,?,0)",
-                (scope, owner, ttype, name),
-            )
-            conn.commit()
-        except sqlite3.IntegrityError:
-            pass
+    async with DB_LOCK:
+        with db_conn() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO categories(scope, owner_user_id, grp, name, is_locked) VALUES(?,?,?,?,0)",
+                    (scope, owner, ttype, name),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                pass
 
     context.user_data["tx_category"] = name
     await update.effective_chat.send_message(rtl("✅ دسته اضافه شد.\n\n💵 حالا مبلغ را وارد کنید:"))
@@ -1160,18 +1191,19 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     ensure_installment(scope, owner)
 
     ts = now_ts()
-    with db_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO transactions(
-                scope, owner_user_id, actor_user_id,
-                date_g, ttype, category, amount, description,
-                created_at, updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?)
-            """,
-            (scope, owner, user.id, date_g_, ttype, category, int(amount), desc, ts, ts),
-        )
-        conn.commit()
+    async with DB_LOCK:
+        with db_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO transactions(
+                    scope, owner_user_id, actor_user_id,
+                    date_g, ttype, category, amount, description,
+                    created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                """,
+                (scope, owner, user.id, date_g_, ttype, category, int(amount), desc, ts, ts),
+            )
+            conn.commit()
 
     origin = context.user_data.get("tx_origin")
     daily_g = context.user_data.get("tx_daily_gdate")
@@ -1203,34 +1235,23 @@ def daily_pick_menu() -> InlineKeyboardMarkup:
         ]
     )
 
+# Optimized: single query instead of 4 queries
 def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
     with db_conn() as conn:
-        w_in = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_in'",
-            (scope, owner, gdate),
-        ).fetchone()["s"]
-        w_out = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) AS s FROM transactions WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='work_out'",
-            (scope, owner, gdate),
-        ).fetchone()["s"]
-        installment = conn.execute(
+        row = conn.execute(
             """
-            SELECT COALESCE(SUM(amount),0) AS s
+            SELECT
+                COALESCE(SUM(CASE WHEN ttype='work_in' THEN amount ELSE 0 END),0) AS w_in,
+                COALESCE(SUM(CASE WHEN ttype='work_out' THEN amount ELSE 0 END),0) AS w_out,
+                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category=? THEN amount ELSE 0 END),0) AS inst,
+                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category<>? THEN amount ELSE 0 END),0) AS p_non
             FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='personal_out' AND category=?
+            WHERE scope=? AND owner_user_id=? AND date_g=?
             """,
-            (scope, owner, gdate, INSTALLMENT_NAME),
-        ).fetchone()["s"]
-        p_non = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0) AS s
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g=? AND ttype='personal_out' AND category<>?
-            """,
-            (scope, owner, gdate, INSTALLMENT_NAME),
-        ).fetchone()["s"]
+            (INSTALLMENT_NAME, INSTALLMENT_NAME, scope, owner, gdate),
+        ).fetchone()
 
-    return int(w_in), int(w_out), int(installment), int(p_non)
+    return int(row["w_in"]), int(row["w_out"]), int(row["inst"]), int(row["p_non"])
 
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
@@ -1457,9 +1478,10 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     if act == "del":
-        with db_conn() as conn:
-            conn.execute("DELETE FROM transactions WHERE id=? AND scope=? AND owner_user_id=?", (tx_id, scope, owner))
-            conn.commit()
+        async with DB_LOCK:
+            with db_conn() as conn:
+                conn.execute("DELETE FROM transactions WHERE id=? AND scope=? AND owner_user_id=?", (tx_id, scope, owner))
+                conn.commit()
         await q.edit_message_text(
             daily_list_text(scope, owner, gdate),
             reply_markup=daily_rows_kb(scope, owner, gdate),
@@ -1495,20 +1517,21 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     if act == "setcat":
         cat_id = int(parts[4])
-        with db_conn() as conn:
-            row = conn.execute(
-                "SELECT name FROM categories WHERE id=? AND scope=? AND owner_user_id=?",
-                (cat_id, scope, owner),
-            ).fetchone()
-            if not row:
-                await q.edit_message_text(rtl("دسته پیدا نشد."))
-                return ConversationHandler.END
+        async with DB_LOCK:
+            with db_conn() as conn:
+                row = conn.execute(
+                    "SELECT name FROM categories WHERE id=? AND scope=? AND owner_user_id=?",
+                    (cat_id, scope, owner),
+                ).fetchone()
+                if not row:
+                    await q.edit_message_text(rtl("دسته پیدا نشد."))
+                    return ConversationHandler.END
 
-            conn.execute(
-                "UPDATE transactions SET category=?, updated_at=? WHERE id=? AND scope=? AND owner_user_id=?",
-                (row["name"], now_ts(), tx_id, scope, owner),
-            )
-            conn.commit()
+                conn.execute(
+                    "UPDATE transactions SET category=?, updated_at=? WHERE id=? AND scope=? AND owner_user_id=?",
+                    (row["name"], now_ts(), tx_id, scope, owner),
+                )
+                conn.commit()
 
         tx2 = get_tx(scope, owner, tx_id)
         lines = [
@@ -1548,12 +1571,13 @@ async def edit_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return ConversationHandler.END
 
     scope, owner = resolve_scope_owner(user.id)
-    with db_conn() as conn:
-        conn.execute(
-            "UPDATE transactions SET amount=?, updated_at=? WHERE id=? AND scope=? AND owner_user_id=?",
-            (int(t), now_ts(), tx_id, scope, owner),
-        )
-        conn.commit()
+    async with DB_LOCK:
+        with db_conn() as conn:
+            conn.execute(
+                "UPDATE transactions SET amount=?, updated_at=? WHERE id=? AND scope=? AND owner_user_id=?",
+                (int(t), now_ts(), tx_id, scope, owner),
+            )
+            conn.commit()
 
     context.user_data.clear()
     await update.effective_chat.send_message(
@@ -1580,12 +1604,13 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return ConversationHandler.END
 
     scope, owner = resolve_scope_owner(user.id)
-    with db_conn() as conn:
-        conn.execute(
-            "UPDATE transactions SET description=?, updated_at=? WHERE id=? AND scope=? AND owner_user_id=?",
-            (desc if desc else None, now_ts(), tx_id, scope, owner),
-        )
-        conn.commit()
+    async with DB_LOCK:
+        with db_conn() as conn:
+            conn.execute(
+                "UPDATE transactions SET description=?, updated_at=? WHERE id=? AND scope=? AND owner_user_id=?",
+                (desc if desc else None, now_ts(), tx_id, scope, owner),
+            )
+            conn.commit()
 
     context.user_data.clear()
     await update.effective_chat.send_message(
@@ -1604,105 +1629,74 @@ MONTHS = [
     ("Oct", 10), ("Nov", 11), ("Dec", 12),
 ]
 
+# Optimized: single query
 def sums_for_range(scope: str, owner: int, start_g: str, end_g_exclusive: str) -> Dict[str, int]:
     ensure_installment(scope, owner)
     with db_conn() as conn:
-        w_in = conn.execute(
+        row = conn.execute(
             """
-            SELECT COALESCE(SUM(amount),0)
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='work_in'
-            """,
-            (scope, owner, start_g, end_g_exclusive),
-        ).fetchone()[0]
-
-        w_out = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0)
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND ttype='work_out'
-            """,
-            (scope, owner, start_g, end_g_exclusive),
-        ).fetchone()[0]
-
-        installment = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0)
+            SELECT
+                COALESCE(SUM(CASE WHEN ttype='work_in' THEN amount ELSE 0 END),0) AS income,
+                COALESCE(SUM(CASE WHEN ttype='work_out' THEN amount ELSE 0 END),0) AS work_out,
+                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category=? THEN amount ELSE 0 END),0) AS installment,
+                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category<>? THEN amount ELSE 0 END),0) AS personal
             FROM transactions
             WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<?
-              AND ttype='personal_out' AND category=?
             """,
-            (scope, owner, start_g, end_g_exclusive, INSTALLMENT_NAME),
-        ).fetchone()[0]
+            (INSTALLMENT_NAME, INSTALLMENT_NAME, scope, owner, start_g, end_g_exclusive),
+        ).fetchone()
 
-        personal_non_install = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0)
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<?
-              AND ttype='personal_out' AND category<>?
-            """,
-            (scope, owner, start_g, end_g_exclusive, INSTALLMENT_NAME),
-        ).fetchone()[0]
+    income = int(row["income"])
+    work_out = int(row["work_out"])
+    installment = int(row["installment"])
+    personal = int(row["personal"])
 
-    net = int(w_in) - int(w_out)
-    savings_operational = net - int(personal_non_install)
-    savings_final = savings_operational - int(installment)
-
-    return {
-        "income": int(w_in),
-        "work_out": int(w_out),
-        "net": int(net),
-        "installment": int(installment),
-        "personal": int(personal_non_install),
-        "savings_operational": int(savings_operational),
-        "savings_final": int(savings_final),
-    }
-
-# ✅ FIX: گزارش کلی هم باید همین کلیدها را برگرداند
-def sums_all(scope: str, owner: int) -> Dict[str, int]:
-    ensure_installment(scope, owner)
-    with db_conn() as conn:
-        w_in = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE scope=? AND owner_user_id=? AND ttype='work_in'",
-            (scope, owner),
-        ).fetchone()["s"]
-        w_out = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) s FROM transactions WHERE scope=? AND owner_user_id=? AND ttype='work_out'",
-            (scope, owner),
-        ).fetchone()["s"]
-        installment = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0) s
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND ttype='personal_out' AND category=?
-            """,
-            (scope, owner, INSTALLMENT_NAME),
-        ).fetchone()["s"]
-        p_non = conn.execute(
-            """
-            SELECT COALESCE(SUM(amount),0) s
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND ttype='personal_out' AND category<>?
-            """,
-            (scope, owner, INSTALLMENT_NAME),
-        ).fetchone()["s"]
-
-    w_in = int(w_in)
-    w_out = int(w_out)
-    installment = int(installment)
-    p_non = int(p_non)
-
-    net = w_in - w_out
-    savings_operational = net - p_non
+    net = income - work_out
+    savings_operational = net - personal
     savings_final = savings_operational - installment
 
     return {
-        "income": w_in,
-        "work_out": w_out,
+        "income": income,
+        "work_out": work_out,
         "net": net,
         "installment": installment,
-        "personal": p_non,
+        "personal": personal,
+        "savings_operational": savings_operational,
+        "savings_final": savings_final,
+    }
+
+# Optimized: single query
+def sums_all(scope: str, owner: int) -> Dict[str, int]:
+    ensure_installment(scope, owner)
+    with db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN ttype='work_in' THEN amount ELSE 0 END),0) AS income,
+                COALESCE(SUM(CASE WHEN ttype='work_out' THEN amount ELSE 0 END),0) AS work_out,
+                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category=? THEN amount ELSE 0 END),0) AS installment,
+                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category<>? THEN amount ELSE 0 END),0) AS personal
+            FROM transactions
+            WHERE scope=? AND owner_user_id=?
+            """,
+            (INSTALLMENT_NAME, INSTALLMENT_NAME, scope, owner),
+        ).fetchone()
+
+    income = int(row["income"])
+    work_out = int(row["work_out"])
+    installment = int(row["installment"])
+    personal = int(row["personal"])
+
+    net = income - work_out
+    savings_operational = net - personal
+    savings_final = savings_operational - installment
+
+    return {
+        "income": income,
+        "work_out": work_out,
+        "net": net,
+        "installment": installment,
+        "personal": personal,
         "savings_operational": savings_operational,
         "savings_final": savings_final,
     }
@@ -1885,9 +1879,9 @@ def backup_filename() -> str:
 
 def make_backup_bytes() -> bytes:
     tmp_path = f"/tmp/{backup_filename()}"
-    src = sqlite3.connect(DB_PATH)
+    src = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     try:
-        dst = sqlite3.connect(tmp_path)
+        dst = sqlite3.connect(tmp_path, timeout=30, check_same_thread=False)
         try:
             src.backup(dst)
             dst.commit()
@@ -1916,7 +1910,10 @@ async def send_backup_file(context: ContextTypes.DEFAULT_TYPE) -> None:
         target_id = ADMIN_CHAT_ID
 
     fname = backup_filename()
-    data = make_backup_bytes()
+
+    async with DB_LOCK:
+        data = make_backup_bytes()
+
     bio = io.BytesIO(data)
     bio.name = fname
 
@@ -1930,6 +1927,9 @@ async def send_backup_file(context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     except Exception as e:
         logger.warning("Auto-backup send failed: %s", e)
+
+async def backup_job(ctx):
+    await send_backup_file(ctx)
 
 def schedule_backup_job(app: Application) -> None:
     try:
@@ -1950,7 +1950,7 @@ def schedule_backup_job(app: Application) -> None:
 
     seconds = hours * 3600
     app.job_queue.run_repeating(
-        callback=lambda ctx: send_backup_file(ctx),
+        callback=backup_job,
         interval=seconds,
         first=seconds,
         name=JOB_BACKUP,
@@ -1983,11 +1983,14 @@ async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     if act == "backup_now":
         fname = backup_filename()
-        data = make_backup_bytes()
+        await q.edit_message_text(rtl("در حال ارسال بکاپ..."), reply_markup=db_menu_kb())
+
+        async with DB_LOCK:
+            data = make_backup_bytes()
+
         bio = io.BytesIO(data)
         bio.name = fname
 
-        await q.edit_message_text(rtl("در حال ارسال بکاپ..."), reply_markup=db_menu_kb())
         await context.bot.send_document(
             chat_id=user.id,
             document=bio,
@@ -2176,7 +2179,8 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Emergency backup current DB
     try:
         emergency_name = f"kasbbook_emergency_{datetime.now(TZ).strftime('%Y-%m-%d_%H-%M-%S')}.db"
-        data = make_backup_bytes()
+        async with DB_LOCK:
+            data = make_backup_bytes()
         bio = io.BytesIO(data)
         bio.name = emergency_name
         await update.effective_chat.send_message(rtl("🧯 بکاپ اضطراری از دیتابیس فعلی گرفته شد."))
@@ -2190,8 +2194,9 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.warning("Failed to send emergency backup: %s", e)
 
     try:
-        shutil.move(tmp_in, DB_PATH)
-        init_db()
+        async with DB_LOCK:
+            shutil.move(tmp_in, DB_PATH)
+            init_db()
         await update.effective_chat.send_message(rtl("✅ بکاپ با موفقیت وارد شد."))
     except Exception as e:
         logger.exception("Restore failed: %s", e)
@@ -2406,4 +2411,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
