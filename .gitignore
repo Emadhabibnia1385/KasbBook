@@ -1,0 +1,31 @@
+# --- secrets ---------------------------------------------------------------
+.env
+*.env
+!.env.example
+
+# --- runtime data (never commit a customer's books) -------------------------
+KasbBook.db
+KasbBook.db-wal
+KasbBook.db-shm
+*.db
+*.db-wal
+*.db-shm
+backups/
+
+# --- python ----------------------------------------------------------------
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- editors / OS ----------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

@@ -119,8 +119,34 @@ install_bot() {
   if [[ -d "$DIR/.git" ]]; then
     (cd "$DIR" && run_silent git pull -q) || { err "git pull failed"; return 1; }
   else
+    # A re-clone wipes $DIR, so the database and config are parked first.
+    local keep=""
+    if [[ -e "$DIR/KasbBook.db" || -e "$DIR/.env" || -d "$DIR/backups" ]]; then
+      keep="$(mktemp -d)"
+      info "Preserving existing database and config..."
+      [[ -e "$DIR/KasbBook.db" ]] && cp -a "$DIR/KasbBook.db" "$keep/" 2>/dev/null
+      [[ -e "$DIR/.env" ]]        && cp -a "$DIR/.env" "$keep/" 2>/dev/null
+      [[ -d "$DIR/backups" ]]     && cp -a "$DIR/backups" "$keep/" 2>/dev/null
+    fi
+
     run_silent rm -rf "$DIR"
-    run_silent git clone -q "$REPO" "$DIR" || { err "git clone failed"; return 1; }
+    if ! run_silent git clone -q "$REPO" "$DIR"; then
+      if [[ -n "$keep" ]]; then
+        mkdir -p "$DIR"
+        cp -a "$keep/." "$DIR/" 2>/dev/null
+        rm -rf "$keep"
+        err "git clone failed (your database was put back in $DIR)"
+      else
+        err "git clone failed"
+      fi
+      return 1
+    fi
+
+    if [[ -n "$keep" ]]; then
+      cp -a "$keep/." "$DIR/" 2>/dev/null
+      rm -rf "$keep"
+      ok "Existing database and config restored"
+    fi
   fi
 
   detect_py_file || return 1
@@ -144,8 +170,20 @@ install_bot() {
   ok "Packages downloaded & installed successfully!"
   echo ""
 
-  ask_config || return 1
-  write_env
+  if [[ -f "$DIR/.env" ]]; then
+    echo ""
+    echo -n "A config already exists. Keep it? (Y/n): "
+    read -r keep_env
+    if [[ "$keep_env" =~ ^[Nn] ]]; then
+      ask_config || return 1
+      write_env
+    else
+      ok "Existing config kept"
+    fi
+  else
+    ask_config || return 1
+    write_env
+  fi
 
   create_service || return 1
 
@@ -159,6 +197,13 @@ install_bot() {
 update_bot() {
   info "Updating KasbBook from GitHub..."
   [[ -d "$DIR/.git" ]] || { err "Not installed. Install first."; return 1; }
+
+  # Cheap insurance: snapshot the database before new code touches it.
+  if [[ -f "$DIR/KasbBook.db" ]]; then
+    mkdir -p "$DIR/backups"
+    cp -a "$DIR/KasbBook.db" "$DIR/backups/KasbBook_preupdate_$(date +%Y-%m-%d_%H-%M-%S).db" 2>/dev/null \
+      && ok "Database snapshot saved to $DIR/backups"
+  fi
 
   (cd "$DIR" && run_silent git pull -q) || { err "git pull failed"; return 1; }
 
@@ -186,6 +231,7 @@ edit_config() {
 }
 
 remove_bot() {
+  echo -e "${R}This deletes $DIR, including KasbBook.db and every local backup.${N}"
   echo -n "Are you sure you want to remove KasbBook? (yes/no): "
   read -r confirm
   if [[ "$confirm" != "yes" ]]; then
