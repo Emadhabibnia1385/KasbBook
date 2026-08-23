@@ -724,6 +724,31 @@ check(bot.upcoming_loan_reminders(days_ahead=40) == [], "reminders off means no 
 check("گزارش روز" in bot.digest_text(SCOPE, OWNER), "digest renders a daily summary")
 audit(bot.reminders_kb(), "reminder settings")
 
+# =========================================================== error handling
+section("error handling")
+import httpx as _httpx  # noqa: E402
+from telegram.error import BadRequest as _BadRequest, NetworkError as _NetErr, TimedOut as _TimedOut  # noqa: E402
+
+for err, want, label in [
+    (_NetErr("boom"), True, "telegram NetworkError"),
+    (_TimedOut(), True, "telegram TimedOut"),
+    (_httpx.ReadError("reset"), True, "httpx ReadError"),
+    (_httpx.ConnectTimeout("slow"), True, "httpx ConnectTimeout"),
+    (ValueError("a real bug"), False, "an ordinary bug"),
+    (_BadRequest("chat not found"), False, "a real Telegram rejection"),
+]:
+    got = bot.is_transient_network_error(err)
+    check(got is want, f"{label} treated as {'transient' if want else 'a real error'}")
+
+# A wrapped transport error must still be recognised through the cause chain.
+try:
+    try:
+        raise _httpx.ReadError("inner")
+    except _httpx.ReadError as inner:
+        raise RuntimeError("outer") from inner
+except RuntimeError as wrapped:
+    check(bot.is_transient_network_error(wrapped), "a wrapped transport error is still transient")
+
 # =========================================================== static menus
 section("menus")
 static = {

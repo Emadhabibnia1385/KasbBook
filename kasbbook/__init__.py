@@ -14,7 +14,7 @@ from .config import ACCESS_ADMIN_ONLY, ACCESS_PUBLIC, ADMIN_CHAT_ID, ADMIN_CHAT_
 from .debts import DEBT_LABELS, create_debt, debt_totals, debts_kb, debts_text, delete_debt, list_debts, settle_debt
 from .handlers.admin import adm_add_name, adm_add_uid, admin_panel_cb, build_admin_panel_kb
 from .handlers.categories import cat_add_name, cat_rename_name, cats_cb
-from .handlers.common import access_cb, cancel_cmd, main_cb, on_error, settings_cb, setup_commands, start, unknown_callback
+from .handlers.common import is_transient_network_error, access_cb, cancel_cmd, main_cb, on_error, settings_cb, setup_commands, start, unknown_callback
 from .handlers.database import currency_cb, currency_custom_input, db_cb, db_interval_entry, db_restore_entry, db_restore_wait_doc, db_set_interval_input, db_set_target_id_input, db_target_choice_cb, reminder_days_input, reminder_hour_input, reminders_cb
 from .handlers.finance import budget_amount_input, budget_catname_input, budget_pick_kb, budgets_cb, debt_amount_input, debt_dir_cb, debt_dir_kb, debt_due_input, debt_due_skip, debt_note_input, debt_note_skip, debt_person_input, debts_cb, loan_amount_input, loan_count_input, loan_start_input, loan_title_input, loans_cb, rc_amount_input, rc_cat_input, rc_desc_input, rc_desc_skip, rc_period_cb, rc_period_kb, rc_start_input, rc_ttype_cb, rc_ttype_kb, recurring_cb
 from .handlers.quick import parse_quick_entry, quick_entry, quick_entry_cb, quick_group_kb, save_quick_entry
@@ -255,6 +255,7 @@ __all__ = [
     "ikb",
     "init_db",
     "is_admin",
+    "is_transient_network_error",
     "is_primary_admin",
     "j_month_range_g",
     "j_to_g_str",

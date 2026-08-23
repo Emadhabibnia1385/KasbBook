@@ -2,7 +2,7 @@
 
 import traceback
 from telegram import BotCommand, ReplyKeyboardRemove, Update
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import Application, ContextTypes, ConversationHandler
 from typing import List
 
@@ -163,11 +163,40 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # Repeated identical failures should not spam the admin's chat.
 _LAST_ERROR_SIG: List[str] = []
 
+# A long-polling bot loses its connection now and then: the peer resets, the
+# network blips, a read times out. PTB retries on its own, so these are noise,
+# not incidents — they get logged but never paged to the admin.
+_TRANSIENT_BY_NAME = {
+    "ReadError", "WriteError", "ConnectError", "ConnectTimeout",
+    "ReadTimeout", "WriteTimeout", "PoolTimeout", "RemoteProtocolError",
+}
+
+def is_transient_network_error(err: object) -> bool:
+    # BadRequest and TimedOut both subclass NetworkError in PTB, so an isinstance
+    # check against NetworkError would swallow real API rejections too. Only a
+    # bare NetworkError means "the connection misbehaved".
+    if type(err) is NetworkError or isinstance(err, TimedOut):
+        return True
+    # httpx/httpcore failures share no base class with telegram's, so the
+    # class name is the only thing they reliably have in common.
+    seen = set()
+    while err is not None and id(err) not in seen:
+        seen.add(id(err))
+        if type(err).__name__ in _TRANSIENT_BY_NAME:
+            return True
+        err = getattr(err, "__cause__", None) or getattr(err, "__context__", None)
+    return False
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     err = context.error
 
     # Re-pressing a button that produces the same screen is not an error.
     if isinstance(err, BadRequest) and "not modified" in str(err).lower():
+        return
+
+    # Connection hiccups are expected and self-healing; log and move on.
+    if is_transient_network_error(err):
+        logger.warning("Transient network error: %s: %s", type(err).__name__, err)
         return
 
     logger.error("Unhandled error while processing update", exc_info=err)
