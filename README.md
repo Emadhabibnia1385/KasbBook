@@ -70,6 +70,12 @@ work everywhere.
 | 📈 **Period comparison** | Every month and year is shown against the one before it, with direction and percentage. |
 | 📆 **Custom ranges** | Any two dates, not just whole months and years. |
 | 🔎 **Search** | Find transactions by category or note, paged, with a running total. |
+| 🎯 **Budgets** | A monthly ceiling per category or per group, with a progress bar and a warning the moment a spend crosses it. |
+| 🤝 **Debts and receivables** | Who owes you, who you owe, and when it is due — tracked separately, so it never distorts income. |
+| 📉 **Trend chart** | Six or twelve months of income, expense, net or savings as a bar chart. |
+| 🧾 **Receipts** | Attach a photo or file to any transaction and pull it back up later. |
+| ↩️ **Undo** | A deleted transaction can be put back with one tap. |
+| 🔔 **Reminders** | An end-of-day summary and a heads-up before each installment falls due. |
 | 🏷 **Category breakdown** | Per-category totals with share percentages and counts, for any period. |
 | 📥 **CSV export** | Any period as a UTF-8 spreadsheet (with BOM, so Excel opens Persian correctly). |
 | 💱 **Currency** | تومان, ریال, or anything you name. Shown on every figure. |
@@ -110,6 +116,21 @@ A loan is a title, an installment amount, a count and a start date. Tapping
 *8 of 24 paid (33%), 32,000,000 remaining, last installment Mehr 1406*.
 
 Deleting a loan keeps its payments: that money really did move.
+
+### Budgets
+
+Set a monthly ceiling on a single category (`اجاره`) or a whole group (all
+business expenses). The budget screen shows a bar per budget, and recording a
+transaction that pushes one past 80% — or over the line — says so straight away.
+Budgets are per Jalali month and never block a transaction; they inform, they do
+not police.
+
+### Debts and receivables
+
+A credit sale is income you already recorded *and* money someone still owes you.
+KasbBook keeps that second half in its own ledger: person, direction, amount,
+optional due date. **Debts never create transactions**, so nothing is counted
+twice; settling one moves it to history and out of the totals.
 
 ### Access modes
 
@@ -219,8 +240,13 @@ Jalali month; monthly and yearly views include a comparison with the previous
 period. Every level offers **🏷 Category breakdown** and **📥 CSV export**, and the
 root adds **🔎 Search** and **📆 Custom range**.
 
-**Loans and recurring** — `⚙️ Settings → 📄 اقساط و وام‌ها` and
-`⚙️ Settings → 🔁 تراکنش‌های تکرارشونده`.
+**Everything else** lives under `⚙️ Settings`: loans (`📄 اقساط و وام‌ها`),
+debts (`🤝 طلب و بدهی`), budgets (`🎯 بودجه‌ها`), recurring transactions
+(`🔁 تراکنش‌های تکرارشونده`), reminders (`🔔 یادآورها`) and currency (`💱 واحد پول`).
+
+**Reminders** — turn on the end-of-day summary (and pick its hour) or the
+installment heads-up (and how many days of warning). Both go to the primary
+admin.
 
 ---
 
@@ -257,10 +283,12 @@ idempotent — a half-applied upgrade resumes rather than corrupts.
 
 | Table | Holds |
 |---|---|
-| `transactions` | `scope`, `owner_user_id`, `date_g`, `ttype`, `category`, `amount`, `description`, `loan_id` |
+| `transactions` | `scope`, `owner_user_id`, `date_g`, `ttype`, `category`, `amount`, `description`, `loan_id`, `receipt_file_id` |
 | `categories` | Per-scope, per-owner, per-type category names; `is_locked` protects `قسط` |
 | `loans` | Title, installment amount, installment count, start date |
 | `recurring` | A transaction template plus a period and the next due date |
+| `budgets` | A monthly ceiling per category or per group |
+| `debts` | Person, direction, amount, due date, settlement time |
 | `admins` | Additional admins added through the panel |
 | `settings` | Schema version, access mode, sharing flag, currency, backup configuration |
 

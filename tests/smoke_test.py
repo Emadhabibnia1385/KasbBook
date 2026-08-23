@@ -510,6 +510,151 @@ bot.set_setting("access_mode", bot.ACCESS_ADMIN_ONLY)
 ok, _ = bot.within_quota(SCOPE, OWNER, "cat")
 check(ok, "admin mode is not rate limited")
 
+# =========================================================== budgets
+section("budgets")
+JY, JM = bot.g_to_j_parts(BUSY)[0], bot.g_to_j_parts(BUSY)[1]
+
+bot.set_budget(SCOPE, OWNER, "group", "work_out", 100_000)
+bot.set_budget(SCOPE, OWNER, "category", "اجاره", 50_000)
+check(len(bot.list_budgets(SCOPE, OWNER)) == 2, "two budgets stored")
+
+bot.set_budget(SCOPE, OWNER, "group", "work_out", 200_000)
+check(len(bot.list_budgets(SCOPE, OWNER)) == 2, "setting the same target updates instead of duplicating")
+
+status = bot.budget_status(SCOPE, OWNER, JY, JM)
+check(len(status) == 2, "budget status covers every budget")
+grp = [x for x in status if x["kind"] == "group"][0]
+check(grp["limit"] == 200_000, f"limit reflects the update ({grp['limit']})")
+check(grp["spent"] >= 0, f"spend computed ({grp['spent']})")
+check(grp["remaining"] == grp["limit"] - grp["spent"], "remaining = limit - spent")
+check(0 <= grp["percent"] or grp["percent"] > 100, "percent computed")
+
+over = [x for x in status if x["spent"] > x["limit"]]
+check(isinstance(over, list), "over-budget rows identifiable")
+check("بودجه" in bot.budgets_text(SCOPE, OWNER, JY, JM), "budget screen renders")
+
+b_id = bot.list_budgets(SCOPE, OWNER)[0]["id"]
+bot.delete_budget(SCOPE, OWNER, b_id)
+check(len(bot.list_budgets(SCOPE, OWNER)) == 1, "budget deleted")
+
+for i in range(40):
+    bot.set_budget(SCOPE, OWNER, "category", f"بودجه {i}", 1000)
+for page in (0, 1, 5):
+    audit(bot.budgets_kb(SCOPE, OWNER, page), f"budget list p{page}")
+
+# =========================================================== debts
+section("debts and receivables")
+d1 = bot.create_debt(SCOPE, OWNER, "علی", "owed_to_me", 500_000, "نسیه", "2026-09-01")
+d2 = bot.create_debt(SCOPE, OWNER, "بانک", "i_owe", 300_000, None, None)
+check(isinstance(d1, int) and isinstance(d2, int), "debts created")
+
+totals = bot.debt_totals(SCOPE, OWNER)
+check(totals["owed_to_me"] == 500_000, f"receivable total ({totals['owed_to_me']:,})")
+check(totals["i_owe"] == 300_000, f"payable total ({totals['i_owe']:,})")
+check(totals["net"] == 200_000, f"net position ({totals['net']:,})")
+
+check(len(bot.list_debts(SCOPE, OWNER)) == 2, "open debts listed")
+bot.settle_debt(SCOPE, OWNER, d1)
+check(len(bot.list_debts(SCOPE, OWNER)) == 1, "settled debt leaves the open list")
+check(len(bot.list_debts(SCOPE, OWNER, include_settled=True)) == 2, "settled debt is kept for history")
+check(bot.debt_totals(SCOPE, OWNER)["owed_to_me"] == 0, "settling clears it from the totals")
+
+# a debt is a promise, not money that moved — it must not touch the ledger
+before_tx = bot.count_transactions(SCOPE, OWNER)
+bot.create_debt(SCOPE, OWNER, "رضا", "owed_to_me", 10_000, None, None)
+check(bot.count_transactions(SCOPE, OWNER) == before_tx, "debts never create transactions")
+
+check("علی" in bot.debts_text(SCOPE, OWNER, include_settled=True), "debt screen names the person")
+for i in range(40):
+    bot.create_debt(SCOPE, OWNER, f"شخص {i}", "i_owe", 100, None, None)
+for page in (0, 1, 5):
+    audit(bot.debts_kb(SCOPE, OWNER, page), f"debt list p{page}")
+
+# =========================================================== trend
+section("trend chart")
+trend = bot.monthly_trend(SCOPE, OWNER, 6, "income")
+check(len(trend) == 6, f"six months of trend data ({len(trend)})")
+check(all(isinstance(v, int) for _, v in trend), "trend values are numbers")
+txt = bot.trend_text(SCOPE, OWNER, "income", 6)
+check("روند" in txt, "trend chart renders")
+check(len(txt) < 4096, f"trend fits one message ({len(txt)} chars)")
+check(bot.trend_text(SCOPE, OWNER, "savings_final", 12).count("\n") > 3, "12-month trend renders")
+audit(bot.trend_kb("income", 6), "trend controls")
+
+# a metric that is always zero must not blow up on the scaling divide
+empty = bot.trend_text(SCOPE, 999999, "income", 6)
+check(isinstance(empty, str) and empty, "trend survives an owner with no data")
+
+# =========================================================== weeks
+section("week ranges")
+ws, we = bot.week_range_g(0)
+check(ws <= bot.today_g() <= we, f"this week contains today ({ws}..{we})")
+ls, le = bot.week_range_g(1)
+check(le < ws, f"last week ends before this week starts ({ls}..{le})")
+import datetime as _dt  # noqa: E402
+check((_dt.date.fromisoformat(we) - _dt.date.fromisoformat(ws)).days == 6, "a week spans seven days")
+check(_dt.date.fromisoformat(ws).weekday() == 5, "the week starts on Saturday")
+
+# =========================================================== receipts
+section("receipts")
+with bot.db() as conn:
+    some_tx = conn.execute("SELECT id, date_g FROM transactions LIMIT 1").fetchone()
+    check("receipt_file_id" in bot._columns(conn, "transactions"), "transactions.receipt_file_id exists")
+
+bot.set_receipt(SCOPE, OWNER, int(some_tx["id"]), "FAKE_FILE_ID")
+with bot.db() as conn:
+    got = conn.execute("SELECT receipt_file_id FROM transactions WHERE id=?", (int(some_tx["id"]),)).fetchone()
+check(got["receipt_file_id"] == "FAKE_FILE_ID", "receipt stored")
+audit(bot.tx_view_kb(str(some_tx["date_g"]), int(some_tx["id"]), has_receipt=True), "tx view with a receipt")
+audit(bot.tx_view_kb(str(some_tx["date_g"]), int(some_tx["id"]), has_receipt=False), "tx view without a receipt")
+bot.set_receipt(SCOPE, OWNER, int(some_tx["id"]), None)
+with bot.db() as conn:
+    got = conn.execute("SELECT receipt_file_id FROM transactions WHERE id=?", (int(some_tx["id"]),)).fetchone()
+check(got["receipt_file_id"] is None, "receipt removable")
+
+# =========================================================== undo
+section("undo a delete")
+tx_row = bot.get_tx(SCOPE, OWNER, int(some_tx["id"]))
+snap = bot.snapshot_tx(tx_row)
+check(isinstance(snap, dict) and snap["id"] == int(some_tx["id"]), "transaction snapshotted before deletion")
+
+with bot.db() as conn:
+    conn.execute("DELETE FROM transactions WHERE id=?", (int(some_tx["id"]),))
+check(bot.get_tx(SCOPE, OWNER, int(some_tx["id"])) is None, "transaction gone")
+
+restored = bot.restore_tx(snap)
+check(restored == int(some_tx["id"]), "undo restores the same row id")
+back = bot.get_tx(SCOPE, OWNER, int(some_tx["id"]))
+check(back is not None and int(back["amount"]) == int(tx_row["amount"]), "undo restores the amount")
+check(bot.restore_tx(snap) == int(some_tx["id"]), "undo is idempotent")
+
+# =========================================================== reminders
+section("reminders and digest")
+check(bot.get_setting("digest_enabled") in ("0", "1"), "digest setting present")
+check(bot.get_setting("loan_reminder_enabled") in ("0", "1"), "loan reminder setting present")
+
+rl = bot.create_loan(SCOPE, OWNER, "وام یادآور", 1000, 6, bot.today_g())
+loan = bot.get_loan(SCOPE, OWNER, rl)
+dues = bot.loan_due_dates(loan)
+check(len(dues) == 6, f"six due dates generated ({len(dues)})")
+check(dues == sorted(dues), "due dates are in order")
+check(dues[0] == bot.today_g(), "the first installment falls on the start date")
+
+nxt = bot.next_unpaid_due(SCOPE, OWNER, loan)
+check(nxt == dues[0], f"next unpaid due is the first one ({nxt})")
+bot.record_loan_payment(SCOPE, OWNER, OWNER, rl, bot.today_g())
+check(bot.next_unpaid_due(SCOPE, OWNER, bot.get_loan(SCOPE, OWNER, rl)) == dues[1],
+      "next unpaid due advances after a payment")
+
+bot.set_setting("loan_reminder_enabled", "1")
+due_soon = bot.upcoming_loan_reminders(days_ahead=40)
+check(any(int(x["loan"]["id"]) == rl for x in due_soon), "the loan shows up in upcoming reminders")
+bot.set_setting("loan_reminder_enabled", "0")
+check(bot.upcoming_loan_reminders(days_ahead=40) == [], "reminders off means no reminders")
+
+check("گزارش روز" in bot.digest_text(SCOPE, OWNER), "digest renders a daily summary")
+audit(bot.reminders_kb(), "reminder settings")
+
 # =========================================================== static menus
 section("menus")
 static = {

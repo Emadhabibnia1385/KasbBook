@@ -55,6 +55,8 @@ ADMIN_PAGE_SIZE = 20         # admins per page
 TOP_CATEGORIES = 8           # rows per group in the category breakdown report
 SEARCH_PAGE_SIZE = 10        # search results per page
 LOAN_PAGE_SIZE = 10          # loans per page
+BUDGET_PAGE_SIZE = 10        # budgets per page
+DEBT_PAGE_SIZE = 10          # debts per page
 
 DEFAULT_CURRENCY = "تومان"
 
@@ -84,10 +86,15 @@ CB_LN = "ln"    # loans / installments
 CB_RC = "rc"    # recurring transactions
 CB_SR = "sr"    # search
 CB_CU = "cu"    # currency
+CB_BG = "bg"    # budgets
+CB_DT = "dt"    # debts and receivables
+CB_TR = "tr"    # trend chart
+CB_RM = "rm"    # reminders and digest
 
 # Job name
 JOB_BACKUP = "kasbbook_auto_backup"
 JOB_RECURRING = "kasbbook_recurring"
+JOB_DIGEST = "kasbbook_digest"
 
 # Global DB lock to reduce "database is locked"
 DB_LOCK = asyncio.Lock()
@@ -174,7 +181,7 @@ def db() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 # Bump this when BASE_SCHEMA changes, and add a matching entry to MIGRATIONS.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # The shape a brand-new database is created with. Everything is IF NOT EXISTS,
 # so running it against an older database is a no-op — widening an existing
@@ -203,7 +210,8 @@ CREATE TABLE IF NOT EXISTS transactions(
     description TEXT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    loan_id INTEGER NULL
+    loan_id INTEGER NULL,
+    receipt_file_id TEXT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date
@@ -259,6 +267,35 @@ CREATE TABLE IF NOT EXISTS recurring(
 
 CREATE INDEX IF NOT EXISTS idx_recurring_due
     ON recurring(is_active, next_run_g);
+
+CREATE TABLE IF NOT EXISTS budgets(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
+    owner_user_id INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('group','category')),
+    target TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK(amount>0),
+    created_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_budget_target
+    ON budgets(scope, owner_user_id, kind, target);
+
+CREATE TABLE IF NOT EXISTS debts(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
+    owner_user_id INTEGER NOT NULL,
+    person TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('owed_to_me','i_owe')),
+    amount INTEGER NOT NULL CHECK(amount>=0),
+    note TEXT NULL,
+    due_date_g TEXT NULL,
+    settled_at TEXT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_debts_open
+    ON debts(scope, owner_user_id, settled_at);
 """
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -350,9 +387,15 @@ def _m3_loans_recurring(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE transactions ADD COLUMN loan_id INTEGER NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_loan ON transactions(loan_id)")
 
+def _m4_budgets_debts_receipts(conn: sqlite3.Connection) -> None:
+    """Add budgets and debts (both come from BASE_SCHEMA) plus receipt storage."""
+    if "receipt_file_id" not in _columns(conn, "transactions"):
+        conn.execute("ALTER TABLE transactions ADD COLUMN receipt_file_id TEXT NULL")
+
 MIGRATIONS: List[Tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (2, "personal income type", _m2_personal_income),
     (3, "loans and recurring transactions", _m3_loans_recurring),
+    (4, "budgets, debts and receipts", _m4_budgets_debts_receipts),
 ]
 
 def _detect_version(conn: sqlite3.Connection) -> int:
@@ -411,6 +454,12 @@ def init_db() -> None:
         _ensure_setting("access_mode", ACCESS_ADMIN_ONLY)
         _ensure_setting("share_enabled", "0")
         _ensure_setting("currency", DEFAULT_CURRENCY)
+
+        # Proactive notifications
+        _ensure_setting("digest_enabled", "0")            # 0/1
+        _ensure_setting("digest_hour", "21")              # local hour, 0-23
+        _ensure_setting("loan_reminder_enabled", "0")     # 0/1
+        _ensure_setting("loan_reminder_days", "3")        # days of warning
 
         # Backup settings
         _ensure_setting("backup_enabled", "0")                           # 0/1
@@ -803,7 +852,10 @@ def settings_menu(user_id: int) -> InlineKeyboardMarkup:
     rows = [
         [("🧩 مدیریت دسته‌ها", f"{CB_ST}:cats")],
         [("📄 اقساط و وام‌ها", f"{CB_LN}:panel")],
+        [("🤝 طلب و بدهی", f"{CB_DT}:panel")],
+        [("🎯 بودجه‌ها", f"{CB_BG}:panel")],
         [("🔁 تراکنش‌های تکرارشونده", f"{CB_RC}:panel")],
+        [("🔔 یادآورها", f"{CB_RM}:panel")],
         [("💱 واحد پول", f"{CB_ST}:cur")],
     ]
     if is_primary_admin(user_id):
@@ -906,6 +958,10 @@ CU_CUSTOM = 0
 SR_QUERY = 0
 RG_START, RG_END = range(2)
 LN_TITLE, LN_AMOUNT, LN_COUNT, LN_START = range(4)
+BG_PICK, BG_CATNAME, BG_AMOUNT = range(3)
+DT_PERSON, DT_DIR, DT_AMOUNT, DT_NOTE, DT_DUE = range(5)
+RM_HOUR, RM_DAYS = range(2)
+RCP_WAIT = 0
 RC_TTYPE, RC_CAT, RC_AMOUNT, RC_DESC, RC_PERIOD, RC_START = range(6)
 
 # =========================
@@ -1838,7 +1894,12 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
         context.user_data.clear()
         return ConversationHandler.END
 
-    await update.effective_chat.send_message(rtl("✅ ثبت شد."), reply_markup=tx_menu())
+    done = "✅ ثبت شد."
+    warning = budget_warning(scope, owner, ttype, category, date_g_)
+    if warning:
+        done += f"\n\n{warning}"
+
+    await update.effective_chat.send_message(rtl(done), reply_markup=tx_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -2142,17 +2203,29 @@ def tx_detail_text(tx: sqlite3.Row, prefix: str = "") -> str:
     ]
     return rtl("\n".join(lines))
 
-def tx_view_kb(gdate: str, tx_id: int, back_cb: Optional[str] = None) -> InlineKeyboardMarkup:
-    return ikb(
-        [
-            [("🏷 ویرایش دسته", f"{CB_DTX}:cat:{gdate}:{tx_id}")],
-            [("💵 ویرایش مبلغ", f"{CB_DTX}:amt:{gdate}:{tx_id}")],
-            [("📝 ویرایش توضیحات", f"{CB_DTX}:desc:{gdate}:{tx_id}")],
-            [("📅 ویرایش تاریخ", f"{CB_DTX}:date:{gdate}:{tx_id}")],
-            [("🗑 حذف", f"{CB_DTX}:del:{gdate}:{tx_id}")],
-            [("⬅️ بازگشت", back_cb or f"{CB_DL}:show:{gdate}")],
-        ]
-    )
+def tx_view_kb(
+    gdate: str,
+    tx_id: int,
+    back_cb: Optional[str] = None,
+    has_receipt: bool = False,
+) -> InlineKeyboardMarkup:
+    rows = [
+        [("🏷 ویرایش دسته", f"{CB_DTX}:cat:{gdate}:{tx_id}")],
+        [("💵 ویرایش مبلغ", f"{CB_DTX}:amt:{gdate}:{tx_id}")],
+        [("📝 ویرایش توضیحات", f"{CB_DTX}:desc:{gdate}:{tx_id}")],
+        [("📅 ویرایش تاریخ", f"{CB_DTX}:date:{gdate}:{tx_id}")],
+    ]
+    if has_receipt:
+        rows.append([
+            ("🧾 دیدن رسید", f"{CB_DTX}:rcpv:{gdate}:{tx_id}"),
+            ("❌ حذف رسید", f"{CB_DTX}:rcpd:{gdate}:{tx_id}"),
+        ])
+    else:
+        rows.append([("🧾 افزودن رسید", f"{CB_DTX}:rcp:{gdate}:{tx_id}")])
+
+    rows.append([("🗑 حذف", f"{CB_DTX}:del:{gdate}:{tx_id}")])
+    rows.append([("⬅️ بازگشت", back_cb or f"{CB_DL}:show:{gdate}")])
+    return ikb(rows)
 
 def tx_cat_change_kb(scope: str, owner: int, ttype: str, gdate: str, tx_id: int, page: int) -> InlineKeyboardMarkup:
     ensure_installment(scope, owner)
@@ -2206,8 +2279,59 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     back_cb = daily_back_cb(gdate, current_pages(context))
 
+    has_receipt = bool(tx["receipt_file_id"])
+
     if act == "open":
-        await safe_edit(q, tx_detail_text(tx), reply_markup=tx_view_kb(gdate, tx_id, back_cb))
+        await safe_edit(q, tx_detail_text(tx), reply_markup=tx_view_kb(gdate, tx_id, back_cb, has_receipt))
+        return ConversationHandler.END
+
+    if act == "rcpv":
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=str(tx["receipt_file_id"]),
+                caption=rtl(f"🧾 رسید — {tx['category']} | {fmt_money(int(tx['amount']))}"),
+            )
+        except Exception:
+            # It may have been sent as a file rather than a photo.
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=str(tx["receipt_file_id"]),
+                caption=rtl("🧾 رسید"),
+            )
+        return ConversationHandler.END
+
+    if act == "rcpd":
+        async with DB_LOCK:
+            set_receipt(scope, owner, tx_id, None)
+        tx2 = get_tx(scope, owner, tx_id)
+        await safe_edit(q, tx_detail_text(tx2, "🧾 رسید حذف شد."),
+                        reply_markup=tx_view_kb(gdate, tx_id, back_cb, False))
+        return ConversationHandler.END
+
+    if act == "rcp":
+        context.user_data.clear()
+        context.user_data["receipt_tx_id"] = tx_id
+        context.user_data["receipt_gdate"] = gdate
+        await safe_edit(q, rtl(
+            "🧾 عکس یا فایل رسید را بفرست.\n\nبرای انصراف /cancel بزن."
+        ))
+        return RCP_WAIT
+
+    if act == "undo":
+        snap = context.chat_data.get("deleted_tx")
+        if not snap or int(snap.get("id", -1)) != tx_id:
+            await q.answer("چیزی برای بازگرداندن نیست.", show_alert=True)
+            return ConversationHandler.END
+
+        async with DB_LOCK:
+            restore_tx(snap)
+        context.chat_data.pop("deleted_tx", None)
+
+        await safe_edit(q,
+            daily_list_text(scope, owner, gdate),
+            reply_markup=daily_rows_kb(scope, owner, gdate, current_pages(context)),
+        )
         return ConversationHandler.END
 
     if act == "del":
@@ -2232,6 +2356,9 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     if act == "delok":
+        # Keep a copy so the delete can be taken back — people mis-tap.
+        context.chat_data["deleted_tx"] = snapshot_tx(tx)
+
         async with DB_LOCK:
             with db() as conn:
                 conn.execute(
@@ -2241,10 +2368,12 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 conn.commit()
 
         pages = current_pages(context)
-        await safe_edit(q,
-            daily_list_text(scope, owner, gdate),
-            reply_markup=daily_rows_kb(scope, owner, gdate, pages),
+        base = daily_rows_kb(scope, owner, gdate, pages)
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("↩️ بازگرداندن حذف", callback_data=f"{CB_DTX}:undo:{gdate}:{tx_id}")]]
+            + list(base.inline_keyboard)
         )
+        await safe_edit(q, daily_list_text(scope, owner, gdate), reply_markup=kb)
         return ConversationHandler.END
 
     if act == "amt":
@@ -2298,7 +2427,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 if not row:
                     await safe_edit(q,
                         rtl("دسته پیدا نشد."),
-                        reply_markup=tx_view_kb(gdate, tx_id, back_cb),
+                        reply_markup=tx_view_kb(gdate, tx_id, back_cb, has_receipt),
                     )
                     return ConversationHandler.END
 
@@ -2311,11 +2440,11 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         tx2 = get_tx(scope, owner, tx_id)
         await safe_edit(q,
             tx_detail_text(tx2, "✅ ویرایش شد."),
-            reply_markup=tx_view_kb(gdate, tx_id, back_cb),
+            reply_markup=tx_view_kb(gdate, tx_id, back_cb, has_receipt),
         )
         return ConversationHandler.END
 
-    await safe_edit(q, rtl("دستور ناشناخته."), reply_markup=tx_view_kb(gdate, tx_id, back_cb))
+    await safe_edit(q, rtl("دستور ناشناخته."), reply_markup=tx_view_kb(gdate, tx_id, back_cb, has_receipt))
     return ConversationHandler.END
 
 async def apply_tx_date(update: Update, context: ContextTypes.DEFAULT_TYPE, new_gdate: str) -> int:
@@ -2630,6 +2759,14 @@ def period_extra_kb(spec: str) -> List[List[tuple]]:
 def report_root_kb(years: List[int]) -> InlineKeyboardMarkup:
     rows: List[List[tuple]] = period_extra_kb("a")
     rows.append([("🔎 جست‌وجو", f"{CB_SR}:new"), ("📆 بازهٔ دلخواه", f"{CB_RP}:range")])
+    rows.append([("📉 روند ماهانه", f"{CB_TR}:show:savings_final:6")])
+
+    this_s, this_e = week_range_g(0)
+    last_s, last_e = week_range_g(1)
+    rows.append([
+        ("🗓 این هفته", f"{CB_RP}:r:{this_s}:{this_e}"),
+        ("🗓 هفتهٔ گذشته", f"{CB_RP}:r:{last_s}:{last_e}"),
+    ])
 
     buf: List[tuple] = []
     for y in years:
@@ -3363,6 +3500,526 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 # =========================
+# Weeks
+# =========================
+def week_range_g(offset: int = 0) -> Tuple[str, str]:
+    """Inclusive [start, end] of a week, counting from Saturday like the Iranian week."""
+    today = datetime.now(TZ).date()
+    since_saturday = (today.weekday() + 2) % 7
+    start = today - timedelta(days=since_saturday + 7 * offset)
+    return (start.strftime("%Y-%m-%d"), (start + timedelta(days=6)).strftime("%Y-%m-%d"))
+
+# =========================
+# Budgets
+# =========================
+def set_budget(scope: str, owner: int, kind: str, target: str, amount: int) -> None:
+    """One budget per target: setting it again updates the limit."""
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO budgets(scope, owner_user_id, kind, target, amount, created_at)
+            VALUES(?,?,?,?,?,?)
+            ON CONFLICT(scope, owner_user_id, kind, target)
+            DO UPDATE SET amount=excluded.amount
+            """,
+            (scope, owner, kind, target.strip(), int(amount), now_ts()),
+        )
+
+def delete_budget(scope: str, owner: int, budget_id: int) -> None:
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM budgets WHERE id=? AND scope=? AND owner_user_id=?",
+            (budget_id, scope, owner),
+        )
+
+def list_budgets(scope: str, owner: int) -> List[sqlite3.Row]:
+    with db() as conn:
+        return list(conn.execute(
+            "SELECT * FROM budgets WHERE scope=? AND owner_user_id=? ORDER BY kind, target COLLATE NOCASE",
+            (scope, owner),
+        ).fetchall())
+
+def budget_status(scope: str, owner: int, jy: int, jm: int) -> List[Dict]:
+    """How much of each budget the given Jalali month has used."""
+    budgets = list_budgets(scope, owner)
+    if not budgets:
+        return []
+
+    start, end = j_month_range_g(jy, jm)
+    out: List[Dict] = []
+
+    with db() as conn:
+        for b in budgets:
+            kind = str(b["kind"])
+            target = str(b["target"])
+            column = "ttype" if kind == "group" else "category"
+            row = conn.execute(
+                f"""
+                SELECT COALESCE(SUM(amount),0) AS spent
+                FROM transactions
+                WHERE scope=? AND owner_user_id=? AND date_g>=? AND date_g<? AND {column}=?
+                """,
+                (scope, owner, start, end, target),
+            ).fetchone()
+
+            limit = int(b["amount"])
+            spent = int(row["spent"])
+            out.append({
+                "id": int(b["id"]),
+                "kind": kind,
+                "target": target,
+                "label": grp_label(target) if kind == "group" else target,
+                "limit": limit,
+                "spent": spent,
+                "remaining": limit - spent,
+                "percent": round(spent * 100 / limit) if limit else 0,
+            })
+
+    return out
+
+def _bar(percent: int, width: int = 10) -> str:
+    filled = max(0, min(width, round(percent * width / 100)))
+    return "█" * filled + "░" * (width - filled)
+
+def budgets_text(
+    scope: str,
+    owner: int,
+    jy: Optional[int] = None,
+    jm: Optional[int] = None,
+    page: int = 0,
+) -> str:
+    if jy is None or jm is None:
+        jy, jm, _ = g_to_j_parts(today_g())
+
+    rows = budget_status(scope, owner, jy, jm)
+    if not rows:
+        return rtl(
+            "🎯 بودجه‌ها\n\n"
+            "هنوز بودجه‌ای تعیین نشده.\n"
+            "برای یک دسته یا کل یک گروه سقف ماهانه بگذار تا ربات هشدار بدهد."
+        )
+
+    page = max(0, min(page, max(0, (len(rows) - 1) // BUDGET_PAGE_SIZE)))
+    window = rows[page * BUDGET_PAGE_SIZE:(page + 1) * BUDGET_PAGE_SIZE]
+
+    lines = [f"🎯 بودجه‌های {jmonth_name(jm)} {jy}", ""]
+    for r in window:
+        flag = "⛔" if r["spent"] > r["limit"] else ("⚠️" if r["percent"] >= 80 else "✅")
+        lines.append(
+            f"{flag} {r['label']}\n"
+            f"  {_bar(r['percent'])} {r['percent']}%\n"
+            f"  {fmt_money(r['spent'])} از {fmt_money(r['limit'])}"
+        )
+        if r["remaining"] < 0:
+            lines.append(f"  بیش از سقف: {fmt_money(-r['remaining'])}")
+
+    over = [r for r in rows if r["spent"] > r["limit"]]
+    if over:
+        lines += ["", f"⛔ {len(over)} بودجه از سقف رد شده."]
+    return rtl("\n".join(lines))
+
+def budgets_kb(scope: str, owner: int, page: int = 0) -> InlineKeyboardMarkup:
+    budgets = list_budgets(scope, owner)
+    page = max(0, min(page, max(0, (len(budgets) - 1) // BUDGET_PAGE_SIZE)))
+    window = budgets[page * BUDGET_PAGE_SIZE:(page + 1) * BUDGET_PAGE_SIZE]
+
+    rows: List[List[InlineKeyboardButton]] = [
+        [InlineKeyboardButton("➕ تعیین بودجه", callback_data=f"{CB_BG}:add")]
+    ]
+
+    for b in window:
+        label = grp_label(str(b["target"])) if str(b["kind"]) == "group" else str(b["target"])
+        rows.append([
+            InlineKeyboardButton(label[:24], callback_data=f"{CB_BG}:noop"),
+            InlineKeyboardButton("🗑", callback_data=f"{CB_BG}:del:{b['id']}"),
+        ])
+
+    nav = page_nav_row(f"{CB_BG}:page:", page, len(budgets), BUDGET_PAGE_SIZE)
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_M}:st")])
+    return InlineKeyboardMarkup(rows)
+
+def budget_warning(scope: str, owner: int, ttype: str, category: str, gdate: str) -> Optional[str]:
+    """A one-line nudge when a just-recorded expense crosses a budget."""
+    jy, jm, _ = g_to_j_parts(gdate)
+    for r in budget_status(scope, owner, jy, jm):
+        hit = (r["kind"] == "group" and r["target"] == ttype) or \
+              (r["kind"] == "category" and r["target"] == category)
+        if not hit:
+            continue
+        if r["spent"] > r["limit"]:
+            return f"⛔ بودجهٔ «{r['label']}» {fmt_money(r['spent'] - r['limit'])} رد شد."
+        if r["percent"] >= 80:
+            return f"⚠️ {r['percent']}% از بودجهٔ «{r['label']}» مصرف شده."
+    return None
+
+# =========================
+# Debts and receivables
+# =========================
+DEBT_LABELS = {"owed_to_me": "طلب من", "i_owe": "بدهی من"}
+
+def create_debt(
+    scope: str,
+    owner: int,
+    person: str,
+    direction: str,
+    amount: int,
+    note: Optional[str],
+    due_date_g: Optional[str],
+) -> int:
+    with db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO debts(scope, owner_user_id, person, direction, amount,
+                              note, due_date_g, settled_at, created_at)
+            VALUES(?,?,?,?,?,?,?,NULL,?)
+            """,
+            (scope, owner, person.strip(), direction, int(amount),
+             (note or None), due_date_g, now_ts()),
+        )
+        return int(cur.lastrowid)
+
+def settle_debt(scope: str, owner: int, debt_id: int) -> None:
+    with db() as conn:
+        conn.execute(
+            "UPDATE debts SET settled_at=? WHERE id=? AND scope=? AND owner_user_id=?",
+            (now_ts(), debt_id, scope, owner),
+        )
+
+def delete_debt(scope: str, owner: int, debt_id: int) -> None:
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM debts WHERE id=? AND scope=? AND owner_user_id=?",
+            (debt_id, scope, owner),
+        )
+
+def list_debts(scope: str, owner: int, include_settled: bool = False) -> List[sqlite3.Row]:
+    where = "scope=? AND owner_user_id=?"
+    if not include_settled:
+        where += " AND settled_at IS NULL"
+    with db() as conn:
+        return list(conn.execute(
+            f"SELECT * FROM debts WHERE {where} ORDER BY settled_at IS NOT NULL, due_date_g IS NULL, due_date_g, id DESC",
+            (scope, owner),
+        ).fetchall())
+
+def debt_totals(scope: str, owner: int) -> Dict[str, int]:
+    """Only open debts count: a settled one is history, not a position."""
+    with db() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN direction='owed_to_me' THEN amount ELSE 0 END),0) AS owed_to_me,
+                COALESCE(SUM(CASE WHEN direction='i_owe' THEN amount ELSE 0 END),0) AS i_owe
+            FROM debts
+            WHERE scope=? AND owner_user_id=? AND settled_at IS NULL
+            """,
+            (scope, owner),
+        ).fetchone()
+
+    owed = int(row["owed_to_me"])
+    mine = int(row["i_owe"])
+    return {"owed_to_me": owed, "i_owe": mine, "net": owed - mine}
+
+def debts_text(
+    scope: str,
+    owner: int,
+    page: int = 0,
+    include_settled: bool = False,
+) -> str:
+    debts = list_debts(scope, owner, include_settled)
+    totals = debt_totals(scope, owner)
+
+    if not debts:
+        return rtl(
+            "🤝 طلب و بدهی\n\n"
+            "چیزی ثبت نشده.\n"
+            "نسیه‌ها و قرض‌ها را اینجا نگه دار — روی گزارش‌های درآمد اثر نمی‌گذارند."
+        )
+
+    page = max(0, min(page, max(0, (len(debts) - 1) // DEBT_PAGE_SIZE)))
+    window = debts[page * DEBT_PAGE_SIZE:(page + 1) * DEBT_PAGE_SIZE]
+
+    lines = [
+        "🤝 طلب و بدهی",
+        "",
+        f"📥 طلب من: {fmt_money(totals['owed_to_me'])}",
+        f"📤 بدهی من: {fmt_money(totals['i_owe'])}",
+        f"⚖️ خالص: {fmt_money(totals['net'])}",
+        "",
+    ]
+    for d in window:
+        mark = "✅ " if d["settled_at"] else ""
+        arrow = "📥" if str(d["direction"]) == "owed_to_me" else "📤"
+        line = f"{mark}{arrow} {d['person']}: {fmt_money(int(d['amount']))}"
+        if d["due_date_g"]:
+            line += f"\n  سررسید: {g_to_j(str(d['due_date_g']))}"
+        if d["note"]:
+            line += f"\n  {str(d['note'])[:40]}"
+        lines.append(line)
+
+    return rtl("\n".join(lines))
+
+def debts_kb(scope: str, owner: int, page: int = 0) -> InlineKeyboardMarkup:
+    debts = list_debts(scope, owner)
+    page = max(0, min(page, max(0, (len(debts) - 1) // DEBT_PAGE_SIZE)))
+    window = debts[page * DEBT_PAGE_SIZE:(page + 1) * DEBT_PAGE_SIZE]
+
+    rows: List[List[InlineKeyboardButton]] = [
+        [InlineKeyboardButton("➕ ثبت طلب/بدهی", callback_data=f"{CB_DT}:add")]
+    ]
+
+    for d in window:
+        rows.append([
+            InlineKeyboardButton(str(d["person"])[:20], callback_data=f"{CB_DT}:noop"),
+            InlineKeyboardButton("✅ تسویه", callback_data=f"{CB_DT}:settle:{d['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"{CB_DT}:del:{d['id']}"),
+        ])
+
+    nav = page_nav_row(f"{CB_DT}:page:", page, len(debts), DEBT_PAGE_SIZE)
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton("🗂 شامل تسویه‌شده‌ها", callback_data=f"{CB_DT}:all")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_M}:st")])
+    return InlineKeyboardMarkup(rows)
+
+# =========================
+# Monthly trend
+# =========================
+TREND_METRICS = {
+    "income": "درآمد کاری",
+    "work_out": "هزینه کاری",
+    "net": "خالص کاری",
+    "savings_final": "پس‌انداز نهایی",
+}
+
+def monthly_trend(scope: str, owner: int, months: int, metric: str) -> List[Tuple[str, int]]:
+    """The last N Jalali months of one metric, oldest first."""
+    jy, jm, _ = g_to_j_parts(today_g())
+    out: List[Tuple[str, int]] = []
+
+    for back in range(months - 1, -1, -1):
+        total = (jy * 12 + (jm - 1)) - back
+        y, m = divmod(total, 12)
+        m += 1
+        s = sums_for_range(scope, owner, *j_month_range_g(y, m))
+        out.append((f"{jmonth_name(m)} {y}", int(s.get(metric, 0))))
+
+    return out
+
+def trend_text(scope: str, owner: int, metric: str, months: int) -> str:
+    data = monthly_trend(scope, owner, months, metric)
+    label = TREND_METRICS.get(metric, metric)
+
+    peak = max((abs(v) for _, v in data), default=0)
+    lines = [f"📉 روند {label} — {months} ماه اخیر", ""]
+
+    if not peak:
+        lines.append("در این بازه عددی ثبت نشده.")
+        return rtl("\n".join(lines))
+
+    for name, value in data:
+        width = max(1, round(abs(value) * 12 / peak)) if value else 0
+        bar = "█" * width if width else "▏"
+        sign = "−" if value < 0 else ""
+        lines.append(f"{name}: {sign}{fmt_num(abs(value))}\n{bar}")
+
+    return rtl("\n".join(lines))
+
+def trend_kb(metric: str, months: int) -> InlineKeyboardMarkup:
+    rows: List[List[tuple]] = []
+
+    buf: List[tuple] = []
+    for key, name in TREND_METRICS.items():
+        mark = " ✅" if key == metric else ""
+        buf.append((f"{name}{mark}", f"{CB_TR}:show:{key}:{months}"))
+        if len(buf) == 2:
+            rows.append(buf)
+            buf = []
+    if buf:
+        rows.append(buf)
+
+    rows.append([
+        (f"۶ ماه{' ✅' if months == 6 else ''}", f"{CB_TR}:show:{metric}:6"),
+        (f"۱۲ ماه{' ✅' if months == 12 else ''}", f"{CB_TR}:show:{metric}:12"),
+    ])
+    rows.append([("⬅️ بازگشت", f"{CB_RP}:root")])
+    return ikb(rows)
+
+# =========================
+# Receipts
+# =========================
+def set_receipt(scope: str, owner: int, tx_id: int, file_id: Optional[str]) -> None:
+    with db() as conn:
+        conn.execute(
+            "UPDATE transactions SET receipt_file_id=?, updated_at=? "
+            "WHERE id=? AND scope=? AND owner_user_id=?",
+            (file_id, now_ts(), tx_id, scope, owner),
+        )
+
+# =========================
+# Undo a deletion
+# =========================
+TX_SNAPSHOT_FIELDS = (
+    "id", "scope", "owner_user_id", "actor_user_id", "date_g", "ttype",
+    "category", "amount", "description", "created_at", "updated_at",
+    "loan_id", "receipt_file_id",
+)
+
+def snapshot_tx(row: sqlite3.Row) -> Dict:
+    """Everything needed to put a deleted transaction back exactly as it was."""
+    return {f: row[f] for f in TX_SNAPSHOT_FIELDS}
+
+def restore_tx(snap: Dict) -> int:
+    """Re-insert a snapshotted transaction, keeping its original id."""
+    cols = ", ".join(TX_SNAPSHOT_FIELDS)
+    marks = ", ".join("?" for _ in TX_SNAPSHOT_FIELDS)
+    with db() as conn:
+        conn.execute(
+            f"INSERT OR REPLACE INTO transactions({cols}) VALUES({marks})",
+            tuple(snap[f] for f in TX_SNAPSHOT_FIELDS),
+        )
+    return int(snap["id"])
+
+# =========================
+# Reminders and daily digest
+# =========================
+def loan_due_dates(loan: sqlite3.Row) -> List[str]:
+    start = str(loan["start_date_g"])
+    return [add_jalali_months(start, i) for i in range(int(loan["installment_count"]))]
+
+def next_unpaid_due(scope: str, owner: int, loan: sqlite3.Row) -> Optional[str]:
+    """
+    The date of the next installment still owed.
+
+    Payments are counted, not matched to specific dates, so the Nth payment
+    simply clears the Nth due date.
+    """
+    paid = loan_progress(scope, owner, loan)["paid_count"]
+    dues = loan_due_dates(loan)
+    return dues[paid] if paid < len(dues) else None
+
+def upcoming_loan_reminders(days_ahead: Optional[int] = None) -> List[Dict]:
+    """Loans whose next installment falls within the warning window."""
+    try:
+        if get_setting("loan_reminder_enabled") != "1":
+            return []
+        window = days_ahead if days_ahead is not None else int(get_setting("loan_reminder_days"))
+    except Exception:
+        return []
+
+    today = datetime.now(TZ).date()
+    cutoff = (today + timedelta(days=max(0, window))).strftime("%Y-%m-%d")
+
+    with db() as conn:
+        loans = list(conn.execute("SELECT * FROM loans WHERE is_active=1").fetchall())
+
+    out: List[Dict] = []
+    for loan in loans:
+        due = next_unpaid_due(str(loan["scope"]), int(loan["owner_user_id"]), loan)
+        if due and due <= cutoff:
+            out.append({
+                "scope": str(loan["scope"]),
+                "owner": int(loan["owner_user_id"]),
+                "loan": loan,
+                "due": due,
+            })
+    return out
+
+def digest_text(scope: str, owner: int) -> str:
+    parts = [daily_list_text(scope, owner, today_g())]
+
+    totals = debt_totals(scope, owner)
+    if totals["owed_to_me"] or totals["i_owe"]:
+        parts.append(rtl(
+            f"🤝 طلب: {fmt_money(totals['owed_to_me'])} | "
+            f"بدهی: {fmt_money(totals['i_owe'])}"
+        ))
+
+    jy, jm, _ = g_to_j_parts(today_g())
+    over = [b for b in budget_status(scope, owner, jy, jm) if b["spent"] > b["limit"]]
+    if over:
+        names = "، ".join(b["label"] for b in over[:3])
+        parts.append(rtl(f"⛔ بودجهٔ رد شده: {names}"))
+
+    return "\n\n".join(parts)
+
+def reminders_kb() -> InlineKeyboardMarkup:
+    digest_on = get_setting("digest_enabled") == "1"
+    loan_on = get_setting("loan_reminder_enabled") == "1"
+    hour = get_setting("digest_hour")
+    days = get_setting("loan_reminder_days")
+
+    return ikb([
+        [(f"📊 خلاصهٔ روزانه: {'روشن ✅' if digest_on else 'خاموش ❌'}", f"{CB_RM}:tog:digest")],
+        [(f"🕘 ساعت ارسال: {hour}", f"{CB_RM}:hour")],
+        [(f"📄 یادآور قسط: {'روشن ✅' if loan_on else 'خاموش ❌'}", f"{CB_RM}:tog:loan")],
+        [(f"⏳ چند روز قبل: {days}", f"{CB_RM}:days")],
+        [("⬅️ بازگشت", f"{CB_M}:st")],
+    ])
+
+def reminders_text() -> str:
+    return (
+        "🔔 یادآورها\n\n"
+        "خلاصهٔ روزانه هر شب وضعیت همان روز را می‌فرستد.\n"
+        "یادآور قسط، قبل از سررسید هر قسط خبر می‌دهد."
+    )
+
+async def digest_job(ctx) -> None:
+    """Runs hourly; sends what is due this hour and nothing twice."""
+    try:
+        now = datetime.now(TZ)
+        stamp = now.strftime("%Y-%m-%d")
+        app = ctx.application
+
+        if get_setting("digest_enabled") == "1":
+            try:
+                hour = int(get_setting("digest_hour"))
+            except (TypeError, ValueError):
+                hour = 21
+
+            if now.hour == hour and app.bot_data.get("digest_sent_on") != stamp:
+                app.bot_data["digest_sent_on"] = stamp
+                scope, owner = resolve_scope_owner(PRIMARY_ADMIN_USER_ID)
+                try:
+                    await ctx.bot.send_message(PRIMARY_ADMIN_USER_ID, digest_text(scope, owner))
+                except Exception as e:
+                    logger.warning("Digest send failed: %s", e)
+
+        if app.bot_data.get("loan_reminded_on") != stamp:
+            due = upcoming_loan_reminders()
+            if due:
+                app.bot_data["loan_reminded_on"] = stamp
+                lines = ["🔔 یادآور قسط", ""]
+                for item in due:
+                    lines.append(
+                        f"• {item['loan']['title']}: "
+                        f"{fmt_money(int(item['loan']['installment_amount']))} "
+                        f"— {g_to_j(item['due'])}"
+                    )
+                try:
+                    await ctx.bot.send_message(PRIMARY_ADMIN_USER_ID, rtl("\n".join(lines)))
+                except Exception as e:
+                    logger.warning("Loan reminder send failed: %s", e)
+
+    except Exception as e:
+        logger.exception("Digest job failed: %s", e)
+
+def schedule_digest_job(app: Application) -> None:
+    try:
+        for j in app.job_queue.get_jobs_by_name(JOB_DIGEST):
+            j.schedule_removal()
+    except Exception:
+        pass
+
+    app.job_queue.run_repeating(
+        callback=digest_job, interval=3600, first=60, name=JOB_DIGEST
+    )
+
+# =========================
 # Period comparison
 # =========================
 def previous_period(spec: str) -> Optional[str]:
@@ -3992,6 +4649,10 @@ async def save_quick_entry(
     if entry["description"]:
         lines.append(f"📝 {entry['description']}")
 
+    warning = budget_warning(scope, owner, ttype, entry["category"], gdate)
+    if warning:
+        lines += ["", warning]
+
     kb = ikb([
         [("✏️ ویرایش", f"{CB_DTX}:open:{gdate}:{tx_id}")],
         [("📄 لیست همان روز", f"{CB_DL}:show:{gdate}")],
@@ -4549,6 +5210,358 @@ async def range_end_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 # =========================
+# Budget handlers
+# =========================
+def budget_pick_kb() -> InlineKeyboardMarkup:
+    rows = [[(f"کل {grp_label(g)}", f"{CB_BG}:t:g:{g}")] for g in SECTION_ORDER]
+    rows.append([("🏷 یک دستهٔ مشخص", f"{CB_BG}:t:c")])
+    rows.append([("↩️ انصراف", f"{CB_BG}:panel")])
+    return ikb(rows)
+
+async def budgets_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    scope, owner = resolve_scope_owner(user.id)
+    parts = (q.data or "").split(":")
+    act = parts[1]
+
+    if act == "noop":
+        return ConversationHandler.END
+
+    if act in ("panel", "page"):
+        page = 0
+        if act == "page":
+            try:
+                page = int(parts[2])
+            except (IndexError, ValueError):
+                page = 0
+        context.user_data.pop("bg_draft", None)
+        jy, jm, _ = g_to_j_parts(today_g())
+        await safe_edit(q, budgets_text(scope, owner, jy, jm, page),
+                        reply_markup=budgets_kb(scope, owner, page))
+        return ConversationHandler.END
+
+    if act == "del":
+        async with DB_LOCK:
+            delete_budget(scope, owner, int(parts[2]))
+        jy, jm, _ = g_to_j_parts(today_g())
+        await safe_edit(q, budgets_text(scope, owner, jy, jm), reply_markup=budgets_kb(scope, owner))
+        return ConversationHandler.END
+
+    if act == "add":
+        context.user_data.clear()
+        context.user_data["bg_draft"] = {}
+        await safe_edit(q, rtl("🎯 بودجه برای چه چیزی؟"), reply_markup=budget_pick_kb())
+        return BG_PICK
+
+    if act == "t":
+        draft = context.user_data.setdefault("bg_draft", {})
+        if parts[2] == "g":
+            draft["kind"] = "group"
+            draft["target"] = parts[3]
+            await safe_edit(q, rtl(f"💵 سقف ماهانه برای {grp_label(parts[3])} را بنویس:"))
+            return BG_AMOUNT
+
+        draft["kind"] = "category"
+        await safe_edit(q, rtl("🏷 نام دقیق دسته را بنویس:"))
+        return BG_CATNAME
+
+    jy, jm, _ = g_to_j_parts(today_g())
+    await safe_edit(q, budgets_text(scope, owner, jy, jm), reply_markup=budgets_kb(scope, owner))
+    return ConversationHandler.END
+
+async def budget_catname_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    name = (update.message.text or "").strip()
+    if not name:
+        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        return BG_CATNAME
+
+    context.user_data.setdefault("bg_draft", {})["target"] = name[:40]
+    await update.effective_chat.send_message(rtl(f"💵 سقف ماهانه برای «{name}» را بنویس:"))
+    return BG_AMOUNT
+
+async def budget_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    amount = parse_amount(update.message.text or "")
+    if amount is None or amount <= 0:
+        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        return BG_AMOUNT
+
+    draft = context.user_data.get("bg_draft") or {}
+    if not draft.get("kind") or not draft.get("target"):
+        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    async with DB_LOCK:
+        set_budget(scope, owner, draft["kind"], draft["target"], amount)
+
+    context.user_data.clear()
+    jy, jm, _ = g_to_j_parts(today_g())
+    await update.effective_chat.send_message(
+        budgets_text(scope, owner, jy, jm), reply_markup=budgets_kb(scope, owner)
+    )
+    return ConversationHandler.END
+
+# =========================
+# Debt handlers
+# =========================
+def debt_dir_kb() -> InlineKeyboardMarkup:
+    return ikb([
+        [("📥 به من بدهکار است", f"{CB_DT}:dir:owed_to_me")],
+        [("📤 من بدهکارم", f"{CB_DT}:dir:i_owe")],
+        [("↩️ انصراف", f"{CB_DT}:panel")],
+    ])
+
+async def debts_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    scope, owner = resolve_scope_owner(user.id)
+    parts = (q.data or "").split(":")
+    act = parts[1]
+
+    if act == "noop":
+        return ConversationHandler.END
+
+    if act in ("panel", "page", "all"):
+        page = 0
+        if act == "page":
+            try:
+                page = int(parts[2])
+            except (IndexError, ValueError):
+                page = 0
+        context.user_data.pop("dt_draft", None)
+        await safe_edit(q,
+            debts_text(scope, owner, page, include_settled=(act == "all")),
+            reply_markup=debts_kb(scope, owner, page),
+        )
+        return ConversationHandler.END
+
+    if act == "settle":
+        async with DB_LOCK:
+            settle_debt(scope, owner, int(parts[2]))
+        await safe_edit(q, debts_text(scope, owner), reply_markup=debts_kb(scope, owner))
+        return ConversationHandler.END
+
+    if act == "del":
+        async with DB_LOCK:
+            delete_debt(scope, owner, int(parts[2]))
+        await safe_edit(q, debts_text(scope, owner), reply_markup=debts_kb(scope, owner))
+        return ConversationHandler.END
+
+    if act == "add":
+        context.user_data.clear()
+        context.user_data["dt_draft"] = {}
+        await safe_edit(q, rtl("👤 نام طرف حساب را بنویس:"))
+        return DT_PERSON
+
+    await safe_edit(q, debts_text(scope, owner), reply_markup=debts_kb(scope, owner))
+    return ConversationHandler.END
+
+async def debt_person_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    person = (update.message.text or "").strip()
+    if not person:
+        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        return DT_PERSON
+
+    context.user_data.setdefault("dt_draft", {})["person"] = person[:40]
+    await update.effective_chat.send_message(rtl("جهت را انتخاب کن:"), reply_markup=debt_dir_kb())
+    return DT_DIR
+
+async def debt_dir_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+
+    direction = (q.data or "").split(":")[2]
+    if direction not in DEBT_LABELS:
+        await safe_edit(q, rtl("گزینه نامعتبر."), reply_markup=debt_dir_kb())
+        return DT_DIR
+
+    context.user_data.setdefault("dt_draft", {})["direction"] = direction
+    await safe_edit(q, rtl("💵 مبلغ را بنویس:"))
+    return DT_AMOUNT
+
+async def debt_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    amount = parse_amount(update.message.text or "")
+    if amount is None:
+        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        return DT_AMOUNT
+
+    context.user_data.setdefault("dt_draft", {})["amount"] = amount
+    await update.effective_chat.send_message(rtl("📝 توضیح (اختیاری) یا /skip:"))
+    return DT_NOTE
+
+async def debt_note_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    note = (update.message.text or "").strip()
+    context.user_data.setdefault("dt_draft", {})["note"] = note or None
+    await update.effective_chat.send_message(rtl("🗓 سررسید (اختیاری) یا /skip:"))
+    return DT_DUE
+
+async def debt_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.setdefault("dt_draft", {})["note"] = None
+    await update.effective_chat.send_message(rtl("🗓 سررسید (اختیاری) یا /skip:"))
+    return DT_DUE
+
+async def _save_debt(update: Update, context: ContextTypes.DEFAULT_TYPE, due: Optional[str]) -> int:
+    user = update.effective_user
+    draft = context.user_data.get("dt_draft") or {}
+    if not draft.get("person") or not draft.get("direction") or draft.get("amount") is None:
+        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    async with DB_LOCK:
+        create_debt(scope, owner, draft["person"], draft["direction"],
+                    int(draft["amount"]), draft.get("note"), due)
+
+    context.user_data.clear()
+    await update.effective_chat.send_message(
+        debts_text(scope, owner), reply_markup=debts_kb(scope, owner)
+    )
+    return ConversationHandler.END
+
+async def debt_due_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    due = parse_date_any(update.message.text or "")
+    if not due:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره یا /skip:"))
+        return DT_DUE
+    return await _save_debt(update, context, due)
+
+async def debt_due_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await _save_debt(update, context, None)
+
+# =========================
+# Trend handler
+# =========================
+async def trend_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    metric = parts[2] if len(parts) > 2 else "savings_final"
+    try:
+        months = int(parts[3])
+    except (IndexError, ValueError):
+        months = 6
+
+    if metric not in TREND_METRICS:
+        metric = "savings_final"
+    months = 12 if months == 12 else 6
+
+    scope, owner = resolve_scope_owner(user.id)
+    await safe_edit(q, trend_text(scope, owner, metric, months), reply_markup=trend_kb(metric, months))
+
+# =========================
+# Reminder handlers
+# =========================
+async def reminders_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    act = parts[1]
+
+    if act == "tog":
+        key = "digest_enabled" if parts[2] == "digest" else "loan_reminder_enabled"
+        set_setting(key, "0" if get_setting(key) == "1" else "1")
+        await safe_edit(q, rtl(reminders_text()), reply_markup=reminders_kb())
+        return ConversationHandler.END
+
+    if act == "hour":
+        await safe_edit(q, rtl("🕘 ساعت ارسال خلاصهٔ روزانه را بنویس (۰ تا ۲۳):"))
+        return RM_HOUR
+
+    if act == "days":
+        await safe_edit(q, rtl("⏳ چند روز قبل از سررسید قسط خبر بدهم؟"))
+        return RM_DAYS
+
+    await safe_edit(q, rtl(reminders_text()), reply_markup=reminders_kb())
+    return ConversationHandler.END
+
+async def reminder_hour_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    raw = to_ascii_digits(update.message.text or "").strip()
+    if not re.fullmatch(r"\d{1,2}", raw) or int(raw) > 23:
+        await update.effective_chat.send_message(rtl("❌ عددی بین ۰ تا ۲۳ بنویس:"))
+        return RM_HOUR
+
+    set_setting("digest_hour", str(int(raw)))
+    await update.effective_chat.send_message(rtl(reminders_text()), reply_markup=reminders_kb())
+    return ConversationHandler.END
+
+async def reminder_days_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    raw = to_ascii_digits(update.message.text or "").strip()
+    if not re.fullmatch(r"\d{1,2}", raw):
+        await update.effective_chat.send_message(rtl("❌ فقط عدد بنویس:"))
+        return RM_DAYS
+
+    set_setting("loan_reminder_days", str(int(raw)))
+    await update.effective_chat.send_message(rtl(reminders_text()), reply_markup=reminders_kb())
+    return ConversationHandler.END
+
+# =========================
+# Receipt upload
+# =========================
+async def receipt_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+
+    msg = update.message
+    file_id = None
+    if msg and msg.photo:
+        file_id = msg.photo[-1].file_id
+    elif msg and msg.document:
+        file_id = msg.document.file_id
+
+    if not file_id:
+        await update.effective_chat.send_message(rtl("❌ عکس یا فایل بفرست، یا /cancel بزن."))
+        return RCP_WAIT
+
+    tx_id = context.user_data.get("receipt_tx_id")
+    gdate = context.user_data.get("receipt_gdate")
+    if not isinstance(tx_id, int) or not isinstance(gdate, str):
+        await update.effective_chat.send_message(rtl("خطا."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    async with DB_LOCK:
+        set_receipt(scope, owner, tx_id, file_id)
+
+    context.user_data.clear()
+    tx = get_tx(scope, owner, tx_id)
+    if not tx:
+        await update.effective_chat.send_message(rtl("تراکنش پیدا نشد."), reply_markup=tx_menu())
+        return ConversationHandler.END
+
+    await update.effective_chat.send_message(
+        tx_detail_text(tx, "🧾 رسید ذخیره شد."),
+        reply_markup=tx_view_kb(gdate, tx_id, daily_back_cb(gdate, current_pages(context)), True),
+    )
+    return ConversationHandler.END
+
+# =========================
 # Cancel / error handling
 # =========================
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -4623,6 +5636,7 @@ def build_app() -> Application:
         await setup_commands(application)
         schedule_backup_job(application)
         schedule_recurring_job(application)
+        schedule_digest_job(application)
 
     app.post_init = _post_init
 
@@ -4755,7 +5769,10 @@ def build_app() -> Application:
 
     # TX details (view / delete-with-confirm / category picker)
     app.add_handler(
-        CallbackQueryHandler(dtx_cb, pattern=r"^dtx:(open|del|delok|cat):\d{4}-\d{2}-\d{2}:\d+$")
+        CallbackQueryHandler(
+            dtx_cb,
+            pattern=r"^dtx:(open|del|delok|undo|cat|rcpv|rcpd):\d{4}-\d{2}-\d{2}:\d+$",
+        )
     )
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:catp:\d{4}-\d{2}-\d{2}:\d+:\d+$"))
     app.add_handler(CallbackQueryHandler(dtx_cb, pattern=r"^dtx:setcat:\d{4}-\d{2}-\d{2}:\d+:\d+$"))
@@ -4896,6 +5913,87 @@ def build_app() -> Application:
     )
     app.add_handler(recurring_conv)
 
+    # Budgets
+    app.add_handler(
+        CallbackQueryHandler(budgets_cb, pattern=r"^bg:(panel|noop|page:\d+|del:\d+)$")
+    )
+    budget_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(budgets_cb, pattern=r"^bg:add$")],
+        states={
+            BG_PICK: [
+                CallbackQueryHandler(
+                    budgets_cb,
+                    pattern=r"^bg:t:(g:(work_in|work_out|personal_in|personal_out)|c)$",
+                ),
+                CallbackQueryHandler(budgets_cb, pattern=r"^bg:panel$"),
+            ],
+            BG_CATNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, budget_catname_input)],
+            BG_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, budget_amount_input)],
+        },
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(budget_conv)
+
+    # Debts and receivables
+    app.add_handler(
+        CallbackQueryHandler(debts_cb, pattern=r"^dt:(panel|noop|all|page:\d+|settle:\d+|del:\d+)$")
+    )
+    debt_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(debts_cb, pattern=r"^dt:add$")],
+        states={
+            DT_PERSON: [MessageHandler(filters.TEXT & ~filters.COMMAND, debt_person_input)],
+            DT_DIR: [
+                CallbackQueryHandler(debt_dir_cb, pattern=r"^dt:dir:(owed_to_me|i_owe)$"),
+                CallbackQueryHandler(debts_cb, pattern=r"^dt:panel$"),
+            ],
+            DT_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, debt_amount_input)],
+            DT_NOTE: [
+                CommandHandler("skip", debt_note_skip),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, debt_note_input),
+            ],
+            DT_DUE: [
+                CommandHandler("skip", debt_due_skip),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, debt_due_input),
+            ],
+        },
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(debt_conv)
+
+    # Monthly trend
+    app.add_handler(
+        CallbackQueryHandler(
+            trend_cb,
+            pattern=r"^tr:show:(income|work_out|net|savings_final):(6|12)$",
+        )
+    )
+
+    # Reminders and daily digest
+    app.add_handler(
+        CallbackQueryHandler(reminders_cb, pattern=r"^rm:(panel|tog:(digest|loan))$")
+    )
+    reminder_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(reminders_cb, pattern=r"^rm:(hour|days)$")],
+        states={
+            RM_HOUR: [MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_hour_input)],
+            RM_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, reminder_days_input)],
+        },
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(reminder_conv)
+
+    # Receipt upload
+    receipt_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(dtx_cb, pattern=r"^dtx:rcp:\d{4}-\d{2}-\d{2}:\d+$")],
+        states={RCP_WAIT: [MessageHandler(filters.PHOTO | filters.Document.ALL, receipt_wait)]},
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(receipt_conv)
+
     # Quick entry follow-up (which group should this category live in?)
     app.add_handler(
         CallbackQueryHandler(
@@ -4943,7 +6041,7 @@ def build_app() -> Application:
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
-            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:|db:|ln:|rc:|sr:|cu:|qe:).+",
+            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:|db:|ln:|rc:|sr:|cu:|qe:|bg:|dt:|tr:|rm:).+",
         ),
         group=90,
     )
