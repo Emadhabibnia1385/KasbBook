@@ -12,6 +12,7 @@ from ..states import ADM_ADD_NAME, ADM_ADD_UID
 from ..store import db, get_setting
 from ..text import ikb, page_nav_row, rtl, safe_edit
 from ..timeutil import now_ts
+from ..screen import render
 
 # =========================
 # Admin management
@@ -126,39 +127,39 @@ async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def adm_add_uid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_primary_admin(user.id):
-        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        await render(update, context, rtl("⛔ فقط ادمین اصلی."))
         context.user_data.clear()
         return ConversationHandler.END
 
     t = (update.message.text or "").strip()
     if not re.fullmatch(r"\d+", t):
-        await update.effective_chat.send_message(rtl("❌ فقط user_id عددی وارد کنید:"))
+        await render(update, context, rtl("❌ فقط user_id عددی وارد کنید:"))
         return ADM_ADD_UID
 
     uid = int(t)
     if uid == PRIMARY_ADMIN_USER_ID:
-        await update.effective_chat.send_message(rtl("ادمین اصلی را اضافه نکن. یک آیدی دیگر بده:"))
+        await render(update, context, rtl("ادمین اصلی را اضافه نکن. یک آیدی دیگر بده:"))
         return ADM_ADD_UID
 
     context.user_data["new_admin_uid"] = uid
-    await update.effective_chat.send_message(rtl("👤 نام/یوزرنیم ادمین را وارد کنید (مثلاً @ali یا Ali):"))
+    await render(update, context, rtl("👤 نام/یوزرنیم ادمین را وارد کنید (مثلاً @ali یا Ali):"))
     return ADM_ADD_NAME
 
 async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_primary_admin(user.id):
-        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        await render(update, context, rtl("⛔ فقط ادمین اصلی."))
         context.user_data.clear()
         return ConversationHandler.END
 
     name = (update.message.text or "").strip()
     if not name:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        await render(update, context, rtl("نام خالی است. دوباره:"))
         return ADM_ADD_NAME
 
     uid = context.user_data.get("new_admin_uid")
     if not isinstance(uid, int):
-        await update.effective_chat.send_message(rtl("خطا."))
+        await render(update, context, rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -174,7 +175,7 @@ async def adm_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             )
             conn.commit()
 
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl("✅ اضافه شد.\n\n👥 مدیریت ادمین‌ها:"),
         reply_markup=build_admin_panel_kb(),
     )

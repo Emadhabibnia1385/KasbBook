@@ -5,7 +5,7 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 from typing import Optional
 
-from ..access import access_allowed, deny, resolve_scope_owner, within_quota
+from ..access import access_allowed, deny, guarded, resolve_scope_owner, within_quota
 from ..budgets import budgets_kb, budgets_text, delete_budget, set_budget
 from ..config import CB_BG, CB_DT, CB_LN, CB_RC, DB_LOCK
 from ..debts import DEBT_LABELS, create_debt, debts_kb, debts_text, delete_debt, settle_debt
@@ -17,6 +17,7 @@ from ..recurring import PERIOD_LABELS, create_recurring, delete_recurring, recur
 from ..states import BG_AMOUNT, BG_CATNAME, BG_PICK, DT_AMOUNT, DT_DIR, DT_DUE, DT_NOTE, DT_PERSON, LN_AMOUNT, LN_COUNT, LN_START, LN_TITLE, RC_AMOUNT, RC_CAT, RC_DESC, RC_PERIOD, RC_START, RC_TTYPE
 from ..text import grp_label, ikb, rtl, safe_edit
 from ..timeutil import today_g
+from ..screen import render
 
 # =========================
 # Loan handlers
@@ -101,50 +102,54 @@ async def loans_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await safe_edit(q, loans_text(scope, owner), reply_markup=loans_kb(scope, owner))
     return ConversationHandler.END
 
+@guarded
 async def loan_title_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     title = (update.message.text or "").strip()
     if not title:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره بنویس:"))
+        await render(update, context, rtl("نام خالی است. دوباره بنویس:"))
         return LN_TITLE
 
     context.user_data["loan_title"] = title[:60]
-    await update.effective_chat.send_message(rtl("💵 مبلغ هر قسط را بنویس (مثلاً ۲م یا 2000000):"))
+    await render(update, context, rtl("💵 مبلغ هر قسط را بنویس (مثلاً ۲م یا 2000000):"))
     return LN_AMOUNT
 
+@guarded
 async def loan_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     amount = parse_amount(update.message.text or "")
     if amount is None or amount <= 0:
-        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ مبلغ نامعتبر است. دوباره:"))
         return LN_AMOUNT
 
     context.user_data["loan_amount"] = amount
-    await update.effective_chat.send_message(rtl("🔢 تعداد کل اقساط را بنویس (مثلاً 24):"))
+    await render(update, context, rtl("🔢 تعداد کل اقساط را بنویس (مثلاً 24):"))
     return LN_COUNT
 
+@guarded
 async def loan_count_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     raw = to_ascii_digits(update.message.text or "").strip()
     if not re.fullmatch(r"\d{1,4}", raw) or int(raw) <= 0:
-        await update.effective_chat.send_message(rtl("❌ فقط عدد بین ۱ تا ۹۹۹۹ وارد کن:"))
+        await render(update, context, rtl("❌ فقط عدد بین ۱ تا ۹۹۹۹ وارد کن:"))
         return LN_COUNT
 
     context.user_data["loan_count"] = int(raw)
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl("🗓 تاریخ اولین قسط را بنویس (شمسی یا میلادی) یا «امروز»:")
     )
     return LN_START
 
+@guarded
 async def loan_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     start = parse_date_any(update.message.text or "")
     if not start:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. مثلاً 1404/05/01 یا «امروز»:"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. مثلاً 1404/05/01 یا «امروز»:"))
         return LN_START
 
     title = context.user_data.get("loan_title")
     amount = context.user_data.get("loan_amount")
     count = context.user_data.get("loan_count")
     if not title or amount is None or not count:
-        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        await render(update, context, rtl("خطا: اطلاعات ناقص."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -153,7 +158,7 @@ async def loan_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         create_loan(scope, owner, title, int(amount), int(count), start)
 
     context.user_data.clear()
-    await update.effective_chat.send_message(
+    await render(update, context, 
         loans_text(scope, owner), reply_markup=loans_kb(scope, owner)
     )
     return ConversationHandler.END
@@ -230,6 +235,7 @@ async def recurring_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await safe_edit(q, recurring_text(scope, owner), reply_markup=recurring_kb(scope, owner))
     return ConversationHandler.END
 
+@guarded
 async def rc_ttype_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
@@ -243,37 +249,42 @@ async def rc_ttype_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await safe_edit(q, rtl(f"🏷 نام دسته را بنویس ({grp_label(ttype)}):"))
     return RC_CAT
 
+@guarded
 async def rc_cat_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     name = (update.message.text or "").strip()
     if not name:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        await render(update, context, rtl("نام خالی است. دوباره:"))
         return RC_CAT
 
     context.user_data.setdefault("rc_draft", {})["category"] = name[:40]
-    await update.effective_chat.send_message(rtl("💵 مبلغ را بنویس:"))
+    await render(update, context, rtl("💵 مبلغ را بنویس:"))
     return RC_AMOUNT
 
+@guarded
 async def rc_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     amount = parse_amount(update.message.text or "")
     if amount is None:
-        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ مبلغ نامعتبر است. دوباره:"))
         return RC_AMOUNT
 
     context.user_data.setdefault("rc_draft", {})["amount"] = amount
-    await update.effective_chat.send_message(rtl("📝 توضیح (اختیاری) یا /skip:"))
+    await render(update, context, rtl("📝 توضیح (اختیاری) یا /skip:"))
     return RC_DESC
 
+@guarded
 async def rc_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     desc = (update.message.text or "").strip()
     context.user_data.setdefault("rc_draft", {})["description"] = desc or None
-    await update.effective_chat.send_message(rtl("⏱ هر چند وقت تکرار شود؟"), reply_markup=rc_period_kb())
+    await render(update, context, rtl("⏱ هر چند وقت تکرار شود؟"), reply_markup=rc_period_kb())
     return RC_PERIOD
 
+@guarded
 async def rc_desc_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.setdefault("rc_draft", {})["description"] = None
-    await update.effective_chat.send_message(rtl("⏱ هر چند وقت تکرار شود؟"), reply_markup=rc_period_kb())
+    await render(update, context, rtl("⏱ هر چند وقت تکرار شود؟"), reply_markup=rc_period_kb())
     return RC_PERIOD
 
+@guarded
 async def rc_period_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
@@ -287,17 +298,18 @@ async def rc_period_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await safe_edit(q, rtl("🗓 اولین اجرا از چه تاریخی؟ (شمسی/میلادی یا «امروز»)"))
     return RC_START
 
+@guarded
 async def rc_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     start = parse_date_any(update.message.text or "")
     if not start:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره:"))
         return RC_START
 
     draft = context.user_data.get("rc_draft") or {}
     needed = ("ttype", "category", "amount", "period")
     if any(draft.get(k) is None for k in needed):
-        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        await render(update, context, rtl("خطا: اطلاعات ناقص."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -311,7 +323,7 @@ async def rc_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         run_due_recurring()
 
     context.user_data.clear()
-    await update.effective_chat.send_message(
+    await render(update, context, 
         recurring_text(scope, owner), reply_markup=recurring_kb(scope, owner)
     )
     return ConversationHandler.END
@@ -382,26 +394,28 @@ async def budgets_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await safe_edit(q, budgets_text(scope, owner, jy, jm), reply_markup=budgets_kb(scope, owner))
     return ConversationHandler.END
 
+@guarded
 async def budget_catname_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     name = (update.message.text or "").strip()
     if not name:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        await render(update, context, rtl("نام خالی است. دوباره:"))
         return BG_CATNAME
 
     context.user_data.setdefault("bg_draft", {})["target"] = name[:40]
-    await update.effective_chat.send_message(rtl(f"💵 سقف ماهانه برای «{name}» را بنویس:"))
+    await render(update, context, rtl(f"💵 سقف ماهانه برای «{name}» را بنویس:"))
     return BG_AMOUNT
 
+@guarded
 async def budget_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     amount = parse_amount(update.message.text or "")
     if amount is None or amount <= 0:
-        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ مبلغ نامعتبر است. دوباره:"))
         return BG_AMOUNT
 
     draft = context.user_data.get("bg_draft") or {}
     if not draft.get("kind") or not draft.get("target"):
-        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        await render(update, context, rtl("خطا: اطلاعات ناقص."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -411,7 +425,7 @@ async def budget_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     context.user_data.clear()
     jy, jm, _ = g_to_j_parts(today_g())
-    await update.effective_chat.send_message(
+    await render(update, context, 
         budgets_text(scope, owner, jy, jm), reply_markup=budgets_kb(scope, owner)
     )
     return ConversationHandler.END
@@ -476,16 +490,18 @@ async def debts_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await safe_edit(q, debts_text(scope, owner), reply_markup=debts_kb(scope, owner))
     return ConversationHandler.END
 
+@guarded
 async def debt_person_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     person = (update.message.text or "").strip()
     if not person:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        await render(update, context, rtl("نام خالی است. دوباره:"))
         return DT_PERSON
 
     context.user_data.setdefault("dt_draft", {})["person"] = person[:40]
-    await update.effective_chat.send_message(rtl("جهت را انتخاب کن:"), reply_markup=debt_dir_kb())
+    await render(update, context, rtl("جهت را انتخاب کن:"), reply_markup=debt_dir_kb())
     return DT_DIR
 
+@guarded
 async def debt_dir_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
@@ -499,32 +515,35 @@ async def debt_dir_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await safe_edit(q, rtl("💵 مبلغ را بنویس:"))
     return DT_AMOUNT
 
+@guarded
 async def debt_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     amount = parse_amount(update.message.text or "")
     if amount is None:
-        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ مبلغ نامعتبر است. دوباره:"))
         return DT_AMOUNT
 
     context.user_data.setdefault("dt_draft", {})["amount"] = amount
-    await update.effective_chat.send_message(rtl("📝 توضیح (اختیاری) یا /skip:"))
+    await render(update, context, rtl("📝 توضیح (اختیاری) یا /skip:"))
     return DT_NOTE
 
+@guarded
 async def debt_note_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     note = (update.message.text or "").strip()
     context.user_data.setdefault("dt_draft", {})["note"] = note or None
-    await update.effective_chat.send_message(rtl("🗓 سررسید (اختیاری) یا /skip:"))
+    await render(update, context, rtl("🗓 سررسید (اختیاری) یا /skip:"))
     return DT_DUE
 
+@guarded
 async def debt_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.setdefault("dt_draft", {})["note"] = None
-    await update.effective_chat.send_message(rtl("🗓 سررسید (اختیاری) یا /skip:"))
+    await render(update, context, rtl("🗓 سررسید (اختیاری) یا /skip:"))
     return DT_DUE
 
 async def _save_debt(update: Update, context: ContextTypes.DEFAULT_TYPE, due: Optional[str]) -> int:
     user = update.effective_user
     draft = context.user_data.get("dt_draft") or {}
     if not draft.get("person") or not draft.get("direction") or draft.get("amount") is None:
-        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        await render(update, context, rtl("خطا: اطلاعات ناقص."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -534,17 +553,19 @@ async def _save_debt(update: Update, context: ContextTypes.DEFAULT_TYPE, due: Op
                     int(draft["amount"]), draft.get("note"), due)
 
     context.user_data.clear()
-    await update.effective_chat.send_message(
+    await render(update, context, 
         debts_text(scope, owner), reply_markup=debts_kb(scope, owner)
     )
     return ConversationHandler.END
 
+@guarded
 async def debt_due_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     due = parse_date_any(update.message.text or "")
     if not due:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره یا /skip:"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره یا /skip:"))
         return DT_DUE
     return await _save_debt(update, context, due)
 
+@guarded
 async def debt_due_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await _save_debt(update, context, None)

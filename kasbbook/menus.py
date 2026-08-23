@@ -8,6 +8,7 @@ from .jalali import g_to_j
 from .store import get_setting
 from .text import ikb
 from .timeutil import today_g
+from .screen import single_message_on
 
 # متن استارت (طبق درخواست شما تغییر نکند)
 def start_text() -> str:
@@ -49,6 +50,7 @@ def settings_menu(user_id: int) -> InlineKeyboardMarkup:
         [("🔁 تراکنش‌های تکرارشونده", f"{CB_RC}:panel")],
         [("🔔 یادآورها", f"{CB_RM}:panel")],
         [("💱 واحد پول", f"{CB_ST}:cur")],
+        [(f"🧹 حالت تک‌پیامی: {'روشن ✅' if single_message_on() else 'خاموش ❌'}", f"{CB_ST}:single")],
     ]
     if is_primary_admin(user_id):
         rows.append([("🔐 دسترسی ربات", f"{CB_ST}:access")])

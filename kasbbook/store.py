@@ -317,6 +317,7 @@ def init_db() -> None:
         _ensure_setting("access_mode", ACCESS_ADMIN_ONLY)
         _ensure_setting("share_enabled", "0")
         _ensure_setting("currency", DEFAULT_CURRENCY)
+        _ensure_setting("single_message", "1")   # one screen per chat, edited in place
 
         # Proactive notifications
         _ensure_setting("digest_enabled", "0")            # 0/1

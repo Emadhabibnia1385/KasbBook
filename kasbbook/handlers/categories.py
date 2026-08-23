@@ -12,6 +12,7 @@ from ..states import CAT_ADD_NAME, CAT_RENAME_NAME
 from ..store import db
 from ..text import grp_label, ikb, rtl, safe_edit
 from ..timeutil import now_ts
+from ..screen import render
 
 # =========================
 # Categories management
@@ -24,7 +25,7 @@ async def cat_rename_name(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     new_name = (update.message.text or "").strip()
     if not new_name:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره وارد کنید:"))
+        await render(update, context, rtl("نام خالی است. دوباره وارد کنید:"))
         return CAT_RENAME_NAME
 
     cid = context.user_data.get("rename_cat_id")
@@ -51,10 +52,10 @@ async def cat_rename_name(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 conn.commit()
             except sqlite3.IntegrityError:
-                await update.effective_chat.send_message(rtl("❌ این نام قبلاً وجود دارد."))
+                await render(update, context, rtl("❌ این نام قبلاً وجود دارد."))
                 return CAT_RENAME_NAME
 
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl(f"✅ ویرایش شد.\n\n🧩 {grp_label(grp)}"),
         reply_markup=build_cat_kb(scope, owner, grp),
     )
@@ -208,12 +209,12 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     name = (update.message.text or "").strip()
     if not name:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره وارد کنید:"))
+        await render(update, context, rtl("نام خالی است. دوباره وارد کنید:"))
         return CAT_ADD_NAME
 
     grp = context.user_data.get("cat_grp")
     if grp not in ("work_in", "work_out", "personal_in", "personal_out"):
-        await update.effective_chat.send_message(rtl("خطا."))
+        await render(update, context, rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -221,7 +222,7 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     ok, why = within_quota(scope, owner, "cat")
     if not ok:
-        await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+        await render(update, context, rtl(f"⛔ {why}"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -238,7 +239,7 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             except sqlite3.IntegrityError:
                 pass
 
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl(f"✅ اضافه شد.\n\n🧩 {grp_label(grp)}"),
         reply_markup=build_cat_kb(scope, owner, grp),
     )

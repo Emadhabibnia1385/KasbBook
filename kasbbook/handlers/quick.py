@@ -17,6 +17,7 @@ from ..parsing import parse_amount, parse_date_any
 from ..store import db
 from ..text import grp_label, ikb, rtl, safe_edit, ttype_label
 from ..timeutil import now_ts, today_g
+from ..screen import render
 
 # =========================
 # Quick entry (free text)
@@ -105,13 +106,13 @@ async def save_quick_entry(
 
     ok, why = within_quota(scope, owner, "tx")
     if not ok:
-        await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+        await render(update, context, rtl(f"⛔ {why}"))
         return
 
     if create_category:
         ok, why = within_quota(scope, owner, "cat")
         if not ok:
-            await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+            await render(update, context, rtl(f"⛔ {why}"))
             return
         with db() as conn:
             try:
@@ -158,7 +159,7 @@ async def save_quick_entry(
         [("✏️ ویرایش", f"{CB_DTX}:open:{gdate}:{tx_id}")],
         [("📄 لیست همان روز", f"{CB_DL}:show:{gdate}")],
     ])
-    await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=kb)
+    await render(update, context, rtl("\n".join(lines)), reply_markup=kb)
 
 async def quick_entry_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Finish a quick entry whose category was unknown or ambiguous."""
@@ -207,7 +208,7 @@ async def quick_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     entry = parse_quick_entry(msg.text)
     if not entry:
-        await update.effective_chat.send_message(
+        await render(update, context, 
             rtl(
                 "❓ متوجه نشدم.\n\n"
                 "برای ثبت سریع بنویس: «دسته مبلغ [توضیح]»\n"
@@ -242,4 +243,4 @@ async def quick_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "در کدام گروه ساخته شود؟"
         )
 
-    await update.effective_chat.send_message(rtl(prompt), reply_markup=quick_group_kb())
+    await render(update, context, rtl(prompt), reply_markup=quick_group_kb())

@@ -10,7 +10,7 @@ from telegram import Document, Update
 from telegram.ext import ContextTypes, ConversationHandler
 from typing import Optional
 
-from ..access import access_allowed, deny, is_primary_admin
+from ..access import access_allowed, deny, guarded, is_primary_admin
 from ..backups import db_menu_kb, db_menu_text, db_target_kb, schedule_backup_job
 from ..config import ADMIN_CHAT_ID, DB_LOCK, DB_PATH, TZ, logger
 from ..menus import settings_menu
@@ -20,6 +20,7 @@ from ..reminders import reminders_kb, reminders_text
 from ..states import CU_CUSTOM, DB_RESTORE_WAIT_DOC, DB_SET_INTERVAL, DB_SET_TARGET_ID, RM_DAYS, RM_HOUR
 from ..store import backup_filename, drop_sidecars, get_setting, init_db, make_backup_bytes, save_disk_backup, set_setting, validate_backup_file
 from ..text import rtl, safe_edit
+from ..screen import render
 
 async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
@@ -139,7 +140,7 @@ async def db_set_target_id_input(update: Update, context: ContextTypes.DEFAULT_T
         await deny(update)
         return ConversationHandler.END
     if not is_primary_admin(user.id):
-        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        await render(update, context, rtl("⛔ فقط ادمین اصلی."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -147,16 +148,16 @@ async def db_set_target_id_input(update: Update, context: ContextTypes.DEFAULT_T
 
     if text.startswith("/skip"):
         set_setting("backup_target_id", str(ADMIN_CHAT_ID))
-        await update.effective_chat.send_message(rtl("✅ مقصد روی آیدی پیش‌فرض ادمین اصلی تنظیم شد."))
+        await render(update, context, rtl("✅ مقصد روی آیدی پیش‌فرض ادمین اصلی تنظیم شد."))
     else:
         if not re.fullmatch(r"-?\d+", text):
-            await update.effective_chat.send_message(rtl("❌ فقط آیدی عددی وارد کنید (مثلاً 123 یا -100...)."))
+            await render(update, context, rtl("❌ فقط آیدی عددی وارد کنید (مثلاً 123 یا -100...)."))
             return DB_SET_TARGET_ID
         set_setting("backup_target_id", text)
-        await update.effective_chat.send_message(rtl("✅ مقصد بکاپ ثبت شد."))
+        await render(update, context, rtl("✅ مقصد بکاپ ثبت شد."))
 
     schedule_backup_job(context.application)
-    await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
+    await render(update, context, rtl(db_menu_text()), reply_markup=db_menu_kb())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -183,20 +184,22 @@ async def db_set_interval_input(update: Update, context: ContextTypes.DEFAULT_TY
         await deny(update)
         return ConversationHandler.END
     if not is_primary_admin(user.id):
-        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        await render(update, context, rtl("⛔ فقط ادمین اصلی."))
         context.user_data.clear()
         return ConversationHandler.END
 
     t = (update.message.text or "").strip()
     if not re.fullmatch(r"\d+", t):
-        await update.effective_chat.send_message(rtl("❌ فقط عدد وارد کنید (ساعت):"))
+        await render(update, context, rtl("❌ فقط عدد وارد کنید (ساعت):"))
         return DB_SET_INTERVAL
 
     hours = max(1, int(t))
     set_setting("backup_interval_hours", str(hours))
     schedule_backup_job(context.application)
-    await update.effective_chat.send_message(rtl("✅ فاصله بکاپ خودکار ثبت شد."))
-    await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
+    await render(update, context,
+        rtl("✅ فاصله بکاپ خودکار ثبت شد.\n\n" + db_menu_text()),
+        reply_markup=db_menu_kb(),
+    )
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -229,18 +232,18 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         await deny(update)
         return ConversationHandler.END
     if not is_primary_admin(user.id):
-        await update.effective_chat.send_message(rtl("⛔ فقط ادمین اصلی."))
+        await render(update, context, rtl("⛔ فقط ادمین اصلی."))
         return ConversationHandler.END
 
     msg = update.message
     if not msg or not msg.document:
-        await update.effective_chat.send_message(rtl("❌ لطفاً یک فایل .db ارسال کنید."))
+        await render(update, context, rtl("❌ لطفاً یک فایل .db ارسال کنید."))
         return DB_RESTORE_WAIT_DOC
 
     doc: Document = msg.document
     fname = (doc.file_name or "").lower()
     if not fname.endswith(".db"):
-        await update.effective_chat.send_message(rtl("❌ فقط فایل با پسوند .db قابل قبول است."))
+        await render(update, context, rtl("❌ فقط فایل با پسوند .db قابل قبول است."))
         return DB_RESTORE_WAIT_DOC
 
     file = await context.bot.get_file(doc.file_id)
@@ -255,7 +258,7 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
             os.remove(tmp_in)
         except OSError:
             pass
-        await update.effective_chat.send_message(
+        await render(update, context, 
             rtl(f"❌ این فایل پذیرفته نشد.\n\n{why}\n\nیک فایل بکاپ معتبر بفرستید یا /cancel بزنید.")
         )
         return DB_RESTORE_WAIT_DOC
@@ -281,7 +284,7 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.warning("Failed to take emergency backup: %s", e)
 
     if not rollback_path:
-        await update.effective_chat.send_message(
+        await render(update, context, 
             rtl("⚠️ نتوانستم بکاپ اضطراری روی دیسک بگیرم. ریستور انجام نشد.")
         )
         try:
@@ -319,15 +322,15 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"\n\n⚠️ بازگردانی خودکار هم شکست خورد."
                 f"\nنسخه سالم اینجاست: {rollback_path}"
             )
-        await update.effective_chat.send_message(rtl(msg))
+        await render(update, context, rtl(msg))
         return ConversationHandler.END
 
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl(f"✅ بکاپ با موفقیت وارد شد.\n\n🧯 نسخه قبلی: {rollback_path}")
     )
 
     schedule_backup_job(context.application)
-    await update.effective_chat.send_message(rtl(db_menu_text()), reply_markup=db_menu_kb())
+    await render(update, context, rtl(db_menu_text()), reply_markup=db_menu_kb())
     return ConversationHandler.END
 
 # =========================
@@ -364,12 +367,12 @@ async def currency_custom_input(update: Update, context: ContextTypes.DEFAULT_TY
 
     name = (update.message.text or "").strip()
     if not name or len(name) > 12:
-        await update.effective_chat.send_message(rtl("❌ یک واحد کوتاه بنویس (حداکثر ۱۲ نویسه):"))
+        await render(update, context, rtl("❌ یک واحد کوتاه بنویس (حداکثر ۱۲ نویسه):"))
         return CU_CUSTOM
 
     set_setting("currency", name)
     context.user_data.clear()
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl(f"💱 واحد پول\n\nواحد فعلی: {currency()}"), reply_markup=currency_kb()
     )
     return ConversationHandler.END
@@ -405,22 +408,24 @@ async def reminders_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await safe_edit(q, rtl(reminders_text()), reply_markup=reminders_kb())
     return ConversationHandler.END
 
+@guarded
 async def reminder_hour_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     raw = to_ascii_digits(update.message.text or "").strip()
     if not re.fullmatch(r"\d{1,2}", raw) or int(raw) > 23:
-        await update.effective_chat.send_message(rtl("❌ عددی بین ۰ تا ۲۳ بنویس:"))
+        await render(update, context, rtl("❌ عددی بین ۰ تا ۲۳ بنویس:"))
         return RM_HOUR
 
     set_setting("digest_hour", str(int(raw)))
-    await update.effective_chat.send_message(rtl(reminders_text()), reply_markup=reminders_kb())
+    await render(update, context, rtl(reminders_text()), reply_markup=reminders_kb())
     return ConversationHandler.END
 
+@guarded
 async def reminder_days_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     raw = to_ascii_digits(update.message.text or "").strip()
     if not re.fullmatch(r"\d{1,2}", raw):
-        await update.effective_chat.send_message(rtl("❌ فقط عدد بنویس:"))
+        await render(update, context, rtl("❌ فقط عدد بنویس:"))
         return RM_DAYS
 
     set_setting("loan_reminder_days", str(int(raw)))
-    await update.effective_chat.send_message(rtl(reminders_text()), reply_markup=reminders_kb())
+    await render(update, context, rtl(reminders_text()), reply_markup=reminders_kb())
     return ConversationHandler.END

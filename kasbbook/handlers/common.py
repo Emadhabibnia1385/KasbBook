@@ -1,19 +1,20 @@
 """Start, cancel, top-level menus and the global error handler."""
 
 import traceback
-from telegram import BotCommand, ReplyKeyboardRemove, Update
+from telegram import BotCommand, Update
 from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import Application, ContextTypes, ConversationHandler
 from typing import List
 
 from ..access import access_allowed, deny, is_primary_admin
 from ..backups import db_menu_kb, db_menu_text
-from ..config import ACCESS_ADMIN_ONLY, ACCESS_PUBLIC, PRIMARY_ADMIN_USER_ID, ZWSP, logger
+from ..config import ACCESS_ADMIN_ONLY, ACCESS_PUBLIC, PRIMARY_ADMIN_USER_ID, logger
 from .reports import report_root
 from ..menus import access_menu, cats_root_menu, main_menu, settings_menu, start_text, tx_menu
 from ..money import currency, currency_kb
 from ..store import get_setting, set_setting
 from ..text import rtl, safe_edit
+from ..screen import clear_reply_keyboard, render, reset_screen, single_message_on
 
 # =========================
 # Commands setup
@@ -33,20 +34,16 @@ async def setup_commands(app: Application) -> None:
 # /start
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        await update.effective_chat.send_message(ZWSP, reply_markup=ReplyKeyboardRemove())
-    except Exception:
-        pass
+    await clear_reply_keyboard(update, context)
 
     user = update.effective_user
     if not access_allowed(user.id):
         await deny(update)
         return
 
-    await update.effective_chat.send_message(
-        rtl(start_text()),
-        reply_markup=main_menu(),
-    )
+    # /start is the reset button: retire the old panel and open a fresh one.
+    await reset_screen(update, context)
+    await render(update, context, rtl(start_text()), reply_markup=main_menu())
 
 # =========================
 # Main callbacks
@@ -99,6 +96,11 @@ async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         await safe_edit(q, rtl("🔐 دسترسی ربات:"), reply_markup=access_menu(user.id))
         return
+    if action == "single":
+        set_setting("single_message", "0" if single_message_on() else "1")
+        await render(update, context, rtl("⚙️ تنظیمات:"), reply_markup=settings_menu(user.id))
+        return
+
     if action == "cur":
         await safe_edit(q, rtl(f"💱 واحد پول\n\nواحد فعلی: {currency()}"), reply_markup=currency_kb())
         return
@@ -157,7 +159,7 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await deny(update)
         return ConversationHandler.END
 
-    await update.effective_chat.send_message(rtl("↩️ لغو شد."), reply_markup=main_menu())
+    await render(update, context, rtl("↩️ لغو شد."), reply_markup=main_menu())
     return ConversationHandler.END
 
 # Repeated identical failures should not spam the admin's chat.
@@ -206,7 +208,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
             if update.callback_query:
                 await update.callback_query.answer("خطایی رخ داد. دوباره تلاش کنید.", show_alert=True)
             elif update.effective_chat:
-                await update.effective_chat.send_message(
+                await render(update, context, 
                     rtl("❌ خطایی رخ داد. با /start دوباره شروع کنید.")
                 )
         except Exception:

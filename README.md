@@ -80,6 +80,7 @@ work everywhere.
 | 📥 **CSV export** | Any period as a UTF-8 spreadsheet (with BOM, so Excel opens Persian correctly). |
 | 💱 **Currency** | تومان, ریال, or anything you name. Shown on every figure. |
 | 🗄 **Safe backups** | Manual and scheduled backups to a chat or channel, plus a validated restore that cannot silently destroy your data. |
+| 🧹 **Single-message mode** | The bot keeps one screen and edits it in place; your typed lines are removed once read. The chat stays a control panel, not a transcript. |
 | 👥 **Access modes** | Admin-only, shared team ledger, or public multi-tenant — one setting. |
 
 ---
@@ -131,6 +132,17 @@ A credit sale is income you already recorded *and* money someone still owes you.
 KasbBook keeps that second half in its own ledger: person, direction, amount,
 optional due date. **Debts never create transactions**, so nothing is counted
 twice; settling one moves it to history and out of the totals.
+
+### Single-message mode
+
+On by default. The bot holds one message per chat — the anchor — and edits it
+for every screen instead of posting a new one. Lines you type are deleted once
+they have been read, so a long session leaves the chat exactly as it found it.
+`/start` retires the old panel and opens a fresh one.
+
+Files (backups, CSV exports, receipts) are still sent as real messages, because
+those are things you scroll back to. Turn the whole thing off under
+**⚙️ Settings → 🧹 حالت تک‌پیامی** if you would rather keep the history.
 
 ### Access modes
 

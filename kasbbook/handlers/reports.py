@@ -4,7 +4,7 @@ import io
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
-from ..access import access_allowed, deny, resolve_scope_owner
+from ..access import access_allowed, deny, guarded, resolve_scope_owner
 from ..config import SEARCH_PAGE_SIZE
 from ..jalali import g_to_j, j_month_range_g, j_year_range_g, jmonth_name
 from ..ledger import sums_all, sums_for_range
@@ -13,6 +13,7 @@ from ..parsing import parse_date_any
 from ..reports import TREND_METRICS, back_to_period_kb, breakdown_text, category_breakdown, comparison_lines, csv_filename, jalali_years_with_data, make_csv_bytes, parse_period, range_report_kb, report_lines, report_month_kb, report_root_kb, report_year_kb, search_results_kb, search_results_text, search_transactions, trend_kb, trend_text
 from ..states import RG_END, RG_START, SR_QUERY
 from ..text import rtl, safe_edit
+from ..screen import render
 
 # --- report screens --------------------------------------------------------
 async def report_root(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool) -> None:
@@ -31,7 +32,7 @@ async def report_root(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: 
     if edit and update.callback_query:
         await safe_edit(update.callback_query, text, reply_markup=kb)
     else:
-        await update.effective_chat.send_message(text, reply_markup=kb)
+        await render(update, context, text, reply_markup=kb)
 
 async def report_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -130,7 +131,7 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     if edit and update.callback_query:
         await safe_edit(update.callback_query, text, reply_markup=kb)
     else:
-        await update.effective_chat.send_message(text, reply_markup=kb)
+        await render(update, context, text, reply_markup=kb)
 
 async def search_query_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
@@ -140,7 +141,7 @@ async def search_query_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     query = (update.message.text or "").strip()
     if len(query) < 2:
-        await update.effective_chat.send_message(rtl("❌ حداقل ۲ نویسه بنویس:"))
+        await render(update, context, rtl("❌ حداقل ۲ نویسه بنویس:"))
         return SR_QUERY
 
     context.chat_data["search_query"] = query[:60]
@@ -184,28 +185,30 @@ async def range_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     ))
     return RG_START
 
+@guarded
 async def range_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     start = parse_date_any(update.message.text or "")
     if not start:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره:"))
         return RG_START
 
     context.user_data["range_start"] = start
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl(f"شروع: {g_to_j(start)}\n\nحالا تاریخ پایان را بنویس:")
     )
     return RG_END
 
+@guarded
 async def range_end_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     end = parse_date_any(update.message.text or "")
     if not end:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره:"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره:"))
         return RG_END
 
     start = context.user_data.get("range_start")
     if not start:
-        await update.effective_chat.send_message(rtl("خطا: تاریخ شروع مشخص نیست."))
+        await render(update, context, rtl("خطا: تاریخ شروع مشخص نیست."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -217,7 +220,7 @@ async def range_end_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     _, title, s_g, e_ex = parse_period(["r", start, end])
     s = sums_for_range(scope, owner, s_g, e_ex)
 
-    await update.effective_chat.send_message(
+    await render(update, context, 
         report_lines(f"📊 گزارش {title}", s), reply_markup=range_report_kb(start, end)
     )
     return ConversationHandler.END

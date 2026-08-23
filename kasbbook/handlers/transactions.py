@@ -19,6 +19,7 @@ from ..states import DL_DATE_G, DL_DATE_J, DL_DATE_MENU, ED_AMOUNT, ED_DATE_G, E
 from ..store import db
 from ..text import fmt_num, ikb, rtl, safe_edit, ttype_label
 from ..timeutil import now_ts, today_g
+from ..screen import render
 
 async def tx_entry_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
@@ -105,11 +106,11 @@ async def tx_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     g = parse_gregorian(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
         return TX_DATE_G
 
     context.user_data["tx_date_g"] = g
-    await update.effective_chat.send_message(
+    await render(update, context, 
         rtl(f"🔖 نوع تراکنش را انتخاب کنید:\n\n📅 تاریخ: {g} ({g_to_j(g)})"),
         reply_markup=tx_ttype_kb(back_cb=f"{CB_M}:tx"),
     )
@@ -123,12 +124,11 @@ async def tx_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     g = parse_jalali_to_g(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
         return TX_DATE_J
 
     context.user_data["tx_date_g"] = g
-    await update.effective_chat.send_message(rtl(f"✅ تبدیل شد به میلادی: {g}"))
-    await update.effective_chat.send_message(
+    await render(update, context,
         rtl(f"🔖 نوع تراکنش را انتخاب کنید:\n\n📅 تاریخ: {g} ({g_to_j(g)})"),
         reply_markup=tx_ttype_kb(back_cb=f"{CB_M}:tx"),
     )
@@ -238,13 +238,13 @@ async def tx_cat_add_name_input(update: Update, context: ContextTypes.DEFAULT_TY
 
     name = (update.message.text or "").strip()
     if not name:
-        await update.effective_chat.send_message(rtl("نام خالی است. دوباره وارد کنید:"))
+        await render(update, context, rtl("نام خالی است. دوباره وارد کنید:"))
         return TX_CAT_ADD_NAME
 
     ttype = context.user_data.get("tx_ttype")
     gdate = context.user_data.get("tx_date_g")
     if ttype not in ("work_in", "work_out", "personal_in", "personal_out") or not gdate:
-        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        await render(update, context, rtl("خطا: اطلاعات ناقص."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -263,7 +263,7 @@ async def tx_cat_add_name_input(update: Update, context: ContextTypes.DEFAULT_TY
                 pass
 
     context.user_data["tx_category"] = name
-    await update.effective_chat.send_message(rtl("✅ دسته اضافه شد.\n\n💵 حالا مبلغ را وارد کنید:"))
+    await render(update, context, rtl("✅ دسته اضافه شد.\n\n💵 حالا مبلغ را وارد کنید:"))
     return TX_AMOUNT
 
 async def tx_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -274,11 +274,11 @@ async def tx_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     t = (update.message.text or "").strip().replace(",", "").replace("،", "")
     if not re.fullmatch(r"\d+", t):
-        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. فقط عدد وارد کنید:"))
+        await render(update, context, rtl("❌ مبلغ نامعتبر است. فقط عدد وارد کنید:"))
         return TX_AMOUNT
 
     context.user_data["tx_amount"] = int(t)
-    await update.effective_chat.send_message(rtl("📝 توضیحات (اختیاری) را وارد کنید یا /skip بزنید:"))
+    await render(update, context, rtl("📝 توضیحات (اختیاری) را وارد کنید یا /skip بزنید:"))
     return TX_DESC
 
 async def tx_desc_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -300,7 +300,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     amount = context.user_data.get("tx_amount")
 
     if ttype not in ("work_in", "work_out", "personal_in", "personal_out") or not date_g_ or not category or amount is None:
-        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص است."))
+        await render(update, context, rtl("خطا: اطلاعات ناقص است."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -308,7 +308,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
 
     ok, why = within_quota(scope, owner, "tx")
     if not ok:
-        await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+        await render(update, context, rtl(f"⛔ {why}"))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -333,7 +333,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     daily_g = context.user_data.get("tx_daily_gdate")
 
     if origin == "daily" and isinstance(daily_g, str):
-        await update.effective_chat.send_message(
+        await render(update, context, 
             daily_list_text(scope, owner, daily_g),
             reply_markup=daily_rows_kb(scope, owner, daily_g),
         )
@@ -345,7 +345,7 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     if warning:
         done += f"\n\n{warning}"
 
-    await update.effective_chat.send_message(rtl(done), reply_markup=tx_menu())
+    await render(update, context, rtl(done), reply_markup=tx_menu())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -410,11 +410,11 @@ async def dl_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     g = parse_gregorian(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
         return DL_DATE_G
 
     scope, owner = resolve_scope_owner(user.id)
-    await update.effective_chat.send_message(
+    await render(update, context, 
         daily_list_text(scope, owner, g),
         reply_markup=daily_rows_kb(scope, owner, g),
     )
@@ -429,12 +429,11 @@ async def dl_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     g = parse_jalali_to_g(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
         return DL_DATE_J
 
     scope, owner = resolve_scope_owner(user.id)
-    await update.effective_chat.send_message(rtl(f"✅ تبدیل شد به میلادی: {g}"))
-    await update.effective_chat.send_message(
+    await render(update, context,
         daily_list_text(scope, owner, g),
         reply_markup=daily_rows_kb(scope, owner, g),
     )
@@ -635,7 +634,7 @@ async def apply_tx_date(update: Update, context: ContextTypes.DEFAULT_TYPE, new_
     user = update.effective_user
     tx_id = context.user_data.get("edit_tx_id")
     if not isinstance(tx_id, int):
-        await update.effective_chat.send_message(rtl("خطا."))
+        await render(update, context, rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -650,11 +649,9 @@ async def apply_tx_date(update: Update, context: ContextTypes.DEFAULT_TYPE, new_
 
     context.user_data.clear()
     pages = remember_pages(context, ())
-    await update.effective_chat.send_message(
-        rtl(f"✅ تاریخ تراکنش به {new_gdate} ({g_to_j(new_gdate)}) تغییر کرد.")
-    )
-    await update.effective_chat.send_message(
-        daily_list_text(scope, owner, new_gdate),
+    moved = rtl(f"✅ تاریخ تراکنش به {g_to_j(new_gdate)} تغییر کرد.")
+    await render(update, context,
+        moved + "\n\n" + daily_list_text(scope, owner, new_gdate),
         reply_markup=daily_rows_kb(scope, owner, new_gdate, pages),
     )
     return ConversationHandler.END
@@ -694,7 +691,7 @@ async def edit_date_g_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     g = parse_gregorian(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره (YYYY-MM-DD):"))
         return ED_DATE_G
     return await apply_tx_date(update, context, g)
 
@@ -706,7 +703,7 @@ async def edit_date_j_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     g = parse_jalali_to_g(update.message.text or "")
     if not g:
-        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
+        await render(update, context, rtl("❌ تاریخ نامعتبر است. دوباره (YYYY/MM/DD):"))
         return ED_DATE_J
     return await apply_tx_date(update, context, g)
 
@@ -718,13 +715,13 @@ async def edit_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     t = (update.message.text or "").strip().replace(",", "").replace("،", "")
     if not re.fullmatch(r"\d+", t):
-        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. فقط عدد وارد کنید:"))
+        await render(update, context, rtl("❌ مبلغ نامعتبر است. فقط عدد وارد کنید:"))
         return ED_AMOUNT
 
     tx_id = context.user_data.get("edit_tx_id")
     gdate = context.user_data.get("edit_gdate")
     if not isinstance(tx_id, int) or not isinstance(gdate, str):
-        await update.effective_chat.send_message(rtl("خطا."))
+        await render(update, context, rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -738,7 +735,7 @@ async def edit_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             conn.commit()
 
     context.user_data.clear()
-    await update.effective_chat.send_message(
+    await render(update, context, 
         daily_list_text(scope, owner, gdate),
         reply_markup=daily_rows_kb(scope, owner, gdate),
     )
@@ -757,7 +754,7 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     tx_id = context.user_data.get("edit_tx_id")
     gdate = context.user_data.get("edit_gdate")
     if not isinstance(tx_id, int) or not isinstance(gdate, str):
-        await update.effective_chat.send_message(rtl("خطا."))
+        await render(update, context, rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -771,7 +768,7 @@ async def edit_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             conn.commit()
 
     context.user_data.clear()
-    await update.effective_chat.send_message(
+    await render(update, context, 
         daily_list_text(scope, owner, gdate),
         reply_markup=daily_rows_kb(scope, owner, gdate),
     )
@@ -794,13 +791,13 @@ async def receipt_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         file_id = msg.document.file_id
 
     if not file_id:
-        await update.effective_chat.send_message(rtl("❌ عکس یا فایل بفرست، یا /cancel بزن."))
+        await render(update, context, rtl("❌ عکس یا فایل بفرست، یا /cancel بزن."))
         return RCP_WAIT
 
     tx_id = context.user_data.get("receipt_tx_id")
     gdate = context.user_data.get("receipt_gdate")
     if not isinstance(tx_id, int) or not isinstance(gdate, str):
-        await update.effective_chat.send_message(rtl("خطا."))
+        await render(update, context, rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -811,10 +808,10 @@ async def receipt_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.clear()
     tx = get_tx(scope, owner, tx_id)
     if not tx:
-        await update.effective_chat.send_message(rtl("تراکنش پیدا نشد."), reply_markup=tx_menu())
+        await render(update, context, rtl("تراکنش پیدا نشد."), reply_markup=tx_menu())
         return ConversationHandler.END
 
-    await update.effective_chat.send_message(
+    await render(update, context, 
         tx_detail_text(tx, "🧾 رسید ذخیره شد."),
         reply_markup=tx_view_kb(gdate, tx_id, daily_back_cb(gdate, current_pages(context)), True),
     )

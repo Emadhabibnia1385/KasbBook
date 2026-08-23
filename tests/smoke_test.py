@@ -724,6 +724,76 @@ check(bot.upcoming_loan_reminders(days_ahead=40) == [], "reminders off means no 
 check("گزارش روز" in bot.digest_text(SCOPE, OWNER), "digest renders a daily summary")
 audit(bot.reminders_kb(), "reminder settings")
 
+# =========================================================== single message
+section("single-message mode")
+check(bot.get_setting("single_message") == "1", "single-message mode is on by default")
+check(bot.single_message_on() is True, "helper reads the setting")
+bot.set_setting("single_message", "0")
+check(bot.single_message_on() is False, "toggling it off takes effect immediately")
+bot.set_setting("single_message", "1")
+
+check("anchor_id" == bot.screen.ANCHOR_KEY, "the anchor is tracked under a stable key")
+
+# Every screen must go through render(), or the chat fills up again.
+raw = []
+for f in sorted(PKG_DIR.rglob("*.py")):
+    if f.name in ("screen.py", "access.py"):
+        continue  # render itself, and the access denial, are the two exceptions
+    text = f.read_text(encoding="utf-8")
+    if "effective_chat.send_message" in text:
+        raw.append(f.name)
+check(not raw, "no handler posts a screen outside render()" + (f" — {raw}" if raw else ""))
+
+# A second render in a row would overwrite the first before anyone saw it.
+doubles = []
+for f in sorted(PKG_DIR.rglob("*.py")):
+    for fn in _ast.walk(_ast.parse(f.read_text(encoding="utf-8"))):
+        if not isinstance(fn, _ast.AsyncFunctionDef):
+            continue
+        prev = None
+        for st in fn.body:
+            def _is_render(node):
+                return (isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Await)
+                        and isinstance(node.value.value, _ast.Call)
+                        and getattr(node.value.value.func, "id", "") == "render")
+            if _is_render(st) and prev is not None and _is_render(prev):
+                doubles.append(f"{f.name}:{fn.name}")
+            prev = st
+check(not doubles, "no screen is rendered twice in a row" + (f" — {doubles}" if doubles else ""))
+
+kb = bot.settings_menu(bot.PRIMARY_ADMIN_USER_ID)
+labels = [b.text for row in kb.inline_keyboard for b in row]
+check(any("تک‌پیامی" in t for t in labels), "the settings screen exposes the toggle")
+audit(kb, "settings with the single-message toggle")
+
+# =========================================================== guards
+section("handler guards")
+GUARDS = ("access_allowed", "is_primary_admin", "deny", "guarded")
+# Helpers that take (update, context) but are only ever called by a guarded handler.
+DELEGATES = {
+    "tx_desc_skip", "tx_desc_input", "apply_tx_date", "save_quick_entry",
+    "show_search_results", "on_error", "_save_debt", "report_root",
+}
+
+unguarded, unanswered = [], []
+for f in sorted(PKG_DIR.rglob("*.py")):
+    if f.name == "screen.py":
+        continue  # plumbing the guarded handlers call, not a registered handler
+    for node in _ast.walk(_ast.parse(f.read_text(encoding="utf-8"))):
+        if not isinstance(node, _ast.AsyncFunctionDef):
+            continue
+        if [a.arg for a in node.args.args][:2] != ["update", "context"]:
+            continue
+        dump = _ast.dump(node)
+        decorated = any(getattr(d, "id", "") in GUARDS for d in node.decorator_list)
+        if node.name not in DELEGATES and not decorated and not any(g in dump for g in GUARDS):
+            unguarded.append(f"{f.name}:{node.name}")
+        if node.name not in DELEGATES and "callback_query" in dump and "attr='answer'" not in dump:
+            unanswered.append(f"{f.name}:{node.name}")
+
+check(not unguarded, "every handler checks access" + (f" — missing: {unguarded[:4]}" if unguarded else ""))
+check(not unanswered, "every callback handler answers the query" + (f" — {unanswered[:4]}" if unanswered else ""))
+
 # =========================================================== error handling
 section("error handling")
 import httpx as _httpx  # noqa: E402

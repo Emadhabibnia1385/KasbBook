@@ -47,7 +47,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st|report|noop)$"))
 
     # Settings / Access
-    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|cur|db)$"))
+    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|cur|single|db)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
     async def ac_noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

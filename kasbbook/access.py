@@ -1,6 +1,9 @@
 """Who may use the bot, whose books they see, and public-mode quotas."""
 
+import functools
+
 from telegram import Update
+from telegram.ext import ConversationHandler
 from typing import Optional, Tuple
 
 from .config import ACCESS_PUBLIC, ADMIN_USERNAME, PRIMARY_ADMIN_USER_ID, PUBLIC_MAX_CATEGORIES, PUBLIC_MAX_TX_PER_DAY
@@ -96,3 +99,22 @@ async def deny(update: Update) -> None:
             await update.effective_chat.send_message(rtl(text))
     else:
         await update.effective_chat.send_message(rtl(text))
+
+
+def guarded(handler):
+    """Refuse a handler to anyone not allowed to use the bot.
+
+    Conversation steps are only reachable mid-flow, so the entry point has
+    already checked. But access can be revoked between the first step and the
+    last, and a half-finished flow should not outlive the permission that
+    started it — so every step re-checks.
+    """
+    @functools.wraps(handler)
+    async def wrapper(update, context, *args, **kwargs):
+        if not access_allowed(update.effective_user.id):
+            await deny(update)
+            context.user_data.clear()
+            return ConversationHandler.END
+        return await handler(update, context, *args, **kwargs)
+
+    return wrapper
