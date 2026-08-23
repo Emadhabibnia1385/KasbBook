@@ -6,18 +6,18 @@
 
 **A Telegram bot that keeps the books for a small business.**
 
-Record income and expenses in seconds, keep business money separate from personal money,
-and get daily, monthly and yearly reports on the Jalali calendar.
+Type `فروش 250000` and it's recorded. Business money stays separate from personal money,
+loans know how many installments are left, and every report runs on the Jalali calendar.
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Emadhabibnia1385/KasbBook/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Emadhabibnia1385/KasbBook/actions)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![python-telegram-bot](https://img.shields.io/badge/PTB-21.11-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://python-telegram-bot.org)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://sqlite.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
-[![Stars](https://img.shields.io/github/stars/Emadhabibnia1385/KasbBook?style=flat-square&logo=github)](https://github.com/Emadhabibnia1385/KasbBook/stargazers)
 
 **English** · [فارسی](./README.fa.md)
 
-[Install](#install) · [How it works](#how-it-works) · [Configuration](#configuration) · [Backups](#backups-and-restore) · [Troubleshooting](#troubleshooting)
+[Install](#install) · [Quick entry](#quick-entry) · [How it works](#how-it-works) · [Features](#what-it-does) · [Backups](#backups-and-restore) · [Development](#development)
 
 </div>
 
@@ -26,8 +26,8 @@ and get daily, monthly and yearly reports on the Jalali calendar.
 ## What it is
 
 KasbBook is a self-hosted Telegram bot for shopkeepers, freelancers and small
-businesses. Everything happens through inline buttons — there are no commands to
-memorise and nothing to install on the phone.
+businesses. Everything happens through inline buttons or a single line of text —
+there is nothing to install on the phone and nothing to memorise.
 
 The interface is entirely in Persian; this document describes it in English.
 
@@ -36,18 +36,45 @@ spending and loan installments, how much did I actually keep this month?*
 
 ---
 
-## Features
+## Quick entry
+
+The fastest path is not a menu. Send a line and it is recorded:
+
+```
+فروش 250000              → income "فروش", 250,000, today
+اجاره ۱٫۲م بابت مرداد     → expense "اجاره", 1,200,000, note "بابت مرداد"
+1405/05/31 خدمات ۵۰۰ک    → on that Jalali date, 500,000
+```
+
+The category decides the type, so nothing else needs saying. If the category is
+new, or exists in more than one group, the bot asks once and remembers.
+
+**Amounts** accept whatever you'd naturally type: `250000`, `۲۵۰,۰۰۰`, `250k`,
+`۲۵۰ک`, `1.2m`, `۱٫۲م`, `2 میلیون`, `1.5 میلیارد`.
+
+**Dates** accept either calendar and either separator — `1405/05/31`, `1405-5-31`,
+`2026-08-22` — plus `امروز`, `دیروز` and `فردا`. Persian and Arabic-Indic digits
+work everywhere.
+
+---
+
+## What it does
 
 | | |
 |---|---|
-| 🧾 **Three-way ledger** | Business income, business expense, personal expense — kept apart, so business performance is never blurred by personal spending. |
-| 📄 **Installments tracked separately** | A locked `قسط` (installment) category is excluded from ordinary personal spending, so loan repayments show up as their own line. |
-| 📅 **Jalali reports** | Yearly and monthly reports run on the Persian calendar — Farvardin to Esfand, not January to December. |
-| 🏷 **Category breakdown** | Per-category totals with share percentages and transaction counts, for any period. |
-| 📥 **CSV export** | Any period exported as a UTF-8 spreadsheet (with BOM, so Excel opens Persian correctly). |
+| ⚡ **One-line entry** | Type the category and amount. No menus, no taps. |
+| 🧾 **Four-way ledger** | Business income, business expense, personal income, personal expense — kept apart, so business performance is never blurred by personal life. |
+| 📄 **Real loan tracking** | Define a loan once; the bot tells you how many installments remain, how much is left, and when the last one falls. |
+| 🔁 **Recurring transactions** | Rent, salary, subscriptions — defined once, booked automatically, with catch-up if the bot was offline. |
+| 📅 **Jalali reports** | Yearly and monthly reports run Farvardin to Esfand, not January to December. |
+| 📈 **Period comparison** | Every month and year is shown against the one before it, with direction and percentage. |
+| 📆 **Custom ranges** | Any two dates, not just whole months and years. |
+| 🔎 **Search** | Find transactions by category or note, paged, with a running total. |
+| 🏷 **Category breakdown** | Per-category totals with share percentages and counts, for any period. |
+| 📥 **CSV export** | Any period as a UTF-8 spreadsheet (with BOM, so Excel opens Persian correctly). |
+| 💱 **Currency** | تومان, ریال, or anything you name. Shown on every figure. |
 | 🗄 **Safe backups** | Manual and scheduled backups to a chat or channel, plus a validated restore that cannot silently destroy your data. |
 | 👥 **Access modes** | Admin-only, shared team ledger, or public multi-tenant — one setting. |
-| 🌐 **Dual date entry** | Every date field accepts Gregorian (`YYYY-MM-DD`) or Jalali (`YYYY/MM/DD`). Persian digits work everywhere. |
 
 ---
 
@@ -55,12 +82,11 @@ spending and loan installments, how much did I actually keep this month?*
 
 ### The ledger
 
-Every transaction has a type:
-
 | Type | Meaning |
 |---|---|
 | `work_in` | Business income |
 | `work_out` | Business expense |
+| `personal_in` | Personal income from outside the business |
 | `personal_out` | Personal expense (the locked `قسط` category is split out) |
 
 ### The numbers
@@ -69,12 +95,21 @@ Every daily, monthly and yearly report is built from these:
 
 ```
 net                  = business income − business expenses
-operational savings  = net − personal spending (excluding installments)
+operational savings  = net + personal income − personal spending (excluding installments)
 final savings        = operational savings − installments
 ```
 
 `net` tells you whether the business itself is healthy. `final savings` tells
 you what is actually left in your pocket.
+
+### Loans
+
+A loan is a title, an installment amount, a count and a start date. Tapping
+**ثبت پرداخت قسط** books one installment as a personal expense in the locked
+`قسط` category, linked back to its loan. The bot then reports progress —
+*8 of 24 paid (33%), 32,000,000 remaining, last installment Mehr 1406*.
+
+Deleting a loan keeps its payments: that money really did move.
 
 ### Access modes
 
@@ -86,8 +121,8 @@ Set under **⚙️ Settings → 🔐 Bot access**. Only the primary admin sees t
 | **Admin only + sharing on** | Same | All admins read and write **one shared** ledger |
 | **Public** | Anyone who starts the bot | Every user gets their own private ledger |
 
-Anyone not authorised gets a message containing their own numeric ID and the
-primary admin's username, so they know exactly who to ask.
+Public mode is rate limited per user (transactions per day, categories in total)
+so an open bot cannot be used to fill the disk. Admin mode is unrestricted.
 
 ---
 
@@ -111,7 +146,7 @@ with `600` permissions, and registers a `systemd` service.
 
 > The installer never deletes an existing `KasbBook.db`. If it has to re-clone
 > the project, the database, `.env` and `backups/` are moved aside first and
-> restored afterwards.
+> restored afterwards. Updating snapshots the database before pulling.
 
 ### Manual
 
@@ -167,22 +202,25 @@ missing — it will not run half-configured.
 /cancel   leave whatever you are in the middle of
 ```
 
-**Recording a transaction** — `📌 Transactions → ➕ New transaction`, then pick a
-date (today / Gregorian / Jalali), a type, a category, an amount, and an optional
-note. From the daily list you can also tap `New income` / `New expense` /
-`New personal` to jump straight to the category step.
+**Recording** — send one line (see [Quick entry](#quick-entry)), or walk the menu:
+`📌 Transactions → ➕ New transaction`. From the daily list, the four buttons at
+the top jump straight to the category step for that day.
 
 **The daily list** shows the day's totals and every row, grouped by type. Long
 days are paged per section — 8 rows at a time — so the keyboard never grows past
 what Telegram will render.
 
 **Editing** — tap any row to open it, then change its category, amount, note or
-**date**. Moving a transaction to another day is a single flow; the list for the
-new day opens automatically. Deletion always asks for confirmation first.
+**date**. Moving a transaction to another day is a single flow. Deletion always
+asks for confirmation first.
 
 **Reports** — `📊 Reports` opens the all-time summary, then a Jalali year, then a
-Jalali month. Every level offers **🏷 Category breakdown** and **📥 CSV export**
-for that exact period.
+Jalali month; monthly and yearly views include a comparison with the previous
+period. Every level offers **🏷 Category breakdown** and **📥 CSV export**, and the
+root adds **🔎 Search** and **📆 Custom range**.
+
+**Loans and recurring** — `⚙️ Settings → 📄 اقساط و وام‌ها` and
+`⚙️ Settings → 🔁 تراکنش‌های تکرارشونده`.
 
 ---
 
@@ -197,14 +235,89 @@ Under **⚙️ Settings → 🗄 Database** (primary admin only):
 Restore is deliberately defensive. In order:
 
 1. The uploaded file is opened read-only and checked — `PRAGMA integrity_check`
-   plus a confirmation that the `transactions`, `categories` and `settings`
-   tables exist. **A file that fails is rejected before anything is touched.**
+   plus a confirmation that the expected tables exist. **A file that fails is
+   rejected before anything is touched.**
 2. The current database is snapshotted **to disk** under `backups/` *and* sent to
    you on Telegram.
 3. Stale `-wal` / `-shm` sidecar files are removed — they belong to the old
    database and would corrupt the new one.
 4. Only then is the file swapped in. If anything fails, the on-disk snapshot is
    restored automatically and you are told so.
+
+An older backup restores fine: the schema is versioned, and migrations run
+automatically on the restored file (taking their own snapshot first).
+
+---
+
+## Schema and migrations
+
+The database carries a `schema_version`. On startup, any pending migration runs
+in order, after a pre-migration snapshot is written to `backups/`. Migrations are
+idempotent — a half-applied upgrade resumes rather than corrupts.
+
+| Table | Holds |
+|---|---|
+| `transactions` | `scope`, `owner_user_id`, `date_g`, `ttype`, `category`, `amount`, `description`, `loan_id` |
+| `categories` | Per-scope, per-owner, per-type category names; `is_locked` protects `قسط` |
+| `loans` | Title, installment amount, installment count, start date |
+| `recurring` | A transaction template plus a period and the next due date |
+| `admins` | Additional admins added through the panel |
+| `settings` | Schema version, access mode, sharing flag, currency, backup configuration |
+
+Dates are stored as Gregorian ISO strings (`date_g`), which sort correctly as
+plain text; every Jalali period in a report is converted into a Gregorian
+`[start, end)` pair before it reaches SQL. Categories are stored on the
+transaction as text, so renaming or deleting a category never orphans history.
+
+---
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+```bash
+python tests/smoke_test.py
+```
+
+The smoke test needs no network and no Telegram token. It builds the whole
+`Application` (which compiles every handler pattern), runs a real v1 database
+through the migrations, and exercises the parsing, report, loan, recurring, CSV
+and backup-validation logic against a throwaway database.
+
+Its most valuable check is structural: **every `callback_data` that any keyboard
+can emit is matched against every registered handler pattern**, so a button that
+would do nothing fails the build instead of reaching a user. Keyboards are also
+audited against Telegram's size limits.
+
+CI runs the test plus `pyflakes` on Python 3.9, 3.11 and 3.12 for every push.
+
+---
+
+## Project layout
+
+```
+KasbBook/
+├── bot.py                  the whole bot: handlers, database, reports, backups
+├── install.sh              installer / updater / service manager menu
+├── tests/smoke_test.py     offline test suite
+├── .github/workflows/      CI
+├── requirements.txt        pinned runtime dependencies
+├── requirements-dev.txt    test and lint tooling
+├── .env.example            configuration template
+├── README.md               this file
+└── README.fa.md            Persian documentation
+```
+
+**Runtime files** (created on first run, never committed):
+
+```
+KasbBook.db            SQLite database, WAL mode
+backups/               snapshots taken before each restore and migration
+venv/                  virtualenv
+.env                   secrets, mode 600
+```
 
 ---
 
@@ -221,43 +334,6 @@ systemctl restart kasbbook
 ```bash
 journalctl -u kasbbook -f
 ```
-
----
-
-## Project layout
-
-```
-KasbBook/
-├── bot.py             the whole bot: handlers, database, reports, backups
-├── install.sh         installer / updater / service manager menu
-├── requirements.txt   pinned dependencies
-├── .env.example       configuration template
-├── README.md          this file
-└── README.fa.md       Persian documentation
-```
-
-**Runtime files** (created on first run, never committed):
-
-```
-KasbBook.db            SQLite database, WAL mode
-backups/               local snapshots taken before each restore
-venv/                  virtualenv
-.env                   secrets, mode 600
-```
-
-### Schema
-
-| Table | Holds |
-|---|---|
-| `transactions` | `scope`, `owner_user_id`, `date_g`, `ttype`, `category`, `amount`, `description` |
-| `categories` | Per-scope, per-owner, per-type category names; `is_locked` protects `قسط` |
-| `admins` | Additional admins added through the panel |
-| `settings` | Access mode, sharing flag, backup configuration |
-
-Dates are stored as Gregorian ISO strings (`date_g`), which sort correctly as
-plain text; every Jalali period in a report is converted into a Gregorian
-`[start, end)` pair before it reaches SQL. Categories are stored on the
-transaction as text, so renaming or deleting a category never orphans history.
 
 ---
 
@@ -296,6 +372,16 @@ systemctl restart kasbbook
 That message includes your numeric ID. Either add that ID under
 **⚙️ Settings → 🔐 Bot access → 👥 Manage admins**, or switch the bot to public
 mode. Also confirm `ADMIN_CHAT_ID` in `.env` matches the primary admin's real ID.
+
+</details>
+
+<details>
+<summary><b>A quick-entry line was not understood</b></summary>
+
+The line needs a category and an amount, in that order: `فروش 250000`. When the
+amount comes first, only the next single word is taken as the category — put the
+category first if it is more than one word. The bot never guesses: if it cannot
+read the line, it says so rather than recording the wrong thing.
 
 </details>
 

@@ -14,8 +14,8 @@ import asyncio
 import tempfile
 import traceback
 from contextlib import contextmanager
-from datetime import datetime, date
-from typing import Optional, Tuple, List, Dict, Set, Iterator
+from datetime import datetime, date, timedelta
+from typing import Optional, Tuple, List, Dict, Set, Iterator, Callable
 
 import pytz
 import jdatetime
@@ -53,6 +53,14 @@ DAILY_PAGE_SIZE = 8          # transaction rows per section in the daily list
 CAT_PAGE_SIZE = 24           # categories per page
 ADMIN_PAGE_SIZE = 20         # admins per page
 TOP_CATEGORIES = 8           # rows per group in the category breakdown report
+SEARCH_PAGE_SIZE = 10        # search results per page
+LOAN_PAGE_SIZE = 10          # loans per page
+
+DEFAULT_CURRENCY = "تومان"
+
+# Guard rails for public mode, where anyone can start the bot.
+PUBLIC_MAX_TX_PER_DAY = 300
+PUBLIC_MAX_CATEGORIES = 200
 
 ACCESS_ADMIN_ONLY = "admin_only"   # default
 ACCESS_PUBLIC = "public"
@@ -72,9 +80,14 @@ CB_DL = "dl"    # daily list
 CB_DTX = "dtx"  # tx detail/edit
 CB_RP = "rp"    # reports
 CB_DB = "db"    # database/backup
+CB_LN = "ln"    # loans / installments
+CB_RC = "rc"    # recurring transactions
+CB_SR = "sr"    # search
+CB_CU = "cu"    # currency
 
 # Job name
 JOB_BACKUP = "kasbbook_auto_backup"
+JOB_RECURRING = "kasbbook_recurring"
 
 # Global DB lock to reduce "database is locked"
 DB_LOCK = asyncio.Lock()
@@ -160,60 +173,235 @@ def db() -> Iterator[sqlite3.Connection]:
     finally:
         conn.close()
 
-def init_db() -> None:
-    # A restore swaps the file underneath us, so drop anything cached from it.
-    _SETTINGS_CACHE.clear()
-    _INSTALLMENT_READY.clear()
-    with db() as conn:
+# Bump this when BASE_SCHEMA changes, and add a matching entry to MIGRATIONS.
+SCHEMA_VERSION = 3
+
+# The shape a brand-new database is created with. Everything is IF NOT EXISTS,
+# so running it against an older database is a no-op — widening an existing
+# table is the migrations' job, not this script's.
+BASE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS settings(
+    k TEXT PRIMARY KEY,
+    v TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admins(
+    user_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    added_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS transactions(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
+    owner_user_id INTEGER NOT NULL,
+    actor_user_id INTEGER NOT NULL,
+    date_g TEXT NOT NULL,
+    ttype TEXT NOT NULL CHECK(ttype IN ('work_in','work_out','personal_in','personal_out')),
+    category TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK(amount>=0),
+    description TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    loan_id INTEGER NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date
+    ON transactions(scope, owner_user_id, date_g);
+CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date_type
+    ON transactions(scope, owner_user_id, date_g, ttype);
+CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date_type_cat
+    ON transactions(scope, owner_user_id, date_g, ttype, category);
+CREATE INDEX IF NOT EXISTS idx_tx_loan
+    ON transactions(loan_id);
+
+CREATE TABLE IF NOT EXISTS categories(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
+    owner_user_id INTEGER NOT NULL,
+    grp TEXT NOT NULL CHECK(grp IN ('work_in','work_out','personal_in','personal_out')),
+    name TEXT NOT NULL,
+    is_locked INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cat_scope_owner_grp_name
+    ON categories(scope, owner_user_id, grp, name);
+
+CREATE TABLE IF NOT EXISTS loans(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
+    owner_user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    installment_amount INTEGER NOT NULL CHECK(installment_amount>=0),
+    installment_count INTEGER NOT NULL CHECK(installment_count>0),
+    start_date_g TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_loans_owner
+    ON loans(scope, owner_user_id, is_active);
+
+CREATE TABLE IF NOT EXISTS recurring(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
+    owner_user_id INTEGER NOT NULL,
+    ttype TEXT NOT NULL CHECK(ttype IN ('work_in','work_out','personal_in','personal_out')),
+    category TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK(amount>=0),
+    description TEXT NULL,
+    period TEXT NOT NULL CHECK(period IN ('daily','weekly','monthly')),
+    next_run_g TEXT NOT NULL,
+    last_run_g TEXT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_due
+    ON recurring(is_active, next_run_g);
+"""
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone() is not None
+
+def _table_sql(conn: sqlite3.Connection, name: str) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone()
+    return str(row["sql"]) if row and row["sql"] else ""
+
+def _columns(conn: sqlite3.Connection, table: str) -> Set[str]:
+    return {str(r["name"]) for r in conn.execute(f"PRAGMA table_info({table})")}
+
+# --- migrations ------------------------------------------------------------
+# Each one must be safe to run twice: a half-applied upgrade should be able to
+# resume rather than corrupt.
+
+def _m2_personal_income(conn: sqlite3.Connection) -> None:
+    """Widen the ttype/grp CHECK constraints to allow personal income.
+
+    SQLite cannot alter a CHECK constraint in place, so both tables are rebuilt.
+    """
+    if "personal_in" not in _table_sql(conn, "transactions"):
         conn.executescript(
             """
-            CREATE TABLE IF NOT EXISTS settings(
-                k TEXT PRIMARY KEY,
-                v TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS admins(
-                user_id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                added_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS transactions(
+            BEGIN;
+            CREATE TABLE transactions_v2(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
                 owner_user_id INTEGER NOT NULL,
                 actor_user_id INTEGER NOT NULL,
                 date_g TEXT NOT NULL,
-                ttype TEXT NOT NULL CHECK(ttype IN ('work_in','work_out','personal_out')),
+                ttype TEXT NOT NULL CHECK(ttype IN ('work_in','work_out','personal_in','personal_out')),
                 category TEXT NOT NULL,
                 amount INTEGER NOT NULL CHECK(amount>=0),
                 description TEXT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
-
+            INSERT INTO transactions_v2(
+                id, scope, owner_user_id, actor_user_id, date_g, ttype,
+                category, amount, description, created_at, updated_at)
+            SELECT
+                id, scope, owner_user_id, actor_user_id, date_g, ttype,
+                category, amount, description, created_at, updated_at
+            FROM transactions;
+            DROP TABLE transactions;
+            ALTER TABLE transactions_v2 RENAME TO transactions;
             CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date
                 ON transactions(scope, owner_user_id, date_g);
-
-            -- Performance indexes (safe: no data change)
             CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date_type
                 ON transactions(scope, owner_user_id, date_g, ttype);
-
             CREATE INDEX IF NOT EXISTS idx_tx_scope_owner_date_type_cat
                 ON transactions(scope, owner_user_id, date_g, ttype, category);
+            COMMIT;
+            """
+        )
 
-            CREATE TABLE IF NOT EXISTS categories(
+    if "personal_in" not in _table_sql(conn, "categories"):
+        conn.executescript(
+            """
+            BEGIN;
+            CREATE TABLE categories_v2(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 scope TEXT NOT NULL CHECK(scope IN ('private','shared')),
                 owner_user_id INTEGER NOT NULL,
-                grp TEXT NOT NULL CHECK(grp IN ('work_in','work_out','personal_out')),
+                grp TEXT NOT NULL CHECK(grp IN ('work_in','work_out','personal_in','personal_out')),
                 name TEXT NOT NULL,
                 is_locked INTEGER NOT NULL DEFAULT 0
             );
-
+            INSERT INTO categories_v2(id, scope, owner_user_id, grp, name, is_locked)
+            SELECT id, scope, owner_user_id, grp, name, is_locked FROM categories;
+            DROP TABLE categories;
+            ALTER TABLE categories_v2 RENAME TO categories;
             CREATE UNIQUE INDEX IF NOT EXISTS uq_cat_scope_owner_grp_name
                 ON categories(scope, owner_user_id, grp, name);
+            COMMIT;
             """
+        )
+
+def _m3_loans_recurring(conn: sqlite3.Connection) -> None:
+    """Add the loan and recurring-transaction tables, and link payments to loans."""
+    # The tables themselves come from BASE_SCHEMA (IF NOT EXISTS); only the new
+    # column on an existing transactions table needs doing here.
+    if "loan_id" not in _columns(conn, "transactions"):
+        conn.execute("ALTER TABLE transactions ADD COLUMN loan_id INTEGER NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_loan ON transactions(loan_id)")
+
+MIGRATIONS: List[Tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
+    (2, "personal income type", _m2_personal_income),
+    (3, "loans and recurring transactions", _m3_loans_recurring),
+]
+
+def _detect_version(conn: sqlite3.Connection) -> int:
+    # No transactions table yet means a brand-new file: BASE_SCHEMA will create
+    # it at the current version, so there is nothing to migrate.
+    if not _table_exists(conn, "transactions"):
+        return SCHEMA_VERSION
+    if not _table_exists(conn, "settings"):
+        return 1
+
+    row = conn.execute("SELECT v FROM settings WHERE k='schema_version'").fetchone()
+    if not row:
+        return 1  # pre-versioning database
+    try:
+        return int(row["v"])
+    except (TypeError, ValueError):
+        return 1
+
+def init_db() -> None:
+    # A restore swaps the file underneath us, so drop anything cached from it.
+    _SETTINGS_CACHE.clear()
+    _INSTALLMENT_READY.clear()
+
+    with db() as conn:
+        current = _detect_version(conn)
+
+    # Never migrate without a copy to fall back to.
+    if current < SCHEMA_VERSION and os.path.exists(DB_PATH):
+        stamp = datetime.now(TZ).strftime("%Y-%m-%d_%H-%M-%S")
+        path = save_disk_backup(f"kasbbook_premigration_v{current}_{stamp}.db", make_backup_bytes())
+        logger.info("Schema %s -> %s; pre-migration snapshot: %s", current, SCHEMA_VERSION, path)
+
+    with db() as conn:
+        # Migrations first: BASE_SCHEMA describes the finished shape, and some of
+        # it (the loan_id index) cannot be created until a migration has widened
+        # the old table. Applying it afterwards makes it a reconciliation pass
+        # that is correct for both a fresh file and an upgraded one.
+        for version, description, migrate in MIGRATIONS:
+            if current < version:
+                logger.info("Applying migration %s (%s)", version, description)
+                migrate(conn)
+                current = version
+
+        conn.executescript(BASE_SCHEMA)
+
+        conn.execute(
+            "INSERT INTO settings(k,v) VALUES('schema_version',?) "
+            "ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+            (str(SCHEMA_VERSION),),
         )
 
         def _ensure_setting(key: str, default: str) -> None:
@@ -222,6 +410,7 @@ def init_db() -> None:
 
         _ensure_setting("access_mode", ACCESS_ADMIN_ONLY)
         _ensure_setting("share_enabled", "0")
+        _ensure_setting("currency", DEFAULT_CURRENCY)
 
         # Backup settings
         _ensure_setting("backup_enabled", "0")                           # 0/1
@@ -258,6 +447,91 @@ def set_setting(k: str, v: str) -> None:
         conn.commit()
     _SETTINGS_CACHE[k] = v
 
+# =========================
+# Input parsing
+# =========================
+# Persian and Arabic-Indic digits are what people actually type on a phone
+# keyboard, so every numeric field normalises them before doing anything else.
+_DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+def to_ascii_digits(s: str) -> str:
+    return (s or "").translate(_DIGIT_MAP)
+
+# Longest first: "میلیون" must win over "م".
+_AMOUNT_UNITS: List[Tuple[str, int]] = [
+    ("میلیارد", 1_000_000_000),
+    ("میلیون", 1_000_000),
+    ("هزار", 1_000),
+    ("b", 1_000_000_000),
+    ("m", 1_000_000),
+    ("k", 1_000),
+    ("م", 1_000_000),
+    ("ک", 1_000),
+    ("ه", 1_000),
+]
+
+def parse_amount(s: str) -> Optional[int]:
+    """Parse an amount the way a person types it: ۲۵۰ک, 1.2m, 250,000, 2 میلیون."""
+    t = to_ascii_digits(s or "").strip()
+    if not t:
+        return None
+
+    for junk in (",", "،", "٬", " ", "‌", "٬"):
+        t = t.replace(junk, "")
+    t = t.replace("٫", ".").replace("/", ".")
+
+    multiplier = 1
+    low = t.lower()
+    for suffix, factor in _AMOUNT_UNITS:
+        # len check keeps a bare "k" from parsing as 1000
+        if low.endswith(suffix) and len(low) > len(suffix):
+            t = t[: len(t) - len(suffix)]
+            multiplier = factor
+            break
+
+    if not re.fullmatch(r"\d+(\.\d+)?", t):
+        return None
+
+    return int(round(float(t) * multiplier))
+
+def parse_date_any(s: str) -> Optional[str]:
+    """
+    Accept any reasonable way of writing a date and return Gregorian ISO.
+
+    Jalali or Gregorian is decided by the year, not the separator: no Gregorian
+    date the bot will ever see falls below 1500, and no Jalali one reaches it.
+    """
+    t = to_ascii_digits(s or "").strip()
+    if not t:
+        return None
+
+    low = t.lower()
+    today = datetime.now(TZ).date()
+    if low in ("امروز", "today"):
+        return today.strftime("%Y-%m-%d")
+    if low in ("دیروز", "yesterday"):
+        return (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    if low in ("فردا", "tomorrow"):
+        return (today + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    m = re.fullmatch(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})", t)
+    if not m:
+        return None
+
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+    if y >= 1500:
+        try:
+            date(y, mo, d)
+        except ValueError:
+            return None
+        return f"{y:04d}-{mo:02d}-{d:02d}"
+
+    try:
+        return jdatetime.date(y, mo, d).togregorian().strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+
 def now_ts() -> str:
     return datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -269,29 +543,13 @@ def g_to_j(g_yyyy_mm_dd: str) -> str:
     jd = jdatetime.date.fromgregorian(date=date(y, m, d))
     return f"{jd.year:04d}/{jd.month:02d}/{jd.day:02d}"
 
+# Both entry points accept either calendar; the labels are only a hint about
+# which one the user probably meant to type.
 def parse_gregorian(s: str) -> Optional[str]:
-    s = (s or "").strip()
-    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", s)
-    if not m:
-        return None
-    try:
-        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        date(y, mo, d)
-        return f"{y:04d}-{mo:02d}-{d:02d}"
-    except ValueError:
-        return None
+    return parse_date_any(s)
 
 def parse_jalali_to_g(s: str) -> Optional[str]:
-    s = (s or "").strip()
-    m = re.fullmatch(r"(\d{4})/(\d{2})/(\d{2})", s)
-    if not m:
-        return None
-    try:
-        jy, jm, jd = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        g = jdatetime.date(jy, jm, jd).togregorian()
-        return g.strftime("%Y-%m-%d")
-    except ValueError:
-        return None
+    return parse_date_any(s)
 
 # =========================
 # Jalali calendar
@@ -385,6 +643,53 @@ def ensure_installment(scope: str, owner_user_id: int) -> None:
 
     _INSTALLMENT_READY.add(key)
 
+def within_quota(scope: str, owner: int, kind: str) -> Tuple[bool, str]:
+    """
+    Guard rails for public mode, where anyone who finds the bot can write to it.
+
+    Admin-only mode is unrestricted: those users were added on purpose.
+    """
+    try:
+        if get_setting("access_mode") != ACCESS_PUBLIC:
+            return (True, "")
+    except Exception:
+        return (True, "")
+
+    with db() as conn:
+        if kind == "tx":
+            used = int(conn.execute(
+                "SELECT COUNT(*) AS c FROM transactions "
+                "WHERE scope=? AND owner_user_id=? AND date_g=?",
+                (scope, owner, today_g()),
+            ).fetchone()["c"])
+            if used >= PUBLIC_MAX_TX_PER_DAY:
+                return (False, f"سقف روزانه {PUBLIC_MAX_TX_PER_DAY} تراکنش پر شده است.")
+
+        elif kind == "cat":
+            used = int(conn.execute(
+                "SELECT COUNT(*) AS c FROM categories WHERE scope=? AND owner_user_id=?",
+                (scope, owner),
+            ).fetchone()["c"])
+            if used >= PUBLIC_MAX_CATEGORIES:
+                return (False, f"سقف {PUBLIC_MAX_CATEGORIES} دسته پر شده است.")
+
+    return (True, "")
+
+def find_categories_by_name(scope: str, owner: int, name: str) -> List[sqlite3.Row]:
+    """Every category with this exact name, across all four groups."""
+    cleaned = (name or "").strip()
+    if not cleaned:
+        return []
+    with db() as conn:
+        return list(conn.execute(
+            """
+            SELECT id, grp, name FROM categories
+            WHERE scope=? AND owner_user_id=? AND name=? COLLATE NOCASE
+            ORDER BY grp
+            """,
+            (scope, owner, cleaned),
+        ).fetchall())
+
 def fetch_cats(scope: str, owner: int, grp: str) -> List[sqlite3.Row]:
     with db() as conn:
         return list(
@@ -440,7 +745,28 @@ def page_nav_row(prefix: str, page: int, total: int, per_page: int) -> List[Inli
     return row
 
 def fmt_num(n: int) -> str:
+    """Bare grouped number — for buttons, CSV and anywhere a unit would not fit."""
     return f"{int(n):,}"
+
+def currency() -> str:
+    try:
+        return get_setting("currency") or DEFAULT_CURRENCY
+    except Exception:
+        return DEFAULT_CURRENCY
+
+def fmt_money(n: int) -> str:
+    """Amount with the configured unit — for anything a person reads as money."""
+    return f"{fmt_num(n)} {currency()}"
+
+def currency_kb() -> InlineKeyboardMarkup:
+    cur = currency()
+    rows = []
+    for name in ("تومان", "ریال"):
+        mark = " ✅" if cur == name else ""
+        rows.append([(f"{name}{mark}", f"{CB_CU}:set:{name}")])
+    rows.append([("✏️ واحد دلخواه", f"{CB_CU}:custom")])
+    rows.append([("⬅️ بازگشت", f"{CB_M}:st")])
+    return ikb(rows)
 
 # متن استارت (طبق درخواست شما تغییر نکند)
 def start_text() -> str:
@@ -474,7 +800,12 @@ def tx_menu() -> InlineKeyboardMarkup:
     )
 
 def settings_menu(user_id: int) -> InlineKeyboardMarkup:
-    rows = [[("🧩 مدیریت دسته‌ها", f"{CB_ST}:cats")]]
+    rows = [
+        [("🧩 مدیریت دسته‌ها", f"{CB_ST}:cats")],
+        [("📄 اقساط و وام‌ها", f"{CB_LN}:panel")],
+        [("🔁 تراکنش‌های تکرارشونده", f"{CB_RC}:panel")],
+        [("💱 واحد پول", f"{CB_ST}:cur")],
+    ]
     if is_primary_admin(user_id):
         rows.append([("🔐 دسترسی ربات", f"{CB_ST}:access")])
         rows.append([("🗄 دیتابیس", f"{CB_ST}:db")])
@@ -505,6 +836,7 @@ def cats_root_menu() -> InlineKeyboardMarkup:
         [
             [("💰 درآمد کاری", f"{CB_CT}:grp:work_in")],
             [("🏢 هزینه کاری", f"{CB_CT}:grp:work_out")],
+            [("💵 درآمد شخصی", f"{CB_CT}:grp:personal_in")],
             [("👤 هزینه شخصی", f"{CB_CT}:grp:personal_out")],
             [("⬅️ بازگشت", f"{CB_M}:home")],
         ]
@@ -514,6 +846,7 @@ def grp_label(grp: str) -> str:
     return {
         "work_in": "💰 درآمد کاری",
         "work_out": "🏢 هزینه کاری",
+        "personal_in": "💵 درآمد شخصی",
         "personal_out": "👤 هزینه شخصی",
     }.get(grp, grp)
 
@@ -521,6 +854,7 @@ def ttype_label(ttype: str) -> str:
     return {
         "work_in": "درآمد کاری",
         "work_out": "هزینه کاری",
+        "personal_in": "درآمد شخصی",
         "personal_out": "هزینه شخصی",
     }.get(ttype, ttype)
 
@@ -567,6 +901,12 @@ DL_DATE_MENU, DL_DATE_G, DL_DATE_J = range(3)
 ED_AMOUNT, ED_DESC, ED_DATE_MENU, ED_DATE_G, ED_DATE_J = range(5)
 
 DB_SET_TARGET_ID, DB_SET_INTERVAL, DB_RESTORE_WAIT_DOC = range(3)
+
+CU_CUSTOM = 0
+SR_QUERY = 0
+RG_START, RG_END = range(2)
+LN_TITLE, LN_AMOUNT, LN_COUNT, LN_START = range(4)
+RC_TTYPE, RC_CAT, RC_AMOUNT, RC_DESC, RC_PERIOD, RC_START = range(6)
 
 # =========================
 # Commands setup
@@ -651,6 +991,9 @@ async def settings_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await safe_edit(q, rtl("⛔ فقط ادمین اصلی."), reply_markup=settings_menu(user.id))
             return
         await safe_edit(q, rtl("🔐 دسترسی ربات:"), reply_markup=access_menu(user.id))
+        return
+    if action == "cur":
+        await safe_edit(q, rtl(f"💱 واحد پول\n\nواحد فعلی: {currency()}"), reply_markup=currency_kb())
         return
     if action == "db":
         if not is_primary_admin(user.id):
@@ -778,7 +1121,7 @@ async def admin_panel_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 [("↩️ انصراف", f"{CB_AD}:panel")],
             ]
         )
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(f"⚠️ حذف ادمین\n\n👤 {nm}\n🆔 {uid}\n\nآیا مطمئنی؟"),
             reply_markup=kb,
         )
@@ -950,7 +1293,7 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             page = int(parts[3])
         except (IndexError, ValueError):
             page = 0
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(f"🧩 {grp_label(grp)}"),
             reply_markup=build_cat_kb(scope, owner, grp, page),
         )
@@ -970,7 +1313,7 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         grp = row["grp"]
         if grp == "personal_out" and row["name"] == INSTALLMENT_NAME and int(row["is_locked"]) == 1:
-            await safe_edit(q, 
+            await safe_edit(q,
                 rtl("⛔ دسته «قسط» قفل است و حذف نمی‌شود."),
                 reply_markup=build_cat_kb(scope, owner, grp),
             )
@@ -1018,7 +1361,7 @@ async def cats_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 )
                 conn.commit()
 
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(f"✅ حذف شد.\n\n🧩 {grp_label(grp)}"),
             reply_markup=build_cat_kb(scope, owner, grp),
         )
@@ -1097,12 +1440,19 @@ async def cat_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return CAT_ADD_NAME
 
     grp = context.user_data.get("cat_grp")
-    if grp not in ("work_in", "work_out", "personal_out"):
+    if grp not in ("work_in", "work_out", "personal_in", "personal_out"):
         await update.effective_chat.send_message(rtl("خطا."))
         context.user_data.clear()
         return ConversationHandler.END
 
     scope, owner = resolve_scope_owner(user.id)
+
+    ok, why = within_quota(scope, owner, "cat")
+    if not ok:
+        await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+        context.user_data.clear()
+        return ConversationHandler.END
+
     ensure_installment(scope, owner)
 
     async with DB_LOCK:
@@ -1162,6 +1512,7 @@ def tx_ttype_kb(back_cb: str) -> InlineKeyboardMarkup:
         [
             [("💰 درآمد کاری", f"{CB_TX}:tt:work_in")],
             [("🏢 هزینه کاری", f"{CB_TX}:tt:work_out")],
+            [("💵 درآمد شخصی", f"{CB_TX}:tt:personal_in")],
             [("👤 هزینه شخصی", f"{CB_TX}:tt:personal_out")],
             [("⬅️ بازگشت", back_cb)],
         ]
@@ -1178,7 +1529,7 @@ async def tx_entry_from_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     context.user_data["tx_origin"] = "menu"
 
-    await safe_edit(q, 
+    await safe_edit(q,
         rtl("📅 تاریخ را انتخاب کنید:"),
         reply_markup=tx_date_menu_kb(back_cb=f"{CB_M}:tx"),
     )
@@ -1195,7 +1546,7 @@ async def tx_entry_from_daily(update: Update, context: ContextTypes.DEFAULT_TYPE
     parts = (q.data or "").split(":")
     gdate = parts[2]
     ttype = parts[3]
-    if ttype not in ("work_in", "work_out", "personal_out"):
+    if ttype not in ("work_in", "work_out", "personal_in", "personal_out"):
         await safe_edit(q, rtl("نوع نامعتبر."), reply_markup=tx_menu())
         return ConversationHandler.END
 
@@ -1207,7 +1558,7 @@ async def tx_entry_from_daily(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     scope, owner = resolve_scope_owner(user.id)
     context.user_data["tx_cat_back"] = f"{CB_DL}:show:{gdate}"
-    await safe_edit(q, 
+    await safe_edit(q,
         rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})\n🔖 نوع: {ttype_label(ttype)}"),
         reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=f"{CB_DL}:show:{gdate}"),
     )
@@ -1227,7 +1578,7 @@ async def tx_date_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if mode == "today":
         gdate = today_g()
         context.user_data["tx_date_g"] = gdate
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(f"🔖 نوع تراکنش را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})"),
             reply_markup=tx_ttype_kb(back_cb=f"{CB_M}:tx"),
         )
@@ -1291,7 +1642,7 @@ async def tx_ttype_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     parts = (q.data or "").split(":")
     ttype = parts[2]
-    if ttype not in ("work_in", "work_out", "personal_out"):
+    if ttype not in ("work_in", "work_out", "personal_in", "personal_out"):
         await safe_edit(q, rtl("نوع نامعتبر."), reply_markup=tx_menu())
         return ConversationHandler.END
 
@@ -1303,7 +1654,7 @@ async def tx_ttype_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data["tx_ttype"] = ttype
     context.user_data["tx_cat_back"] = f"{CB_M}:tx"
     scope, owner = resolve_scope_owner(user.id)
-    await safe_edit(q, 
+    await safe_edit(q,
         rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})\n🔖 نوع: {ttype_label(ttype)}"),
         reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=f"{CB_M}:tx"),
     )
@@ -1327,7 +1678,7 @@ async def tx_cat_pick_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if act == "catp":
         ttype = context.user_data.get("tx_ttype")
         gdate = context.user_data.get("tx_date_g")
-        if ttype not in ("work_in", "work_out", "personal_out") or not gdate:
+        if ttype not in ("work_in", "work_out", "personal_in", "personal_out") or not gdate:
             await safe_edit(q, rtl("خطا: اطلاعات ناقص."), reply_markup=tx_menu())
             context.user_data.clear()
             return ConversationHandler.END
@@ -1339,7 +1690,7 @@ async def tx_cat_pick_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         back_cb = context.user_data.get("tx_cat_back") or f"{CB_M}:tx"
         scope, owner = resolve_scope_owner(user.id)
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(f"🏷 دسته را انتخاب کنید:\n\n📅 تاریخ: {gdate} ({g_to_j(gdate)})\n🔖 نوع: {ttype_label(ttype)}"),
             reply_markup=cat_pick_keyboard(scope, owner, ttype, back_cb=back_cb, page=page),
         )
@@ -1357,7 +1708,7 @@ async def tx_cat_pick_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     ttype = context.user_data.get("tx_ttype")
     gdate = context.user_data.get("tx_date_g")
-    if ttype not in ("work_in", "work_out", "personal_out") or not gdate:
+    if ttype not in ("work_in", "work_out", "personal_in", "personal_out") or not gdate:
         await safe_edit(q, rtl("خطا: اطلاعات ناقص."), reply_markup=tx_menu())
         context.user_data.clear()
         return ConversationHandler.END
@@ -1390,7 +1741,7 @@ async def tx_cat_add_name_input(update: Update, context: ContextTypes.DEFAULT_TY
 
     ttype = context.user_data.get("tx_ttype")
     gdate = context.user_data.get("tx_date_g")
-    if ttype not in ("work_in", "work_out", "personal_out") or not gdate:
+    if ttype not in ("work_in", "work_out", "personal_in", "personal_out") or not gdate:
         await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
         context.user_data.clear()
         return ConversationHandler.END
@@ -1446,12 +1797,19 @@ async def finalize_tx(update: Update, context: ContextTypes.DEFAULT_TYPE, desc: 
     category = context.user_data.get("tx_category")
     amount = context.user_data.get("tx_amount")
 
-    if ttype not in ("work_in", "work_out", "personal_out") or not date_g_ or not category or amount is None:
+    if ttype not in ("work_in", "work_out", "personal_in", "personal_out") or not date_g_ or not category or amount is None:
         await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص است."))
         context.user_data.clear()
         return ConversationHandler.END
 
     scope, owner = resolve_scope_owner(user.id)
+
+    ok, why = within_quota(scope, owner, "tx")
+    if not ok:
+        await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+        context.user_data.clear()
+        return ConversationHandler.END
+
     ensure_installment(scope, owner)
 
     ts = now_ts()
@@ -1500,56 +1858,40 @@ def daily_pick_menu() -> InlineKeyboardMarkup:
     )
 
 # Optimized: single query instead of 4 queries
-def _day_sums(scope: str, owner: int, gdate: str) -> Tuple[int, int, int, int]:
-    with db() as conn:
-        row = conn.execute(
-            """
-            SELECT
-                COALESCE(SUM(CASE WHEN ttype='work_in' THEN amount ELSE 0 END),0) AS w_in,
-                COALESCE(SUM(CASE WHEN ttype='work_out' THEN amount ELSE 0 END),0) AS w_out,
-                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category=? THEN amount ELSE 0 END),0) AS inst,
-                COALESCE(SUM(CASE WHEN ttype='personal_out' AND category<>? THEN amount ELSE 0 END),0) AS p_non
-            FROM transactions
-            WHERE scope=? AND owner_user_id=? AND date_g=?
-            """,
-            (INSTALLMENT_NAME, INSTALLMENT_NAME, scope, owner, gdate),
-        ).fetchone()
-
-    return int(row["w_in"]), int(row["w_out"]), int(row["inst"]), int(row["p_non"])
-
 def daily_list_text(scope: str, owner: int, gdate: str) -> str:
     ensure_installment(scope, owner)
-
-    w_in, w_out, inst, p_non_install = _day_sums(scope, owner, gdate)
-    net = w_in - w_out
-    savings_operational = net - p_non_install
-    savings_final = savings_operational - inst
+    s = sums_for_range(scope, owner, gdate, gdate, inclusive_end=True)
 
     lines = [
         f"📅 {gdate}  |  {g_to_j(gdate)}",
         "",
         "📊 گزارش روز",
-        f"💰 درآمد: {fmt_num(w_in)}",
-        f"🏢 هزینه کاری: {fmt_num(w_out)}",
-        f"➖ خالص کاری: {fmt_num(net)}",
-        f"📄 قسط پرداختی: {fmt_num(inst)}",
-        f"👤 هزینه شخصی(بدون قسط): {fmt_num(p_non_install)}",
-        f"💾 پس‌انداز عملیاتی: {fmt_num(savings_operational)}",
-        f"💾 پس‌انداز نهایی: {fmt_num(savings_final)}",
+        f"💰 درآمد کاری: {fmt_money(s['income'])}",
+        f"🏢 هزینه کاری: {fmt_money(s['work_out'])}",
+        f"➖ خالص کاری: {fmt_money(s['net'])}",
+    ]
+    if s["personal_in"]:
+        lines.append(f"💵 درآمد شخصی: {fmt_money(s['personal_in'])}")
+    lines += [
+        f"📄 قسط پرداختی: {fmt_money(s['installment'])}",
+        f"👤 هزینه شخصی (بدون قسط): {fmt_money(s['personal'])}",
+        f"💾 پس‌انداز عملیاتی: {fmt_money(s['savings_operational'])}",
+        f"💾 پس‌انداز نهایی: {fmt_money(s['savings_final'])}",
     ]
     return rtl("\n".join(lines))
 
-def _short_add_labels() -> Tuple[str, str, str]:
-    return ("درآمد جدید", "هزینه جدید", "شخصی جدید")
+def _short_add_labels() -> Tuple[str, ...]:
+    return ("درآمد کاری", "هزینه کاری", "درآمد شخصی", "هزینه شخصی")
 
 def _section_title(ttype: str) -> str:
     return {
-        "work_in": "— لیست درآمد ها —",
-        "work_out": "— لیست هزینه ها —",
+        "work_in": "— لیست درآمد کاری —",
+        "work_out": "— لیست هزینه کاری —",
+        "personal_in": "— لیست درآمد شخصی —",
         "personal_out": "— لیست هزینه های شخصی —",
     }[ttype]
 
-SECTION_ORDER: Tuple[str, str, str] = ("work_in", "work_out", "personal_out")
+SECTION_ORDER: Tuple[str, ...] = ("work_in", "work_out", "personal_in", "personal_out")
 
 def _section_counts(scope: str, owner: int, gdate: str) -> Dict[str, int]:
     with db() as conn:
@@ -1568,40 +1910,40 @@ def _section_counts(scope: str, owner: int, gdate: str) -> Dict[str, int]:
         out[str(r["ttype"])] = int(r["c"])
     return out
 
-def normalize_pages(raw) -> Tuple[int, int, int]:
-    """Coerce callback data / stored state into three page numbers."""
+def normalize_pages(raw) -> Tuple[int, ...]:
+    """Coerce callback data / stored state into one page number per section."""
+    n = len(SECTION_ORDER)
     try:
         p = [max(0, int(x)) for x in raw]
     except (TypeError, ValueError):
-        return (0, 0, 0)
-    while len(p) < 3:
-        p.append(0)
-    return (p[0], p[1], p[2])
+        return tuple([0] * n)
+    p = (p + [0] * n)[:n]
+    return tuple(p)
 
-def current_pages(context: ContextTypes.DEFAULT_TYPE) -> Tuple[int, int, int]:
+def current_pages(context: ContextTypes.DEFAULT_TYPE) -> Tuple[int, ...]:
     """
     Which page of the daily list the user is looking at.
 
     Kept in chat_data rather than user_data, because the edit conversations call
     user_data.clear() mid-flow and would otherwise reset the list to page 1.
     """
-    return normalize_pages(context.chat_data.get("dl_pages", (0, 0, 0)))
+    return normalize_pages(context.chat_data.get("dl_pages", ()))
 
-def remember_pages(context: ContextTypes.DEFAULT_TYPE, pages) -> Tuple[int, int, int]:
+def remember_pages(context: ContextTypes.DEFAULT_TYPE, pages) -> Tuple[int, ...]:
     p = normalize_pages(pages)
     context.chat_data["dl_pages"] = p
     return p
 
-def daily_back_cb(gdate: str, pages: Tuple[int, int, int]) -> str:
+def daily_back_cb(gdate: str, pages) -> str:
     """Back-to-daily-list callback that returns to the page the user was on."""
     p = normalize_pages(pages)
-    return f"{CB_DL}:page:{gdate}:{p[0]}:{p[1]}:{p[2]}"
+    return f"{CB_DL}:page:{gdate}:" + ":".join(str(x) for x in p)
 
 def daily_rows_kb(
     scope: str,
     owner: int,
     gdate: str,
-    pages: Tuple[int, int, int] = (0, 0, 0),
+    pages: Tuple[int, ...] = (),
 ) -> InlineKeyboardMarkup:
     """
     Daily list keyboard, paged per section.
@@ -1621,16 +1963,15 @@ def daily_rows_kb(
     def page_cb(section_idx: int, page: int) -> str:
         nxt = list(shown)
         nxt[section_idx] = page
-        return f"{CB_DL}:page:{gdate}:{nxt[0]}:{nxt[1]}:{nxt[2]}"
+        return f"{CB_DL}:page:{gdate}:" + ":".join(str(x) for x in nxt)
 
     rows: List[List[InlineKeyboardButton]] = []
 
-    a1, a2, a3 = _short_add_labels()
+    labels = _short_add_labels()
     rows.append(
         [
-            InlineKeyboardButton(a1, callback_data=f"{CB_DL}:add:{gdate}:work_in"),
-            InlineKeyboardButton(a2, callback_data=f"{CB_DL}:add:{gdate}:work_out"),
-            InlineKeyboardButton(a3, callback_data=f"{CB_DL}:add:{gdate}:personal_out"),
+            InlineKeyboardButton(labels[i], callback_data=f"{CB_DL}:add:{gdate}:{ttype}")
+            for i, ttype in enumerate(SECTION_ORDER)
         ]
     )
 
@@ -1707,8 +2048,8 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if mode == "today":
             gdate = today_g()
             scope, owner = resolve_scope_owner(user.id)
-            pages = remember_pages(context, (0, 0, 0))
-            await safe_edit(q, 
+            pages = remember_pages(context, ())
+            await safe_edit(q,
                 daily_list_text(scope, owner, gdate),
                 reply_markup=daily_rows_kb(scope, owner, gdate, pages),
             )
@@ -1725,9 +2066,9 @@ async def daily_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if act in ("show", "page"):
         gdate = data[2]
         # "show" opens at page 1; "page" carries the requested page numbers.
-        pages = remember_pages(context, data[3:6] if act == "page" else (0, 0, 0))
+        pages = remember_pages(context, data[3:] if act == "page" else ())
         scope, owner = resolve_scope_owner(user.id)
-        await safe_edit(q, 
+        await safe_edit(q,
             daily_list_text(scope, owner, gdate),
             reply_markup=daily_rows_kb(scope, owner, gdate, pages),
         )
@@ -1900,7 +2241,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 conn.commit()
 
         pages = current_pages(context)
-        await safe_edit(q, 
+        await safe_edit(q,
             daily_list_text(scope, owner, gdate),
             reply_markup=daily_rows_kb(scope, owner, gdate, pages),
         )
@@ -1924,7 +2265,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         context.user_data.clear()
         context.user_data["edit_tx_id"] = tx_id
         context.user_data["edit_gdate"] = gdate
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(
                 "📅 تاریخ جدید تراکنش را انتخاب کنید:\n\n"
                 f"تاریخ فعلی: {tx['date_g']} ({g_to_j(tx['date_g'])})"
@@ -1940,7 +2281,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 page = int(parts[4])
             except (IndexError, ValueError):
                 page = 0
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl("🏷 دسته جدید را انتخاب کنید:"),
             reply_markup=tx_cat_change_kb(scope, owner, tx["ttype"], gdate, tx_id, page),
         )
@@ -1955,7 +2296,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     (cat_id, scope, owner, tx["ttype"]),
                 ).fetchone()
                 if not row:
-                    await safe_edit(q, 
+                    await safe_edit(q,
                         rtl("دسته پیدا نشد."),
                         reply_markup=tx_view_kb(gdate, tx_id, back_cb),
                     )
@@ -1968,7 +2309,7 @@ async def dtx_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 conn.commit()
 
         tx2 = get_tx(scope, owner, tx_id)
-        await safe_edit(q, 
+        await safe_edit(q,
             tx_detail_text(tx2, "✅ ویرایش شد."),
             reply_markup=tx_view_kb(gdate, tx_id, back_cb),
         )
@@ -1996,7 +2337,7 @@ async def apply_tx_date(update: Update, context: ContextTypes.DEFAULT_TYPE, new_
             conn.commit()
 
     context.user_data.clear()
-    pages = remember_pages(context, (0, 0, 0))
+    pages = remember_pages(context, ())
     await update.effective_chat.send_message(
         rtl(f"✅ تاریخ تراکنش به {new_gdate} ({g_to_j(new_gdate)}) تغییر کرد.")
     )
@@ -2135,6 +2476,7 @@ def sums_for_range(
     owner: int,
     start_g: Optional[str] = None,
     end_g_exclusive: Optional[str] = None,
+    inclusive_end: bool = False,
 ) -> Dict[str, int]:
     """Totals for a period; omit both bounds for an all-time total."""
     ensure_installment(scope, owner)
@@ -2145,7 +2487,7 @@ def sums_for_range(
         where += " AND date_g>=?"
         params.append(start_g)
     if end_g_exclusive is not None:
-        where += " AND date_g<?"
+        where += " AND date_g<=?" if inclusive_end else " AND date_g<?"
         params.append(end_g_exclusive)
 
     with db() as conn:
@@ -2154,6 +2496,7 @@ def sums_for_range(
             SELECT
                 COALESCE(SUM(CASE WHEN ttype='work_in' THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN ttype='work_out' THEN amount ELSE 0 END),0) AS work_out,
+                COALESCE(SUM(CASE WHEN ttype='personal_in' THEN amount ELSE 0 END),0) AS personal_in,
                 COALESCE(SUM(CASE WHEN ttype='personal_out' AND category=? THEN amount ELSE 0 END),0) AS installment,
                 COALESCE(SUM(CASE WHEN ttype='personal_out' AND category<>? THEN amount ELSE 0 END),0) AS personal
             FROM transactions
@@ -2164,40 +2507,70 @@ def sums_for_range(
 
     income = int(row["income"])
     work_out = int(row["work_out"])
+    personal_in = int(row["personal_in"])
     installment = int(row["installment"])
     personal = int(row["personal"])
 
     net = income - work_out
-    savings_operational = net - personal
+    # Personal income counts towards what is left over, but not towards the
+    # health of the business itself — so it lands here, not in `net`.
+    savings_operational = net + personal_in - personal
     savings_final = savings_operational - installment
 
     return {
         "income": income,
         "work_out": work_out,
         "net": net,
+        "personal_in": personal_in,
         "installment": installment,
         "personal": personal,
         "savings_operational": savings_operational,
         "savings_final": savings_final,
     }
 
+def count_transactions(
+    scope: str,
+    owner: int,
+    start_g: Optional[str] = None,
+    end_g_exclusive: Optional[str] = None,
+) -> int:
+    where = "scope=? AND owner_user_id=?"
+    params: List = [scope, owner]
+    if start_g is not None:
+        where += " AND date_g>=?"
+        params.append(start_g)
+    if end_g_exclusive is not None:
+        where += " AND date_g<?"
+        params.append(end_g_exclusive)
+
+    with db() as conn:
+        return int(conn.execute(
+            f"SELECT COUNT(*) AS c FROM transactions WHERE {where}", tuple(params)
+        ).fetchone()["c"])
+
 def sums_all(scope: str, owner: int) -> Dict[str, int]:
     return sums_for_range(scope, owner)
 
-def report_lines(title: str, s: Dict[str, int]) -> str:
+def report_lines(title: str, s: Dict[str, int], extra: Optional[str] = None) -> str:
     lines = [
         title,
         "",
-        f"💰 درآمد: {fmt_num(s['income'])}",
-        f"🏢 هزینه کاری: {fmt_num(s['work_out'])}",
-        f"➖ خالص کاری: {fmt_num(s['net'])}",
+        f"💰 درآمد کاری: {fmt_money(s['income'])}",
+        f"🏢 هزینه کاری: {fmt_money(s['work_out'])}",
+        f"➖ خالص کاری: {fmt_money(s['net'])}",
         "",
-        f"📄 قسط پرداختی: {fmt_num(s['installment'])}",
-        f"👤 هزینه شخصی (بدون قسط): {fmt_num(s['personal'])}",
-        "",
-        f"💾 پس‌انداز عملیاتی: {fmt_num(s['savings_operational'])}",
-        f"💾 پس‌انداز نهایی: {fmt_num(s['savings_final'])}",
     ]
+    if s.get("personal_in"):
+        lines.append(f"💵 درآمد شخصی: {fmt_money(s['personal_in'])}")
+    lines += [
+        f"📄 قسط پرداختی: {fmt_money(s['installment'])}",
+        f"👤 هزینه شخصی (بدون قسط): {fmt_money(s['personal'])}",
+        "",
+        f"💾 پس‌انداز عملیاتی: {fmt_money(s['savings_operational'])}",
+        f"💾 پس‌انداز نهایی: {fmt_money(s['savings_final'])}",
+    ]
+    if extra:
+        lines += ["", extra]
     return rtl("\n".join(lines))
 
 def jalali_years_with_data(scope: str, owner: int) -> List[int]:
@@ -2236,6 +2609,16 @@ def parse_period(parts: List[str]) -> Tuple[str, str, Optional[str], Optional[st
         start, end = j_month_range_g(jy, jm)
         return (f"m:{jy}:{jm:02d}", f"{jmonth_name(jm)} {jy}", start, end)
 
+    if kind == "r" and len(parts) >= 3:
+        # The spec carries an inclusive end date because that is what the user
+        # typed; SQL wants it exclusive, so it is shifted here.
+        s_g, e_g = parts[1], parts[2]
+        try:
+            e_ex = (datetime.strptime(e_g, "%Y-%m-%d").date() + timedelta(days=1)).strftime("%Y-%m-%d")
+        except ValueError:
+            return ("a", "کلی", None, None)
+        return (f"r:{s_g}:{e_g}", f"{g_to_j(s_g)} تا {g_to_j(e_g)}", s_g, e_ex)
+
     return ("a", "کلی", None, None)
 
 def period_extra_kb(spec: str) -> List[List[tuple]]:
@@ -2246,6 +2629,7 @@ def period_extra_kb(spec: str) -> List[List[tuple]]:
 
 def report_root_kb(years: List[int]) -> InlineKeyboardMarkup:
     rows: List[List[tuple]] = period_extra_kb("a")
+    rows.append([("🔎 جست‌وجو", f"{CB_SR}:new"), ("📆 بازهٔ دلخواه", f"{CB_RP}:range")])
 
     buf: List[tuple] = []
     for y in years:
@@ -2277,6 +2661,12 @@ def report_year_kb(jy: int) -> InlineKeyboardMarkup:
 def report_month_kb(jy: int, jm: int) -> InlineKeyboardMarkup:
     rows: List[List[tuple]] = period_extra_kb(f"m:{jy}:{jm:02d}")
     rows.append([("⬅️ بازگشت", f"{CB_RP}:y:{jy}")])
+    return ikb(rows)
+
+def range_report_kb(s_g: str, e_g: str) -> InlineKeyboardMarkup:
+    rows: List[List[tuple]] = period_extra_kb(f"r:{s_g}:{e_g}")
+    rows.append([("📆 بازهٔ دیگر", f"{CB_RP}:range")])
+    rows.append([("⬅️ بازگشت", f"{CB_RP}:root")])
     return ikb(rows)
 
 def back_to_period_kb(spec: str) -> InlineKeyboardMarkup:
@@ -2433,7 +2823,8 @@ async def report_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         jy = int(parts[2])
         start, end = j_year_range_g(jy)
         s = sums_for_range(scope, owner, start, end)
-        await safe_edit(q, report_lines(f"📊 گزارش سال {jy}", s), reply_markup=report_year_kb(jy))
+        extra = comparison_lines(scope, owner, f"y:{jy}")
+        await safe_edit(q, report_lines(f"📊 گزارش سال {jy}", s, extra), reply_markup=report_year_kb(jy))
         return
 
     if act == "m":
@@ -2441,7 +2832,15 @@ async def report_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         start, end = j_month_range_g(jy, jm)
         s = sums_for_range(scope, owner, start, end)
         title = f"📊 گزارش {jmonth_name(jm)} {jy}"
-        await safe_edit(q, report_lines(title, s), reply_markup=report_month_kb(jy, jm))
+        extra = comparison_lines(scope, owner, f"m:{jy}:{jm:02d}")
+        await safe_edit(q, report_lines(title, s, extra), reply_markup=report_month_kb(jy, jm))
+        return
+
+    if act == "r":
+        s_g, e_g = parts[2], parts[3]
+        _, title, start, end = parse_period(["r", s_g, e_g])
+        s = sums_for_range(scope, owner, start, end)
+        await safe_edit(q, report_lines(f"📊 گزارش {title}", s), reply_markup=range_report_kb(s_g, e_g))
         return
 
     if act == "bd":
@@ -2706,7 +3105,7 @@ async def db_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     if act == "target":
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(
                 "📍 مقصد بکاپ\n\n"
                 "یکی از گزینه‌ها را انتخاب کنید:\n"
@@ -2741,7 +3140,7 @@ async def db_target_choice_cb(update: Update, context: ContextTypes.DEFAULT_TYPE
         set_setting("backup_target_type", "chat")
         context.user_data.clear()
         context.user_data["db_target_type"] = "chat"
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(
                 "👤 ارسال بکاپ به آیدی\n\n"
                 f"آیدی عددی مقصد را وارد کنید.\n"
@@ -2754,7 +3153,7 @@ async def db_target_choice_cb(update: Update, context: ContextTypes.DEFAULT_TYPE
         set_setting("backup_target_type", "channel")
         context.user_data.clear()
         context.user_data["db_target_type"] = "channel"
-        await safe_edit(q, 
+        await safe_edit(q,
             rtl(
                 "📣 ارسال بکاپ به کانال\n\n"
                 "آیدی عددی کانال را وارد کنید (مثل -1001234567890).\n\n"
@@ -2847,7 +3246,7 @@ async def db_restore_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return ConversationHandler.END
 
     context.user_data.clear()
-    await safe_edit(q, 
+    await safe_edit(q,
         rtl(
             "📤 فایل بکاپ با پسوند .db را ارسال کنید.\n\n"
             "ℹ️ فایل قبل از جایگزینی بررسی می‌شود و از دیتابیس فعلی بکاپ اضطراری گرفته می‌شود.\n"
@@ -2964,6 +3363,1192 @@ async def db_restore_wait_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 # =========================
+# Period comparison
+# =========================
+def previous_period(spec: str) -> Optional[str]:
+    """The period immediately before this one, or None for all-time."""
+    if spec.startswith("y:"):
+        try:
+            return f"y:{int(spec[2:]) - 1}"
+        except ValueError:
+            return None
+
+    if spec.startswith("m:"):
+        parts = spec.split(":")
+        if len(parts) < 3:
+            return None
+        try:
+            jy, jm = int(parts[1]), int(parts[2])
+        except ValueError:
+            return None
+        return f"m:{jy - 1}:12" if jm == 1 else f"m:{jy}:{jm - 1:02d}"
+
+    return None
+
+def _delta_line(label: str, before: int, after: int) -> str:
+    diff = after - before
+    arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "▬")
+    pct = f"{round(diff * 100 / abs(before)):+d}%" if before else "—"
+    return f"{arrow} {label}: {pct} ({diff:+,})"
+
+def comparison_lines(scope: str, owner: int, spec: str) -> Optional[str]:
+    """A short 'versus last period' block, or None when there is nothing to compare."""
+    prev_spec = previous_period(spec)
+    if not prev_spec:
+        return None
+
+    _, prev_title, ps, pe = parse_period(prev_spec.split(":"))
+    prev = sums_for_range(scope, owner, ps, pe)
+    if not any(prev[k] for k in ("income", "work_out", "personal", "installment", "personal_in")):
+        return None
+
+    _, _, cs, ce = parse_period(spec.split(":"))
+    cur = sums_for_range(scope, owner, cs, ce)
+
+    lines = [f"📈 نسبت به {prev_title}:"]
+    for key, label in (
+        ("income", "درآمد کاری"),
+        ("work_out", "هزینه کاری"),
+        ("savings_final", "پس‌انداز نهایی"),
+    ):
+        lines.append(_delta_line(label, prev[key], cur[key]))
+    return "\n".join(lines)
+
+# =========================
+# Search
+# =========================
+def search_transactions(
+    scope: str,
+    owner: int,
+    query: str,
+    start_g: Optional[str],
+    end_g_exclusive: Optional[str],
+    page: int,
+    per_page: int,
+) -> Tuple[List[sqlite3.Row], int]:
+    """Matching transactions for one page, plus the total number of matches."""
+    needle = f"%{(query or '').strip()}%"
+
+    where = (
+        "scope=? AND owner_user_id=? "
+        "AND (category LIKE ? OR IFNULL(description,'') LIKE ?)"
+    )
+    params: List = [scope, owner, needle, needle]
+    if start_g is not None:
+        where += " AND date_g>=?"
+        params.append(start_g)
+    if end_g_exclusive is not None:
+        where += " AND date_g<?"
+        params.append(end_g_exclusive)
+
+    with db() as conn:
+        total = int(conn.execute(
+            f"SELECT COUNT(*) AS c FROM transactions WHERE {where}", tuple(params)
+        ).fetchone()["c"])
+
+        rows = list(conn.execute(
+            f"""
+            SELECT * FROM transactions
+            WHERE {where}
+            ORDER BY date_g DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params) + (per_page, max(0, page) * per_page),
+        ).fetchall())
+
+    return rows, total
+
+def search_results_text(query: str, rows: List[sqlite3.Row], total: int, page: int) -> str:
+    if not total:
+        return rtl(f"🔎 «{query}»\n\nچیزی پیدا نشد.")
+
+    lines = [f"🔎 «{query}» — {total} نتیجه", ""]
+    for r in rows:
+        note = (r["description"] or "").strip()
+        note = f" — {note[:30]}" if note else ""
+        lines.append(
+            f"• {g_to_j(str(r['date_g']))} | {ttype_label(str(r['ttype']))}"
+            f"\n  {r['category']}: {fmt_money(int(r['amount']))}{note}"
+        )
+
+    matched_sum = sum(int(r["amount"]) for r in rows)
+    lines += ["", f"جمع این صفحه: {fmt_money(matched_sum)}"]
+    return rtl("\n".join(lines))
+
+def search_results_kb(query: str, spec: str, page: int, total: int) -> InlineKeyboardMarkup:
+    rows: List[List[InlineKeyboardButton]] = []
+
+    nav = page_nav_row(f"{CB_SR}:p:", page, total, SEARCH_PAGE_SIZE)
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton("🔎 جست‌وجوی جدید", callback_data=f"{CB_SR}:new")])
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_RP}:root")])
+    return InlineKeyboardMarkup(rows)
+
+# =========================
+# Loans / installments
+# =========================
+def add_jalali_months(g_date: str, months: int) -> str:
+    """Shift a date by whole Jalali months, clamping onto short months."""
+    jy, jm, jd = g_to_j_parts(g_date)
+    total = (jy * 12 + (jm - 1)) + months
+    ny, nm = divmod(total, 12)
+    nm += 1
+
+    day = jd
+    while day > 1:
+        try:
+            return j_to_g_str(ny, nm, day)
+        except (ValueError, TypeError):
+            day -= 1
+    return j_to_g_str(ny, nm, 1)
+
+def create_loan(
+    scope: str,
+    owner: int,
+    title: str,
+    installment_amount: int,
+    installment_count: int,
+    start_date_g: str,
+) -> int:
+    with db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO loans(scope, owner_user_id, title, installment_amount,
+                              installment_count, start_date_g, is_active, created_at)
+            VALUES(?,?,?,?,?,?,1,?)
+            """,
+            (scope, owner, title.strip(), int(installment_amount),
+             int(installment_count), start_date_g, now_ts()),
+        )
+        return int(cur.lastrowid)
+
+def get_loan(scope: str, owner: int, loan_id: int) -> Optional[sqlite3.Row]:
+    with db() as conn:
+        return conn.execute(
+            "SELECT * FROM loans WHERE id=? AND scope=? AND owner_user_id=?",
+            (loan_id, scope, owner),
+        ).fetchone()
+
+def list_loans(scope: str, owner: int) -> List[sqlite3.Row]:
+    with db() as conn:
+        return list(conn.execute(
+            "SELECT * FROM loans WHERE scope=? AND owner_user_id=? ORDER BY is_active DESC, id DESC",
+            (scope, owner),
+        ).fetchall())
+
+def loan_progress(scope: str, owner: int, loan: sqlite3.Row) -> Dict[str, int]:
+    with db() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total
+            FROM transactions
+            WHERE scope=? AND owner_user_id=? AND loan_id=?
+            """,
+            (scope, owner, int(loan["id"])),
+        ).fetchone()
+
+    paid_count = int(row["cnt"])
+    paid_amount = int(row["total"])
+    per = int(loan["installment_amount"])
+    count = int(loan["installment_count"])
+    remaining_count = max(0, count - paid_count)
+
+    return {
+        "paid_count": paid_count,
+        "paid_amount": paid_amount,
+        "total_count": count,
+        "total_amount": per * count,
+        "remaining_count": remaining_count,
+        "remaining_amount": remaining_count * per,
+        "percent": round(paid_count * 100 / count) if count else 0,
+        "end_date_g": add_jalali_months(str(loan["start_date_g"]), max(0, count - 1)),
+    }
+
+def record_loan_payment(
+    scope: str,
+    owner: int,
+    actor: int,
+    loan_id: int,
+    date_g: Optional[str] = None,
+) -> Optional[int]:
+    """Book one installment as a personal expense linked back to its loan."""
+    loan = get_loan(scope, owner, loan_id)
+    if not loan:
+        return None
+
+    ensure_installment(scope, owner)
+    when = date_g or today_g()
+    ts = now_ts()
+
+    with db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO transactions(
+                scope, owner_user_id, actor_user_id, date_g, ttype, category,
+                amount, description, created_at, updated_at, loan_id)
+            VALUES(?,?,?,?,'personal_out',?,?,?,?,?,?)
+            """,
+            (scope, owner, actor, when, INSTALLMENT_NAME,
+             int(loan["installment_amount"]), str(loan["title"]), ts, ts, loan_id),
+        )
+        return int(cur.lastrowid)
+
+def delete_loan(scope: str, owner: int, loan_id: int) -> None:
+    """Forget the loan but keep its payments — they are real money that moved."""
+    with db() as conn:
+        conn.execute(
+            "UPDATE transactions SET loan_id=NULL WHERE loan_id=? AND scope=? AND owner_user_id=?",
+            (loan_id, scope, owner),
+        )
+        conn.execute(
+            "DELETE FROM loans WHERE id=? AND scope=? AND owner_user_id=?",
+            (loan_id, scope, owner),
+        )
+
+def loans_text(scope: str, owner: int, page: int = 0) -> str:
+    loans = list_loans(scope, owner)
+    if not loans:
+        return rtl(
+            "📄 اقساط و وام‌ها\n\n"
+            "هنوز وامی ثبت نشده.\n"
+            "با «➕ افزودن وام» می‌تونی یکی اضافه کنی تا ربات بگه چند قسط مانده."
+        )
+
+    page = max(0, min(page, max(0, (len(loans) - 1) // LOAN_PAGE_SIZE)))
+    window = loans[page * LOAN_PAGE_SIZE:(page + 1) * LOAN_PAGE_SIZE]
+
+    lines = [f"📄 اقساط و وام‌ها — {len(loans)} مورد", ""]
+    total_remaining = 0
+    for loan in loans:
+        total_remaining += loan_progress(scope, owner, loan)["remaining_amount"]
+
+    for loan in window:
+        p = loan_progress(scope, owner, loan)
+        state = "" if int(loan["is_active"]) else " (بسته)"
+        lines.append(
+            f"• {loan['title']}{state}\n"
+            f"  {p['paid_count']} از {p['total_count']} پرداخت شده ({p['percent']}%)\n"
+            f"  باقی‌مانده: {fmt_money(p['remaining_amount'])}"
+        )
+
+    lines += ["", f"مجموع باقی‌ماندهٔ همهٔ وام‌ها: {fmt_money(total_remaining)}"]
+    return rtl("\n".join(lines))
+
+def loans_kb(scope: str, owner: int, page: int = 0) -> InlineKeyboardMarkup:
+    loans = list_loans(scope, owner)
+    page = max(0, min(page, max(0, (len(loans) - 1) // LOAN_PAGE_SIZE)))
+    window = loans[page * LOAN_PAGE_SIZE:(page + 1) * LOAN_PAGE_SIZE]
+
+    rows: List[List[InlineKeyboardButton]] = [
+        [InlineKeyboardButton("➕ افزودن وام", callback_data=f"{CB_LN}:add")]
+    ]
+
+    for loan in window:
+        p = loan_progress(scope, owner, loan)
+        rows.append([
+            InlineKeyboardButton(
+                f"{loan['title']} — {p['remaining_count']} قسط",
+                callback_data=f"{CB_LN}:open:{loan['id']}",
+            )
+        ])
+
+    nav = page_nav_row(f"{CB_LN}:page:", page, len(loans), LOAN_PAGE_SIZE)
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_M}:st")])
+    return InlineKeyboardMarkup(rows)
+
+def loan_detail_text(scope: str, owner: int, loan_id: int) -> str:
+    loan = get_loan(scope, owner, loan_id)
+    if not loan:
+        return rtl("این وام پیدا نشد.")
+
+    p = loan_progress(scope, owner, loan)
+    lines = [
+        f"📄 {loan['title']}",
+        "",
+        f"💵 مبلغ هر قسط: {fmt_money(int(loan['installment_amount']))}",
+        f"🔢 تعداد اقساط: {p['total_count']}",
+        f"💰 مبلغ کل: {fmt_money(p['total_amount'])}",
+        "",
+        f"✅ پرداخت‌شده: {p['paid_count']} قسط ({fmt_money(p['paid_amount'])})",
+        f"⏳ باقی‌مانده: {p['remaining_count']} قسط ({fmt_money(p['remaining_amount'])})",
+        f"📊 پیشرفت: {p['percent']}%",
+        "",
+        f"🗓 شروع: {g_to_j(str(loan['start_date_g']))}",
+        f"🏁 آخرین قسط: {g_to_j(p['end_date_g'])}",
+    ]
+    return rtl("\n".join(lines))
+
+def loan_detail_kb(loan_id: int) -> InlineKeyboardMarkup:
+    return ikb([
+        [("✅ ثبت پرداخت قسط", f"{CB_LN}:pay:{loan_id}")],
+        [("🗑 حذف وام", f"{CB_LN}:del:{loan_id}")],
+        [("⬅️ بازگشت", f"{CB_LN}:panel")],
+    ])
+
+# =========================
+# Recurring transactions
+# =========================
+PERIOD_LABELS = {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}
+
+def next_run_after(period: str, g_date: str) -> str:
+    if period == "daily":
+        base = datetime.strptime(g_date, "%Y-%m-%d").date()
+        return (base + timedelta(days=1)).strftime("%Y-%m-%d")
+    if period == "weekly":
+        base = datetime.strptime(g_date, "%Y-%m-%d").date()
+        return (base + timedelta(days=7)).strftime("%Y-%m-%d")
+    return add_jalali_months(g_date, 1)
+
+def create_recurring(
+    scope: str,
+    owner: int,
+    ttype: str,
+    category: str,
+    amount: int,
+    description: Optional[str],
+    period: str,
+    next_run_g: str,
+) -> int:
+    with db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO recurring(scope, owner_user_id, ttype, category, amount,
+                                  description, period, next_run_g, is_active, created_at)
+            VALUES(?,?,?,?,?,?,?,?,1,?)
+            """,
+            (scope, owner, ttype, category.strip(), int(amount),
+             (description or None), period, next_run_g, now_ts()),
+        )
+        return int(cur.lastrowid)
+
+def list_recurring(scope: str, owner: int) -> List[sqlite3.Row]:
+    with db() as conn:
+        return list(conn.execute(
+            "SELECT * FROM recurring WHERE scope=? AND owner_user_id=? ORDER BY is_active DESC, id DESC",
+            (scope, owner),
+        ).fetchall())
+
+def toggle_recurring(scope: str, owner: int, rid: int) -> None:
+    with db() as conn:
+        conn.execute(
+            """
+            UPDATE recurring SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END
+            WHERE id=? AND scope=? AND owner_user_id=?
+            """,
+            (rid, scope, owner),
+        )
+
+def delete_recurring(scope: str, owner: int, rid: int) -> None:
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM recurring WHERE id=? AND scope=? AND owner_user_id=?",
+            (rid, scope, owner),
+        )
+
+def run_due_recurring(until_g: Optional[str] = None) -> int:
+    """
+    Materialise every rule that has come due, catching up on missed periods.
+
+    Returns how many transactions were created. Safe to call repeatedly: a rule
+    only fires for dates it has not already produced.
+    """
+    cutoff = until_g or today_g()
+    created = 0
+
+    with db() as conn:
+        rules = list(conn.execute(
+            "SELECT * FROM recurring WHERE is_active=1 AND next_run_g<=?", (cutoff,)
+        ).fetchall())
+
+        for rule in rules:
+            when = str(rule["next_run_g"])
+            fired = 0
+
+            # A hard stop, so a corrupt next_run_g can never spin forever.
+            while when <= cutoff and fired < 400:
+                ts = now_ts()
+                conn.execute(
+                    """
+                    INSERT INTO transactions(
+                        scope, owner_user_id, actor_user_id, date_g, ttype, category,
+                        amount, description, created_at, updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (rule["scope"], rule["owner_user_id"], rule["owner_user_id"], when,
+                     rule["ttype"], rule["category"], int(rule["amount"]),
+                     rule["description"], ts, ts),
+                )
+                created += 1
+                fired += 1
+                when = next_run_after(str(rule["period"]), when)
+
+            conn.execute(
+                "UPDATE recurring SET next_run_g=?, last_run_g=? WHERE id=?",
+                (when, cutoff, int(rule["id"])),
+            )
+
+    if created:
+        logger.info("Recurring rules created %s transaction(s) up to %s", created, cutoff)
+    return created
+
+async def recurring_job(ctx) -> None:
+    try:
+        run_due_recurring()
+    except Exception as e:
+        logger.exception("Recurring job failed: %s", e)
+
+def schedule_recurring_job(app: Application) -> None:
+    try:
+        for j in app.job_queue.get_jobs_by_name(JOB_RECURRING):
+            j.schedule_removal()
+    except Exception:
+        pass
+
+    # Hourly, so a restart or a clock change cannot skip a day entirely.
+    app.job_queue.run_repeating(
+        callback=recurring_job, interval=3600, first=30, name=JOB_RECURRING
+    )
+
+def recurring_text(scope: str, owner: int, page: int = 0) -> str:
+    rules = list_recurring(scope, owner)
+    if not rules:
+        return rtl(
+            "🔁 تراکنش‌های تکرارشونده\n\n"
+            "هنوز قاعده‌ای ثبت نشده.\n"
+            "چیزهایی مثل اجاره یا حقوق را یک بار تعریف کن تا خودکار ثبت شوند."
+        )
+
+    page = max(0, min(page, max(0, (len(rules) - 1) // LOAN_PAGE_SIZE)))
+    window = rules[page * LOAN_PAGE_SIZE:(page + 1) * LOAN_PAGE_SIZE]
+
+    lines = [f"🔁 تراکنش‌های تکرارشونده — {len(rules)} مورد", ""]
+    for r in window:
+        state = "فعال ✅" if int(r["is_active"]) else "متوقف ⏸"
+        lines.append(
+            f"• {r['category']} — {fmt_money(int(r['amount']))}\n"
+            f"  {ttype_label(str(r['ttype']))} | {PERIOD_LABELS.get(str(r['period']), r['period'])} | {state}\n"
+            f"  اجرای بعدی: {g_to_j(str(r['next_run_g']))}"
+        )
+    return rtl("\n".join(lines))
+
+def recurring_kb(scope: str, owner: int, page: int = 0) -> InlineKeyboardMarkup:
+    rules = list_recurring(scope, owner)
+    page = max(0, min(page, max(0, (len(rules) - 1) // LOAN_PAGE_SIZE)))
+    window = rules[page * LOAN_PAGE_SIZE:(page + 1) * LOAN_PAGE_SIZE]
+
+    rows: List[List[InlineKeyboardButton]] = [
+        [InlineKeyboardButton("➕ افزودن قاعده", callback_data=f"{CB_RC}:add")]
+    ]
+
+    for r in window:
+        toggle = "⏸" if int(r["is_active"]) else "▶️"
+        rows.append([
+            InlineKeyboardButton(f"{r['category']}", callback_data=f"{CB_RC}:noop"),
+            InlineKeyboardButton(toggle, callback_data=f"{CB_RC}:tog:{r['id']}"),
+            InlineKeyboardButton("🗑", callback_data=f"{CB_RC}:del:{r['id']}"),
+        ])
+
+    nav = page_nav_row(f"{CB_RC}:page:", page, len(rules), LOAN_PAGE_SIZE)
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton("⬅️ بازگشت", callback_data=f"{CB_M}:st")])
+    return InlineKeyboardMarkup(rows)
+
+# =========================
+# Quick entry (free text)
+# =========================
+def parse_quick_entry(text: str) -> Optional[Dict]:
+    """
+    Read a one-line transaction: "فروش 250000", "اجاره 1.2م بابت مرداد".
+
+    An optional leading date comes first. The amount splits the rest: what comes
+    before it is the category (so multi-word names work), what comes after is the
+    note. If the amount comes first, the next single word is the category.
+    Returns None whenever the line is not clearly a transaction — a wrong guess
+    here would silently record money that never moved.
+    """
+    raw = (text or "").strip()
+    if not raw or raw.startswith("/"):
+        return None
+
+    tokens = raw.split()
+    if len(tokens) < 2:
+        return None
+
+    date_g = None
+    if len(tokens) > 2:
+        maybe = parse_date_any(tokens[0])
+        if maybe:
+            date_g = maybe
+            tokens = tokens[1:]
+
+    if len(tokens) < 2:
+        return None
+
+    # Find the amount, preferring a two-token form like "250 هزار".
+    idx, amount, span = -1, None, 1
+    for i in range(len(tokens)):
+        if i + 1 < len(tokens):
+            pair = parse_amount(tokens[i] + tokens[i + 1])
+            if pair is not None and parse_amount(tokens[i + 1]) is None:
+                idx, amount, span = i, pair, 2
+                break
+        single = parse_amount(tokens[i])
+        if single is not None:
+            idx, amount, span = i, single, 1
+            break
+
+    if amount is None or idx < 0:
+        return None
+
+    before = tokens[:idx]
+    after = tokens[idx + span:]
+
+    if before:
+        category = " ".join(before)
+        description = " ".join(after) or None
+    else:
+        # Amount first: the very next word names the category.
+        if not after:
+            return None
+        category = after[0]
+        description = " ".join(after[1:]) or None
+
+    if not category.strip():
+        return None
+
+    return {
+        "date_g": date_g or today_g(),
+        "category": category.strip(),
+        "amount": amount,
+        "description": description,
+    }
+
+def quick_group_kb() -> InlineKeyboardMarkup:
+    rows = [[(grp_label(g), f"qe:g:{g}")] for g in SECTION_ORDER]
+    rows.append([("↩️ انصراف", "qe:cancel")])
+    return ikb(rows)
+
+async def save_quick_entry(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    entry: Dict,
+    ttype: str,
+    create_category: bool,
+) -> None:
+    user = update.effective_user
+    scope, owner = resolve_scope_owner(user.id)
+
+    ok, why = within_quota(scope, owner, "tx")
+    if not ok:
+        await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+        return
+
+    if create_category:
+        ok, why = within_quota(scope, owner, "cat")
+        if not ok:
+            await update.effective_chat.send_message(rtl(f"⛔ {why}"))
+            return
+        with db() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO categories(scope, owner_user_id, grp, name, is_locked) VALUES(?,?,?,?,0)",
+                    (scope, owner, ttype, entry["category"]),
+                )
+            except sqlite3.IntegrityError:
+                pass
+
+    ts = now_ts()
+    async with DB_LOCK:
+        with db() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO transactions(
+                    scope, owner_user_id, actor_user_id, date_g, ttype, category,
+                    amount, description, created_at, updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                """,
+                (scope, owner, user.id, entry["date_g"], ttype, entry["category"],
+                 int(entry["amount"]), entry["description"], ts, ts),
+            )
+            tx_id = int(cur.lastrowid)
+
+    context.user_data.pop("quick_pending", None)
+    gdate = entry["date_g"]
+    lines = [
+        "✅ ثبت شد.",
+        "",
+        f"📅 {gdate} ({g_to_j(gdate)})",
+        f"🔖 {ttype_label(ttype)}",
+        f"🏷 {entry['category']}",
+        f"💵 {fmt_money(int(entry['amount']))}",
+    ]
+    if entry["description"]:
+        lines.append(f"📝 {entry['description']}")
+
+    kb = ikb([
+        [("✏️ ویرایش", f"{CB_DTX}:open:{gdate}:{tx_id}")],
+        [("📄 لیست همان روز", f"{CB_DL}:show:{gdate}")],
+    ])
+    await update.effective_chat.send_message(rtl("\n".join(lines)), reply_markup=kb)
+
+async def quick_entry_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Finish a quick entry whose category was unknown or ambiguous."""
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+    pending = context.user_data.get("quick_pending")
+
+    if parts[1] == "cancel" or not pending:
+        context.user_data.pop("quick_pending", None)
+        await safe_edit(q, rtl("↩️ لغو شد." if parts[1] == "cancel" else "این درخواست منقضی شده. دوباره بفرست."))
+        return
+
+    ttype = parts[2]
+    if ttype not in SECTION_ORDER:
+        await safe_edit(q, rtl("گروه نامعتبر."))
+        return
+
+    scope, owner = resolve_scope_owner(user.id)
+    known = {str(r["grp"]) for r in find_categories_by_name(scope, owner, pending["category"])}
+
+    await safe_edit(q, rtl("⏳ در حال ثبت..."))
+    await save_quick_entry(update, context, pending, ttype, create_category=ttype not in known)
+
+async def quick_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Catch plain text typed outside any conversation.
+
+    Registered last in its group, so an active conversation always wins.
+    """
+    msg = update.message
+    if not msg or not msg.text:
+        return
+    if update.effective_chat and update.effective_chat.type != "private":
+        return
+
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return
+
+    entry = parse_quick_entry(msg.text)
+    if not entry:
+        await update.effective_chat.send_message(
+            rtl(
+                "❓ متوجه نشدم.\n\n"
+                "برای ثبت سریع بنویس: «دسته مبلغ [توضیح]»\n"
+                "مثال‌ها:\n"
+                "• فروش 250000\n"
+                "• اجاره ۱٫۲م بابت مرداد\n"
+                "• 1405/05/31 خدمات ۵۰۰ک\n\n"
+                "یا از منو استفاده کن:"
+            ),
+            reply_markup=main_menu(),
+        )
+        return
+
+    scope, owner = resolve_scope_owner(user.id)
+    matches = find_categories_by_name(scope, owner, entry["category"])
+
+    if len(matches) == 1:
+        await save_quick_entry(update, context, entry, str(matches[0]["grp"]), create_category=False)
+        return
+
+    context.user_data["quick_pending"] = entry
+    if len(matches) > 1:
+        prompt = (
+            f"🏷 «{entry['category']}» در چند گروه وجود دارد.\n"
+            f"💵 {fmt_money(int(entry['amount']))}\n\n"
+            "کدام یک؟"
+        )
+    else:
+        prompt = (
+            f"🏷 دستهٔ «{entry['category']}» وجود ندارد.\n"
+            f"💵 {fmt_money(int(entry['amount']))}\n\n"
+            "در کدام گروه ساخته شود؟"
+        )
+
+    await update.effective_chat.send_message(rtl(prompt), reply_markup=quick_group_kb())
+
+# =========================
+# Currency handlers
+# =========================
+async def currency_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    parts = (q.data or "").split(":")
+
+    if parts[1] == "custom":
+        context.user_data.clear()
+        await safe_edit(q, rtl("✏️ واحد پول دلخواه را بنویس (مثلاً: درهم):"))
+        return CU_CUSTOM
+
+    if parts[1] == "set":
+        set_setting("currency", parts[2])
+        await safe_edit(q, rtl(f"💱 واحد پول\n\nواحد فعلی: {currency()}"), reply_markup=currency_kb())
+        return ConversationHandler.END
+
+    await safe_edit(q, rtl("دستور ناشناخته."), reply_markup=currency_kb())
+    return ConversationHandler.END
+
+async def currency_custom_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+
+    name = (update.message.text or "").strip()
+    if not name or len(name) > 12:
+        await update.effective_chat.send_message(rtl("❌ یک واحد کوتاه بنویس (حداکثر ۱۲ نویسه):"))
+        return CU_CUSTOM
+
+    set_setting("currency", name)
+    context.user_data.clear()
+    await update.effective_chat.send_message(
+        rtl(f"💱 واحد پول\n\nواحد فعلی: {currency()}"), reply_markup=currency_kb()
+    )
+    return ConversationHandler.END
+
+# =========================
+# Loan handlers
+# =========================
+async def loans_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    scope, owner = resolve_scope_owner(user.id)
+    parts = (q.data or "").split(":")
+    act = parts[1]
+
+    if act == "noop":
+        return ConversationHandler.END
+
+    if act in ("panel", "page"):
+        page = 0
+        if act == "page":
+            try:
+                page = int(parts[2])
+            except (IndexError, ValueError):
+                page = 0
+        await safe_edit(q, loans_text(scope, owner, page), reply_markup=loans_kb(scope, owner, page))
+        return ConversationHandler.END
+
+    if act == "add":
+        context.user_data.clear()
+        await safe_edit(q, rtl("📄 نام وام را بنویس (مثلاً: وام مسکن):"))
+        return LN_TITLE
+
+    loan_id = int(parts[2])
+
+    if act == "open":
+        await safe_edit(q, loan_detail_text(scope, owner, loan_id), reply_markup=loan_detail_kb(loan_id))
+        return ConversationHandler.END
+
+    if act == "pay":
+        loan = get_loan(scope, owner, loan_id)
+        if not loan:
+            await safe_edit(q, loans_text(scope, owner), reply_markup=loans_kb(scope, owner))
+            return ConversationHandler.END
+
+        ok, why = within_quota(scope, owner, "tx")
+        if not ok:
+            await safe_edit(q, rtl(f"⛔ {why}"), reply_markup=loan_detail_kb(loan_id))
+            return ConversationHandler.END
+
+        async with DB_LOCK:
+            record_loan_payment(scope, owner, user.id, loan_id)
+
+        await safe_edit(q, loan_detail_text(scope, owner, loan_id), reply_markup=loan_detail_kb(loan_id))
+        return ConversationHandler.END
+
+    if act == "del":
+        loan = get_loan(scope, owner, loan_id)
+        if not loan:
+            await safe_edit(q, loans_text(scope, owner), reply_markup=loans_kb(scope, owner))
+            return ConversationHandler.END
+
+        kb = ikb([
+            [("🗑 بله، حذف کن", f"{CB_LN}:delok:{loan_id}")],
+            [("↩️ انصراف", f"{CB_LN}:open:{loan_id}")],
+        ])
+        await safe_edit(q, rtl(
+            f"⚠️ حذف وام «{loan['title']}»\n\n"
+            "پرداخت‌های ثبت‌شده حذف نمی‌شوند و در گزارش‌ها می‌مانند؛\n"
+            "فقط پیگیری تعداد اقساط از بین می‌رود.\n\n"
+            "آیا مطمئنی؟"
+        ), reply_markup=kb)
+        return ConversationHandler.END
+
+    if act == "delok":
+        async with DB_LOCK:
+            delete_loan(scope, owner, loan_id)
+        await safe_edit(q, loans_text(scope, owner), reply_markup=loans_kb(scope, owner))
+        return ConversationHandler.END
+
+    await safe_edit(q, loans_text(scope, owner), reply_markup=loans_kb(scope, owner))
+    return ConversationHandler.END
+
+async def loan_title_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.effective_chat.send_message(rtl("نام خالی است. دوباره بنویس:"))
+        return LN_TITLE
+
+    context.user_data["loan_title"] = title[:60]
+    await update.effective_chat.send_message(rtl("💵 مبلغ هر قسط را بنویس (مثلاً ۲م یا 2000000):"))
+    return LN_AMOUNT
+
+async def loan_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    amount = parse_amount(update.message.text or "")
+    if amount is None or amount <= 0:
+        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        return LN_AMOUNT
+
+    context.user_data["loan_amount"] = amount
+    await update.effective_chat.send_message(rtl("🔢 تعداد کل اقساط را بنویس (مثلاً 24):"))
+    return LN_COUNT
+
+async def loan_count_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    raw = to_ascii_digits(update.message.text or "").strip()
+    if not re.fullmatch(r"\d{1,4}", raw) or int(raw) <= 0:
+        await update.effective_chat.send_message(rtl("❌ فقط عدد بین ۱ تا ۹۹۹۹ وارد کن:"))
+        return LN_COUNT
+
+    context.user_data["loan_count"] = int(raw)
+    await update.effective_chat.send_message(
+        rtl("🗓 تاریخ اولین قسط را بنویس (شمسی یا میلادی) یا «امروز»:")
+    )
+    return LN_START
+
+async def loan_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    start = parse_date_any(update.message.text or "")
+    if not start:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. مثلاً 1404/05/01 یا «امروز»:"))
+        return LN_START
+
+    title = context.user_data.get("loan_title")
+    amount = context.user_data.get("loan_amount")
+    count = context.user_data.get("loan_count")
+    if not title or amount is None or not count:
+        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    async with DB_LOCK:
+        create_loan(scope, owner, title, int(amount), int(count), start)
+
+    context.user_data.clear()
+    await update.effective_chat.send_message(
+        loans_text(scope, owner), reply_markup=loans_kb(scope, owner)
+    )
+    return ConversationHandler.END
+
+# =========================
+# Recurring handlers
+# =========================
+def rc_ttype_kb() -> InlineKeyboardMarkup:
+    rows = [[(grp_label(g), f"{CB_RC}:tt:{g}")] for g in SECTION_ORDER]
+    rows.append([("↩️ انصراف", f"{CB_RC}:panel")])
+    return ikb(rows)
+
+def rc_period_kb() -> InlineKeyboardMarkup:
+    rows = [[(PERIOD_LABELS[p], f"{CB_RC}:pr:{p}")] for p in ("monthly", "weekly", "daily")]
+    rows.append([("↩️ انصراف", f"{CB_RC}:panel")])
+    return ikb(rows)
+
+async def recurring_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    scope, owner = resolve_scope_owner(user.id)
+    parts = (q.data or "").split(":")
+    act = parts[1]
+
+    if act == "noop":
+        return ConversationHandler.END
+
+    if act in ("panel", "page"):
+        page = 0
+        if act == "page":
+            try:
+                page = int(parts[2])
+            except (IndexError, ValueError):
+                page = 0
+        context.user_data.pop("rc_draft", None)
+        await safe_edit(q, recurring_text(scope, owner, page), reply_markup=recurring_kb(scope, owner, page))
+        return ConversationHandler.END
+
+    if act == "add":
+        context.user_data.clear()
+        context.user_data["rc_draft"] = {}
+        await safe_edit(q, rtl("🔁 نوع تراکنش تکرارشونده را انتخاب کن:"), reply_markup=rc_ttype_kb())
+        return RC_TTYPE
+
+    if act == "tog":
+        async with DB_LOCK:
+            toggle_recurring(scope, owner, int(parts[2]))
+        await safe_edit(q, recurring_text(scope, owner), reply_markup=recurring_kb(scope, owner))
+        return ConversationHandler.END
+
+    if act == "del":
+        kb = ikb([
+            [("🗑 بله، حذف کن", f"{CB_RC}:delok:{parts[2]}")],
+            [("↩️ انصراف", f"{CB_RC}:panel")],
+        ])
+        await safe_edit(q, rtl(
+            "⚠️ حذف قاعدهٔ تکرارشونده\n\n"
+            "تراکنش‌هایی که تا الان ساخته حذف نمی‌شوند.\n\n"
+            "آیا مطمئنی؟"
+        ), reply_markup=kb)
+        return ConversationHandler.END
+
+    if act == "delok":
+        async with DB_LOCK:
+            delete_recurring(scope, owner, int(parts[2]))
+        await safe_edit(q, recurring_text(scope, owner), reply_markup=recurring_kb(scope, owner))
+        return ConversationHandler.END
+
+    await safe_edit(q, recurring_text(scope, owner), reply_markup=recurring_kb(scope, owner))
+    return ConversationHandler.END
+
+async def rc_ttype_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+
+    ttype = (q.data or "").split(":")[2]
+    if ttype not in SECTION_ORDER:
+        await safe_edit(q, rtl("نوع نامعتبر."), reply_markup=rc_ttype_kb())
+        return RC_TTYPE
+
+    context.user_data.setdefault("rc_draft", {})["ttype"] = ttype
+    await safe_edit(q, rtl(f"🏷 نام دسته را بنویس ({grp_label(ttype)}):"))
+    return RC_CAT
+
+async def rc_cat_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    name = (update.message.text or "").strip()
+    if not name:
+        await update.effective_chat.send_message(rtl("نام خالی است. دوباره:"))
+        return RC_CAT
+
+    context.user_data.setdefault("rc_draft", {})["category"] = name[:40]
+    await update.effective_chat.send_message(rtl("💵 مبلغ را بنویس:"))
+    return RC_AMOUNT
+
+async def rc_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    amount = parse_amount(update.message.text or "")
+    if amount is None:
+        await update.effective_chat.send_message(rtl("❌ مبلغ نامعتبر است. دوباره:"))
+        return RC_AMOUNT
+
+    context.user_data.setdefault("rc_draft", {})["amount"] = amount
+    await update.effective_chat.send_message(rtl("📝 توضیح (اختیاری) یا /skip:"))
+    return RC_DESC
+
+async def rc_desc_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    desc = (update.message.text or "").strip()
+    context.user_data.setdefault("rc_draft", {})["description"] = desc or None
+    await update.effective_chat.send_message(rtl("⏱ هر چند وقت تکرار شود؟"), reply_markup=rc_period_kb())
+    return RC_PERIOD
+
+async def rc_desc_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.setdefault("rc_draft", {})["description"] = None
+    await update.effective_chat.send_message(rtl("⏱ هر چند وقت تکرار شود؟"), reply_markup=rc_period_kb())
+    return RC_PERIOD
+
+async def rc_period_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+
+    period = (q.data or "").split(":")[2]
+    if period not in PERIOD_LABELS:
+        await safe_edit(q, rtl("دوره نامعتبر."), reply_markup=rc_period_kb())
+        return RC_PERIOD
+
+    context.user_data.setdefault("rc_draft", {})["period"] = period
+    await safe_edit(q, rtl("🗓 اولین اجرا از چه تاریخی؟ (شمسی/میلادی یا «امروز»)"))
+    return RC_START
+
+async def rc_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    start = parse_date_any(update.message.text or "")
+    if not start:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره:"))
+        return RC_START
+
+    draft = context.user_data.get("rc_draft") or {}
+    needed = ("ttype", "category", "amount", "period")
+    if any(draft.get(k) is None for k in needed):
+        await update.effective_chat.send_message(rtl("خطا: اطلاعات ناقص."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    scope, owner = resolve_scope_owner(user.id)
+    async with DB_LOCK:
+        create_recurring(
+            scope, owner, draft["ttype"], draft["category"], int(draft["amount"]),
+            draft.get("description"), draft["period"], start,
+        )
+        # Anything already due fires immediately, so the first run is not a surprise.
+        run_due_recurring()
+
+    context.user_data.clear()
+    await update.effective_chat.send_message(
+        recurring_text(scope, owner), reply_markup=recurring_kb(scope, owner)
+    )
+    return ConversationHandler.END
+
+# =========================
+# Search handlers
+# =========================
+async def search_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    await safe_edit(q, rtl(
+        "🔎 جست‌وجو\n\n"
+        "بخشی از نام دسته یا توضیح را بنویس.\n"
+        "مثال: اجاره"
+    ))
+    return SR_QUERY
+
+async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int, edit: bool) -> None:
+    user = update.effective_user
+    scope, owner = resolve_scope_owner(user.id)
+
+    query = context.chat_data.get("search_query", "")
+    rows, total = search_transactions(scope, owner, query, None, None, page, SEARCH_PAGE_SIZE)
+    context.chat_data["search_page"] = page
+
+    text = search_results_text(query, rows, total, page)
+    kb = search_results_kb(query, "a", page, total)
+
+    if edit and update.callback_query:
+        await safe_edit(update.callback_query, text, reply_markup=kb)
+    else:
+        await update.effective_chat.send_message(text, reply_markup=kb)
+
+async def search_query_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+
+    query = (update.message.text or "").strip()
+    if len(query) < 2:
+        await update.effective_chat.send_message(rtl("❌ حداقل ۲ نویسه بنویس:"))
+        return SR_QUERY
+
+    context.chat_data["search_query"] = query[:60]
+    await show_search_results(update, context, 0, edit=False)
+    return ConversationHandler.END
+
+async def search_page_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return
+    await q.answer()
+
+    if not context.chat_data.get("search_query"):
+        await safe_edit(q, rtl("جست‌وجو منقضی شده. دوباره شروع کن."), reply_markup=main_menu())
+        return
+
+    try:
+        page = int((q.data or "").split(":")[2])
+    except (IndexError, ValueError):
+        page = 0
+    await show_search_results(update, context, page, edit=True)
+
+# =========================
+# Custom date range
+# =========================
+async def range_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    user = update.effective_user
+    if not access_allowed(user.id):
+        await deny(update)
+        return ConversationHandler.END
+    await q.answer()
+
+    context.user_data.clear()
+    await safe_edit(q, rtl(
+        "📆 بازهٔ دلخواه\n\n"
+        "تاریخ شروع را بنویس (شمسی یا میلادی).\n"
+        "مثال: 1404/01/01"
+    ))
+    return RG_START
+
+async def range_start_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    start = parse_date_any(update.message.text or "")
+    if not start:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره:"))
+        return RG_START
+
+    context.user_data["range_start"] = start
+    await update.effective_chat.send_message(
+        rtl(f"شروع: {g_to_j(start)}\n\nحالا تاریخ پایان را بنویس:")
+    )
+    return RG_END
+
+async def range_end_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    end = parse_date_any(update.message.text or "")
+    if not end:
+        await update.effective_chat.send_message(rtl("❌ تاریخ نامعتبر است. دوباره:"))
+        return RG_END
+
+    start = context.user_data.get("range_start")
+    if not start:
+        await update.effective_chat.send_message(rtl("خطا: تاریخ شروع مشخص نیست."))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if end < start:
+        start, end = end, start
+
+    context.user_data.clear()
+    scope, owner = resolve_scope_owner(user.id)
+    _, title, s_g, e_ex = parse_period(["r", start, end])
+    s = sums_for_range(scope, owner, s_g, e_ex)
+
+    await update.effective_chat.send_message(
+        report_lines(f"📊 گزارش {title}", s), reply_markup=range_report_kb(start, end)
+    )
+    return ConversationHandler.END
+
+# =========================
 # Cancel / error handling
 # =========================
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -3037,6 +4622,7 @@ def build_app() -> Application:
     async def _post_init(application: Application) -> None:
         await setup_commands(application)
         schedule_backup_job(application)
+        schedule_recurring_job(application)
 
     app.post_init = _post_init
 
@@ -3051,7 +4637,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(main_cb, pattern=r"^m:(home|tx|st|report|noop)$"))
 
     # Settings / Access
-    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|db)$"))
+    app.add_handler(CallbackQueryHandler(settings_cb, pattern=r"^st:(cats|access|cur|db)$"))
     app.add_handler(CallbackQueryHandler(access_cb, pattern=r"^ac:(mode:(admin_only|public)|share)$"))
 
     async def ac_noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3092,15 +4678,15 @@ def build_app() -> Application:
         CallbackQueryHandler(
             cats_cb,
             pattern=(
-                r"^ct:(grp:(work_in|work_out|personal_out)"
-                r"|page:(work_in|work_out|personal_out):\d+"
+                r"^ct:(grp:(work_in|work_out|personal_in|personal_out)"
+                r"|page:(work_in|work_out|personal_in|personal_out):\d+"
                 r"|del:\d+|delok:\d+|noop)$"
             ),
         )
     )
 
     cat_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_out)$")],
+        entry_points=[CallbackQueryHandler(cats_cb, pattern=r"^ct:add:(work_in|work_out|personal_in|personal_out)$")],
         states={CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, cat_add_name)]},
         fallbacks=common_fallbacks,
         allow_reentry=True,
@@ -3137,7 +4723,7 @@ def build_app() -> Application:
             pattern=(
                 r"^dl:(d:(today|g|j)"
                 r"|show:\d{4}-\d{2}-\d{2}"
-                r"|page:\d{4}-\d{2}-\d{2}:\d+:\d+:\d+"
+                r"|page:\d{4}-\d{2}-\d{2}(?::\d+)+"
                 r"|noop)$"
             ),
         )
@@ -3147,13 +4733,13 @@ def build_app() -> Application:
     tx_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(tx_entry_from_menu, pattern=r"^tx:new$"),
-            CallbackQueryHandler(tx_entry_from_daily, pattern=r"^dl:add:\d{4}-\d{2}-\d{2}:(work_in|work_out|personal_out)$"),
+            CallbackQueryHandler(tx_entry_from_daily, pattern=r"^dl:add:\d{4}-\d{2}-\d{2}:(work_in|work_out|personal_in|personal_out)$"),
         ],
         states={
             TX_DATE_MENU: [CallbackQueryHandler(tx_date_menu_cb, pattern=r"^tx:date:(today|g|j)$")],
             TX_DATE_G: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_g_input)],
             TX_DATE_J: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_date_j_input)],
-            TX_TTYPE: [CallbackQueryHandler(tx_ttype_cb, pattern=r"^tx:tt:(work_in|work_out|personal_out)$")],
+            TX_TTYPE: [CallbackQueryHandler(tx_ttype_cb, pattern=r"^tx:tt:(work_in|work_out|personal_in|personal_out)$")],
             TX_CAT_PICK: [CallbackQueryHandler(tx_cat_pick_cb, pattern=r"^tx:(cat:\d+|catp:\d+|cat_add)$")],
             TX_CAT_ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_cat_add_name_input)],
             TX_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, tx_amount_input)],
@@ -3211,7 +4797,8 @@ def build_app() -> Application:
     )
     app.add_handler(edit_date_conv)
 
-    # Reports (summary / breakdown / CSV export)
+    # Reports (summary / comparison / breakdown / CSV export)
+    PERIOD_RE = r"(a|y:\d{4}|m:\d{4}:\d{2}|r:\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2})"
     app.add_handler(
         CallbackQueryHandler(
             report_cb,
@@ -3219,9 +4806,101 @@ def build_app() -> Application:
                 r"^rp:(root"
                 r"|y:\d{4}"
                 r"|m:\d{4}:\d{2}"
-                r"|bd:(a|y:\d{4}|m:\d{4}:\d{2})"
-                r"|csv:(a|y:\d{4}|m:\d{4}:\d{2}))$"
+                r"|r:\d{4}-\d{2}-\d{2}:\d{4}-\d{2}-\d{2}"
+                r"|bd:" + PERIOD_RE +
+                r"|csv:" + PERIOD_RE + r")$"
             ),
+        )
+    )
+
+    # Custom date range
+    range_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(range_entry, pattern=r"^rp:range$")],
+        states={
+            RG_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, range_start_input)],
+            RG_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, range_end_input)],
+        },
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(range_conv)
+
+    # Search
+    search_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(search_entry, pattern=r"^sr:new$")],
+        states={SR_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, search_query_input)]},
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(search_conv)
+    app.add_handler(CallbackQueryHandler(search_page_cb, pattern=r"^sr:p:\d+$"))
+
+    # Currency
+    app.add_handler(CallbackQueryHandler(currency_cb, pattern=r"^cu:set:.+$"))
+    currency_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(currency_cb, pattern=r"^cu:custom$")],
+        states={CU_CUSTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, currency_custom_input)]},
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(currency_conv)
+
+    # Loans and installments
+    app.add_handler(
+        CallbackQueryHandler(
+            loans_cb,
+            pattern=r"^ln:(panel|noop|page:\d+|open:\d+|pay:\d+|del:\d+|delok:\d+)$",
+        )
+    )
+    loan_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(loans_cb, pattern=r"^ln:add$")],
+        states={
+            LN_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, loan_title_input)],
+            LN_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, loan_amount_input)],
+            LN_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, loan_count_input)],
+            LN_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, loan_start_input)],
+        },
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(loan_conv)
+
+    # Recurring transactions
+    app.add_handler(
+        CallbackQueryHandler(
+            recurring_cb,
+            pattern=r"^rc:(panel|noop|page:\d+|tog:\d+|del:\d+|delok:\d+)$",
+        )
+    )
+    recurring_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(recurring_cb, pattern=r"^rc:add$")],
+        states={
+            RC_TTYPE: [
+                CallbackQueryHandler(rc_ttype_cb, pattern=r"^rc:tt:(work_in|work_out|personal_in|personal_out)$"),
+                CallbackQueryHandler(recurring_cb, pattern=r"^rc:panel$"),
+            ],
+            RC_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, rc_cat_input)],
+            RC_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, rc_amount_input)],
+            RC_DESC: [
+                CommandHandler("skip", rc_desc_skip),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, rc_desc_input),
+            ],
+            RC_PERIOD: [
+                CallbackQueryHandler(rc_period_cb, pattern=r"^rc:pr:(daily|weekly|monthly)$"),
+                CallbackQueryHandler(recurring_cb, pattern=r"^rc:panel$"),
+            ],
+            RC_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, rc_start_input)],
+        },
+        fallbacks=common_fallbacks,
+        allow_reentry=True,
+    )
+    app.add_handler(recurring_conv)
+
+    # Quick entry follow-up (which group should this category live in?)
+    app.add_handler(
+        CallbackQueryHandler(
+            quick_entry_cb,
+            pattern=r"^qe:(cancel|g:(work_in|work_out|personal_in|personal_out))$",
         )
     )
 
@@ -3264,10 +4943,14 @@ def build_app() -> Application:
     app.add_handler(
         CallbackQueryHandler(
             unknown_callback,
-            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:|db:).+",
+            pattern=r"^(?!m:|st:|ac:|ad:|ct:|tx:|dl:|dtx:|rp:|db:|ln:|rc:|sr:|cu:|qe:).+",
         ),
         group=90,
     )
+
+    # Plain text outside every conversation: try to read it as a transaction.
+    # Registered last in group 0, so an active conversation always wins.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, quick_entry))
 
     # Nothing should ever fail silently.
     app.add_error_handler(on_error)
