@@ -116,6 +116,13 @@ def audit(kb, label, max_buttons=100):
     check(not wide, f"{label}: no row wider than 8 buttons")
 
 
+# The bot token must never reach the logs: httpx logs full request URLs at INFO.
+import logging as _logging  # noqa: E402
+
+for _name in ("httpx", "httpcore", "apscheduler"):
+    check(_logging.getLogger(_name).level >= _logging.WARNING,
+          f"{_name} logger is quiet enough to keep the token out of logs")
+
 # =========================================================== schema
 section("schema and migrations")
 check(bot.SCHEMA_VERSION >= 3, f"schema version = {bot.SCHEMA_VERSION}")

@@ -146,6 +146,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(PROJECT_NAME)
 
+# httpx logs the full request URL at INFO, and for Telegram that URL contains
+# the bot token — which would put the token in plaintext in journalctl on every
+# single API call. These libraries stay at WARNING so nothing leaks into logs.
+for _noisy in ("httpx", "httpcore", "telegram.vendor", "apscheduler"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 # =========================
 # DB helpers
 # =========================
