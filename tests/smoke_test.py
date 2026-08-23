@@ -31,7 +31,9 @@ os.environ.setdefault("ADMIN_CHAT_ID", "555001")
 os.environ.setdefault("ADMIN_USERNAME", "tester")
 
 sys.path.insert(0, str(REPO))
-import bot  # noqa: E402
+# The package re-exports its whole public surface, so the test can reach any of
+# it from one place while the code stays split by responsibility.
+import kasbbook as bot  # noqa: E402
 
 from telegram.ext import CallbackQueryHandler, ConversationHandler  # noqa: E402
 
@@ -123,6 +125,66 @@ for _name in ("httpx", "httpcore", "apscheduler"):
     check(_logging.getLogger(_name).level >= _logging.WARNING,
           f"{_name} logger is quiet enough to keep the token out of logs")
 
+# =========================================================== structure
+section("package structure")
+import ast as _ast  # noqa: E402
+
+PKG_DIR = REPO / "kasbbook"
+mod_files = sorted(PKG_DIR.rglob("*.py"))
+check(len(mod_files) > 15, f"{len(mod_files)} modules in the package")
+
+entry = (REPO / "bot.py").read_text(encoding="utf-8")
+check(len(entry.splitlines()) < 20, "bot.py stays a thin entry point")
+check("from kasbbook.app import main" in entry, "bot.py launches the package")
+
+# Import graph, built from the modules themselves rather than assumed.
+graph, sizes = {}, {}
+for f in mod_files:
+    rel = f.relative_to(PKG_DIR).with_suffix("")
+    name = ".".join(rel.parts).replace(".__init__", "") or "__init__"
+    text = f.read_text(encoding="utf-8")
+    sizes[name] = len(text.splitlines())
+
+    deps = set()
+    for node in _ast.walk(_ast.parse(text)):
+        if isinstance(node, _ast.ImportFrom) and node.level:
+            base = name.split(".")[:-1] if name != "__init__" else []
+            target = node.module or ""
+            if node.level == 1:
+                dep = ".".join(base + target.split(".")) if base else target
+            else:
+                dep = target
+            deps.add(dep.lstrip("."))
+    graph[name] = {d for d in deps if d and d in ("__init__",) or d in graph or True}
+
+known = set(graph)
+graph = {m: {d for d in deps if d in known} for m, deps in graph.items()}
+
+biggest = max(sizes.items(), key=lambda kv: kv[1])
+check(biggest[1] <= 900, f"largest module is {biggest[0]} at {biggest[1]} lines (cap 900)")
+check(sizes.get("__init__", 0) < 500, "the package facade stays small")
+
+# Cycles would make import order load-bearing and the layering meaningless.
+cycles = []
+state = {}
+
+def _visit(mod, stack):
+    state[mod] = "open"
+    for dep in sorted(graph.get(mod, ())):
+        if dep == "__init__":
+            continue  # the facade imports everything by design
+        if state.get(dep) == "open":
+            cycles.append(" -> ".join(stack[stack.index(dep):] + [dep]))
+        elif dep not in state:
+            _visit(dep, stack + [dep])
+    state[mod] = "done"
+
+for m in sorted(graph):
+    if m not in state:
+        _visit(m, [m])
+
+check(not cycles, "no circular imports between modules" + (f" — {cycles[:2]}" if cycles else ""))
+
 # =========================================================== schema
 section("schema and migrations")
 check(bot.SCHEMA_VERSION >= 3, f"schema version = {bot.SCHEMA_VERSION}")
@@ -176,9 +238,9 @@ lc.executescript(
 lc.commit()
 lc.close()
 
-real_db = bot.DB_PATH
+real_db = bot.store.DB_PATH
 try:
-    bot.DB_PATH = legacy
+    bot.store.DB_PATH = legacy
     with bot.db() as conn:
         check(bot._detect_version(conn) == 1, "unversioned database detected as v1")
     bot.init_db()
@@ -198,7 +260,7 @@ try:
         n = conn.execute("SELECT COUNT(*) c FROM transactions").fetchone()["c"]
         check(n == 2, "re-running init_db is idempotent")
 finally:
-    bot.DB_PATH = real_db
+    bot.store.DB_PATH = real_db
     bot._SETTINGS_CACHE.clear()
     bot._INSTALLMENT_READY.clear()
 
@@ -507,11 +569,11 @@ with bot.db() as conn:
     ).fetchone()["c"]
 real_cap = bot.PUBLIC_MAX_CATEGORIES
 try:
-    bot.PUBLIC_MAX_CATEGORIES = 1
+    bot.access.PUBLIC_MAX_CATEGORIES = 1
     ok, why = bot.within_quota(SCOPE, OWNER, "cat")
     check(not ok, f"category quota enforced with {n_cats} categories ({why})")
 finally:
-    bot.PUBLIC_MAX_CATEGORIES = real_cap
+    bot.access.PUBLIC_MAX_CATEGORIES = real_cap
 
 bot.set_setting("access_mode", bot.ACCESS_ADMIN_ONLY)
 ok, _ = bot.within_quota(SCOPE, OWNER, "cat")

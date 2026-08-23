@@ -29,7 +29,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint
-        run: python -m pyflakes bot.py tests/smoke_test.py
+        run: python -m pyflakes bot.py kasbbook/ tests/smoke_test.py
 
       - name: Smoke test
         run: python tests/smoke_test.py

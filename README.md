@@ -327,7 +327,28 @@ CI runs the test plus `pyflakes` on Python 3.9, 3.11 and 3.12 for every push.
 
 ```
 KasbBook/
-├── bot.py                  the whole bot: handlers, database, reports, backups
+├── bot.py                  entry point (10 lines)
+├── kasbbook/
+│   ├── config.py           environment, constants, logging
+│   ├── store.py            connection, schema, migrations, snapshots
+│   ├── jalali.py           calendar conversions and period ranges
+│   ├── parsing.py          amount and date parsers
+│   ├── text.py             RTL rendering, keyboards, safe edits
+│   ├── money.py            currency and money formatting
+│   ├── access.py           permissions, scope resolution, quotas
+│   ├── states.py           conversation state constants
+│   ├── menus.py            navigation keyboards
+│   ├── categories.py       category storage and keyboards
+│   ├── ledger.py           transactions, totals, daily list, detail view
+│   ├── reports.py          reports, breakdown, trend, search, CSV
+│   ├── loans.py            loans and installment schedules
+│   ├── recurring.py        recurring rules and their job
+│   ├── budgets.py          monthly ceilings and warnings
+│   ├── debts.py            debts and receivables
+│   ├── backups.py          backup delivery and the database menu
+│   ├── reminders.py        daily digest and installment reminders
+│   ├── handlers/           one module per screen group
+│   └── app.py              handler registration
 ├── install.sh              installer / updater / service manager menu
 ├── tests/smoke_test.py     offline test suite
 ├── .github/workflows/      CI
@@ -337,6 +358,10 @@ KasbBook/
 ├── README.md               this file
 └── README.fa.md            Persian documentation
 ```
+
+Modules are layered, and the test suite fails the build on a circular import or
+a module that grows past 900 lines. `kasbbook/__init__.py` re-exports the public
+surface, so anything can be reached from one place without flattening the code.
 
 **Runtime files** (created on first run, never committed):
 
