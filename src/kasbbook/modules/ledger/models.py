@@ -118,6 +118,12 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+    # A receipt lives on the messenger that received it: storing the provider's
+    # own file id keeps the bytes out of our database and off our disk. The id
+    # is opaque and provider-scoped, which is why the provider is stored too.
+    receipt_file_id: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    receipt_provider: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
     original_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
     original_currency: Mapped[str] = mapped_column(String(8), nullable=False)
     base_currency: Mapped[str] = mapped_column(String(8), nullable=False)

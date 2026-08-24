@@ -268,3 +268,34 @@ class LedgerService:
             sum((line.debit for line in rows), ZERO),
             sum((line.credit for line in rows), ZERO),
         )
+
+    async def attach_receipt(
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        transaction_id: uuid.UUID,
+        file_id: Optional[str],
+        provider: Optional[str],
+    ) -> Transaction:
+        """Point a transaction at a receipt the messenger is already holding."""
+        await self.books.require(book_id, user_id, Permission.EDIT_TRANSACTION)
+
+        transaction = await self.session.get(Transaction, transaction_id)
+        if transaction is None or transaction.book_id != book_id:
+            raise NotFound("این تراکنش پیدا نشد")
+
+        transaction.receipt_file_id = file_id
+        transaction.receipt_provider = provider if file_id else None
+        await self.session.flush()
+        return transaction
+
+    async def get_transaction(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, transaction_id: uuid.UUID
+    ) -> Transaction:
+        await self.books.require(book_id, user_id, Permission.VIEW_TRANSACTIONS)
+
+        transaction = await self.session.get(Transaction, transaction_id)
+        if transaction is None or transaction.book_id != book_id:
+            raise NotFound("این تراکنش پیدا نشد")
+        return transaction
+

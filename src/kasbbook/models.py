@@ -15,6 +15,7 @@ from .modules.identity.models import (  # noqa: F401
     User,
 )
 from .modules.loans.models import Loan, LoanPayment  # noqa: F401
+from .modules.recurring.models import RecurringRule  # noqa: F401
 from .modules.ledger.models import (  # noqa: F401
     Account,
     JournalEntry,

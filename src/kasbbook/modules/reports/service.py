@@ -15,7 +15,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional, Sequence, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
@@ -183,6 +183,43 @@ class ReportService:
         if parts[0] == "w":
             return week(offset=int(parts[1]) + 1)
         return None
+
+    async def search(
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        query: str,
+        page: int = 0,
+        per_page: int = 10,
+    ) -> Tuple[Sequence[Transaction], int, Decimal]:
+        """Matching rows for one page, the total count, and the total amount.
+
+        The amount is over *every* match, not just the page: "how much did I
+        spend on rent this year" is the question people are really asking.
+        """
+        await self.books.require(book_id, user_id, Permission.VIEW_TRANSACTIONS)
+
+        needle = (query or "").strip()
+        if len(needle) < 2:
+            return [], 0, ZERO
+
+        pattern = f"%{needle}%"
+        condition = (Transaction.book_id == book_id) & (
+            Transaction.category.ilike(pattern)
+            | func.coalesce(Transaction.description, "").ilike(pattern)
+        )
+
+        matches = (
+            await self.session.execute(
+                select(Transaction).where(condition).order_by(
+                    Transaction.occurred_on.desc(), Transaction.created_at.desc()
+                )
+            )
+        ).scalars().all()
+
+        total_amount = quantize(sum((tx.converted_amount for tx in matches), ZERO))
+        start = max(0, page) * per_page
+        return matches[start:start + per_page], len(matches), total_amount
 
     async def to_csv(
         self, book_id: uuid.UUID, user_id: uuid.UUID, period: Optional[Period] = None
