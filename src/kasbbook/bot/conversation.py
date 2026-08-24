@@ -18,6 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
 from ..modules.books.models import BookType
 from ..modules.books.service import BookService
+from ..modules.budgets.models import BudgetKind
+from ..modules.budgets.service import BudgetService
+from ..modules.debts.models import Direction
+from ..modules.debts.service import DebtService
+from ..modules.loans.service import LoanService
 from ..modules.identity.models import Provider
 from ..modules.identity.service import IdentityService
 from ..modules.ledger.models import Flow, Scope
@@ -25,7 +30,8 @@ from ..modules.ledger.service import LedgerService
 from ..modules.reports import service as reports_service
 from ..modules.reports.service import ReportService
 from ..shared.errors import KasbBookError
-from ..shared.parsing import parse_amount
+from ..shared import jalali
+from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
 from . import quick, screens
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
 
@@ -54,6 +60,9 @@ class Conversation:
         self.books = BookService(session)
         self.ledger = LedgerService(session)
         self.reports = ReportService(session)
+        self.budgets = BudgetService(session)
+        self.debts = DebtService(session)
+        self.loans = LoanService(session)
         # Set by a handler that needs to hand the user a file alongside a screen.
         self._pending_file: Optional[OutgoingFile] = None
 
@@ -167,6 +176,19 @@ class Conversation:
         if area == "qk":
             return await self._quick_callback(action, argument, user, key)
 
+        if area == "bg":
+            return await self._budget_callback(action, argument, user, key)
+
+        if area == "dt":
+            return await self._debt_callback(action, argument, user, key)
+
+        if area == "ln":
+            return await self._loan_callback(action, argument, user, key)
+
+        if area == "noop":
+            # An inert label; the screen stays as it is.
+            return screens.welcome(user.display_name)
+
         if area == "acc":
             if action == "newcode":
                 issued = await self.identity.start_link_from_messenger(
@@ -194,8 +216,7 @@ class Conversation:
 
         if action == "open":
             book = await self.books.get_book(uuid.UUID(argument))
-            totals = await self.ledger.totals(book.id, user.id)
-            return screens.book_report(book, totals)
+            return screens.book_menu(book)
 
         return screens.book_list(await self.books.books_for_user(user.id))
 
@@ -260,6 +281,173 @@ class Conversation:
 
         return screens.period_report(book, period.label, summary, spec, comparison)
 
+    # -------------------------------------------------------------- budgets
+    async def _budget_screen(self, book, user):
+        statuses = await self.budgets.status(book.id, user.id)
+        year, month, _ = jalali.to_parts(date.today())
+        label = f"{jalali.month_name(month)} {year}"
+        return screens.budget_list(book, statuses, label)
+
+    async def _budget_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.clear(key)
+            return await self._budget_screen(book, user)
+
+        if action == "add":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.set(key, {"flow": "budget", "book_id": argument})
+            return screens.budget_pick_kind(book)
+
+        if action == "kind":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "budget":
+                return screens.welcome(user.display_name)
+
+            if argument == "category":
+                draft["kind"] = BudgetKind.CATEGORY.value
+                await self.state.set(key, draft)
+                return screens.budget_ask_target()
+
+            draft["kind"] = BudgetKind.FLOW.value
+            draft["target"] = argument
+            await self.state.set(key, draft)
+            label = "درآمد" if argument == Flow.INCOME.value else "هزینه"
+            return screens.budget_ask_amount(label)
+
+        if action == "del":
+            draft = await self.state.get(key)
+            budget_id = uuid.UUID(argument)
+            book_id = draft.get("book_id")
+            # The delete button lives on a list, so the book is whichever one
+            # owns the budget; look it up rather than trusting stale state.
+            for book in await self.books.books_for_user(user.id):
+                for status in await self.budgets.status(book.id, user.id):
+                    if status.budget.id == budget_id:
+                        await self.budgets.delete(book.id, user.id, budget_id)
+                        return await self._budget_screen(book, user)
+            return screens.error("این بودجه پیدا نشد")
+
+        return screens.welcome(user.display_name)
+
+    # ---------------------------------------------------------------- debts
+    async def _debt_screen(self, book, user):
+        rows = await self.debts.list_debts(book.id, user.id)
+        totals = await self.debts.totals(book.id, user.id)
+        return screens.debt_list(book, rows, totals)
+
+    async def _debt_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.clear(key)
+            return await self._debt_screen(book, user)
+
+        if action == "add":
+            await self.state.set(key, {"flow": "debt", "book_id": argument})
+            return screens.debt_ask_person()
+
+        if action == "dir":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "debt":
+                return screens.welcome(user.display_name)
+            draft["direction"] = argument
+            await self.state.set(key, draft)
+            return screens.debt_ask_amount()
+
+        if action == "nodue":
+            return await self._save_debt(user, key, None)
+
+        if action in ("settle", "del"):
+            target = uuid.UUID(argument)
+            for book in await self.books.books_for_user(user.id):
+                for debt in await self.debts.list_debts(book.id, user.id, True):
+                    if debt.id == target:
+                        if action == "settle":
+                            await self.debts.settle(book.id, user.id, target)
+                        else:
+                            await self.debts.delete(book.id, user.id, target)
+                        return await self._debt_screen(book, user)
+            return screens.error("این مورد پیدا نشد")
+
+        return screens.welcome(user.display_name)
+
+    async def _save_debt(self, user, key: str, due):
+        draft = await self.state.get(key)
+        if draft.get("flow") != "debt" or not draft.get("amount"):
+            return screens.welcome(user.display_name)
+
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        await self.debts.create(
+            book.id, user.id, draft["person"], Direction(draft["direction"]),
+            Decimal(draft["amount"]), draft.get("note"), due,
+        )
+        await self.state.clear(key)
+        return await self._debt_screen(book, user)
+
+    # ---------------------------------------------------------------- loans
+    async def _loan_screen(self, book, user):
+        loans = await self.loans.list_loans(book.id, user.id)
+        progress = [await self.loans.progress(book.id, user.id, loan) for loan in loans]
+        return screens.loan_list(book, progress)
+
+    async def _loan_for(self, user, loan_id: uuid.UUID):
+        for book in await self.books.books_for_user(user.id):
+            for loan in await self.loans.list_loans(book.id, user.id):
+                if loan.id == loan_id:
+                    return book, loan
+        return None, None
+
+    async def _loan_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.clear(key)
+            return await self._loan_screen(book, user)
+
+        if action == "add":
+            await self.state.set(key, {"flow": "loan", "book_id": argument})
+            return screens.loan_ask_title()
+
+        if action == "today":
+            return await self._save_loan(user, key, date.today())
+
+        target = uuid.UUID(argument)
+        book, loan = await self._loan_for(user, target)
+        if loan is None:
+            return screens.error("این وام پیدا نشد")
+
+        if action == "open":
+            progress = await self.loans.progress(book.id, user.id, loan)
+            return screens.loan_detail(book, progress)
+
+        if action == "pay":
+            await self.loans.record_payment(book.id, user.id, loan.id)
+            progress = await self.loans.progress(book.id, user.id, loan)
+            return screens.loan_detail(book, progress)
+
+        if action == "del":
+            return screens.confirm_delete(
+                f"وام «{loan.title}»", f"ln:delok:{loan.id}", f"ln:open:{loan.id}"
+            )
+
+        if action == "delok":
+            await self.loans.delete(book.id, user.id, loan.id)
+            return await self._loan_screen(book, user)
+
+        return screens.welcome(user.display_name)
+
+    async def _save_loan(self, user, key: str, starts_on):
+        draft = await self.state.get(key)
+        if draft.get("flow") != "loan" or not draft.get("count"):
+            return screens.welcome(user.display_name)
+
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        await self.loans.create(
+            book.id, user.id, draft["title"],
+            Decimal(draft["amount"]), int(draft["count"]), starts_on,
+        )
+        await self.state.clear(key)
+        return await self._loan_screen(book, user)
+
     # ----------------------------------------------------- free text steps
     async def _text(self, event: IncomingEvent, user, key: str):
         draft = await self.state.get(key)
@@ -274,6 +462,15 @@ class Conversation:
 
         if draft.get("flow") == "tx":
             return await self._tx_text(text, draft, user, key)
+
+        if draft.get("flow") == "budget":
+            return await self._budget_text(text, draft, user, key)
+
+        if draft.get("flow") == "debt":
+            return await self._debt_text(text, draft, user, key)
+
+        if draft.get("flow") == "loan":
+            return await self._loan_text(text, draft, user, key)
 
         # Nothing in flight, so try to read the line as a transaction.
         entry = quick.parse(text)
@@ -331,6 +528,72 @@ class Conversation:
             )
 
         return screens.welcome(user.display_name)
+
+    async def _budget_text(self, text: str, draft: dict, user, key: str):
+        if not draft.get("target"):
+            draft["target"] = text[:80]
+            await self.state.set(key, draft)
+            return screens.budget_ask_amount(draft["target"])
+
+        amount = parse_amount(text)
+        if amount is None:
+            return screens.budget_ask_amount(draft["target"])
+
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        await self.budgets.set_budget(
+            book.id, user.id, BudgetKind(draft["kind"]), draft["target"], amount
+        )
+        await self.state.clear(key)
+        return await self._budget_screen(book, user)
+
+    async def _debt_text(self, text: str, draft: dict, user, key: str):
+        if not draft.get("person"):
+            draft["person"] = text[:80]
+            await self.state.set(key, draft)
+            return screens.debt_pick_direction(draft["person"])
+
+        if not draft.get("direction"):
+            return screens.debt_pick_direction(draft["person"])
+
+        if not draft.get("amount"):
+            amount = parse_amount(text)
+            if amount is None:
+                return screens.debt_ask_amount()
+            draft["amount"] = str(amount)
+            await self.state.set(key, draft)
+            return screens.debt_ask_due()
+
+        due = parse_date(text)
+        if due is None:
+            return screens.debt_ask_due()
+        return await self._save_debt(user, key, due)
+
+    async def _loan_text(self, text: str, draft: dict, user, key: str):
+        if not draft.get("title"):
+            draft["title"] = text[:80]
+            await self.state.set(key, draft)
+            return screens.loan_ask_amount(draft["title"])
+
+        if not draft.get("amount"):
+            amount = parse_amount(text)
+            if amount is None or amount <= 0:
+                return screens.loan_ask_amount(draft["title"])
+            draft["amount"] = str(amount)
+            await self.state.set(key, draft)
+            return screens.loan_ask_count()
+
+        if not draft.get("count"):
+            digits = to_ascii_digits(text).strip()
+            if not digits.isdigit() or int(digits) <= 0:
+                return screens.loan_ask_count()
+            draft["count"] = int(digits)
+            await self.state.set(key, draft)
+            return screens.loan_ask_start()
+
+        starts_on = parse_date(text)
+        if starts_on is None:
+            return screens.loan_ask_start()
+        return await self._save_loan(user, key, starts_on)
 
     async def _tx_text(self, text: str, draft: dict, user, key: str):
         if not draft.get("direction"):

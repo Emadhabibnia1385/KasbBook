@@ -353,3 +353,227 @@ def unreadable_line() -> Screen:
 
 def error(message: str) -> Screen:
     return rtl(f"⚠️ {message}"), [[Button("⬅️ منوی اصلی", data="nav:home")]]
+
+
+# =========================================================== book workspace
+def book_menu(book: Book) -> Screen:
+    """Everything that belongs to one book, one press away."""
+    label = BOOK_LABELS.get(book.type, "")
+    return rtl(f"{label} — {book.name}"), [
+        [Button("📌 ثبت تراکنش", data=f"tx:book:{book.id}")],
+        [Button("📊 گزارش", data=f"rep:book:{book.id}")],
+        [Button("🎯 بودجه‌ها", data=f"bg:list:{book.id}")],
+        [Button("🤝 طلب و بدهی", data=f"dt:list:{book.id}")],
+        [Button("📄 وام و اقساط", data=f"ln:list:{book.id}")],
+        [Button("⬅️ دفترها", data="book:list")],
+    ]
+
+
+# ------------------------------------------------------------------ budgets
+def _bar(percent: int, width: int = 10) -> str:
+    filled = max(0, min(width, round(percent * width / 100)))
+    return "█" * filled + "░" * (width - filled)
+
+
+def budget_list(book: Book, statuses, month_label: str) -> Screen:
+    if not statuses:
+        text = rtl(
+            f"🎯 بودجه‌های {book.name}\n\n"
+            "هنوز سقفی تعیین نشده.\n"
+            "برای یک دسته یا کل هزینه‌ها سقف ماهانه بگذار تا ربات خبر بدهد."
+        )
+    else:
+        lines = [f"🎯 بودجه‌های {month_label}", ""]
+        for status in statuses:
+            flag = "⛔" if status.over else ("⚠️" if status.percent >= 80 else "✅")
+            lines.append(
+                f"{flag} {status.label}\n"
+                f"  {_bar(status.percent)} {status.percent}%\n"
+                f"  {fmt(status.spent, book.base_currency)} از {fmt(status.limit)}"
+            )
+            if status.over:
+                lines.append(f"  بیش از سقف: {fmt(-status.remaining)}")
+        text = rtl("\n".join(lines))
+
+    rows = [[Button("➕ تعیین بودجه", data=f"bg:add:{book.id}")]]
+    for status in statuses:
+        rows.append([
+            Button(status.label[:22], data="noop:x"),
+            Button("🗑", data=f"bg:del:{status.budget.id}"),
+        ])
+    rows.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return text, rows
+
+
+def budget_pick_kind(book: Book) -> Screen:
+    return rtl("بودجه برای چه چیزی؟"), [
+        [Button("🏷 یک دستهٔ مشخص", data="bg:kind:category")],
+        [Button("🧾 کل هزینه‌ها", data="bg:kind:expense")],
+        [Button("💰 کل درآمدها", data="bg:kind:income")],
+        [Button("↩️ انصراف", data=f"bg:list:{book.id}")],
+    ]
+
+
+def budget_ask_target() -> Screen:
+    return rtl("نام دقیق دسته را بنویس:"), [[Button("↩️ انصراف", data="nav:home")]]
+
+
+def budget_ask_amount(label: str) -> Screen:
+    return rtl(f"سقف ماهانه برای «{label}» چقدر باشد؟"), [
+        [Button("↩️ انصراف", data="nav:home")]
+    ]
+
+
+# ------------------------------------------------------------------- debts
+def debt_list(book: Book, debts, totals) -> Screen:
+    lines = [
+        f"🤝 طلب و بدهی — {book.name}",
+        "",
+        f"📥 طلب من: {fmt(totals.owed_to_me, book.base_currency)}",
+        f"📤 بدهی من: {fmt(totals.i_owe, book.base_currency)}",
+        f"⚖️ خالص: {fmt(totals.net, book.base_currency)}",
+    ]
+
+    if not debts:
+        lines += ["", "چیزی ثبت نشده.", "نسیه‌ها و قرض‌ها اینجا می‌مانند و روی درآمد اثر نمی‌گذارند."]
+    else:
+        lines.append("")
+        for debt in debts:
+            arrow = "📥" if debt.direction.value == "owed_to_me" else "📤"
+            line = f"{arrow} {debt.person}: {fmt(debt.amount, book.base_currency)}"
+            if debt.due_on:
+                from ..shared import jalali
+                line += f"\n  سررسید: {jalali.to_text(debt.due_on)}"
+            if debt.note:
+                line += f"\n  {debt.note[:40]}"
+            lines.append(line)
+
+    rows = [[Button("➕ ثبت طلب/بدهی", data=f"dt:add:{book.id}")]]
+    for debt in debts[:10]:
+        rows.append([
+            Button(debt.person[:18], data="noop:x"),
+            Button("✅ تسویه", data=f"dt:settle:{debt.id}"),
+            Button("🗑", data=f"dt:del:{debt.id}"),
+        ])
+    rows.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl("\n".join(lines)), rows
+
+
+def debt_ask_person() -> Screen:
+    return rtl("نام طرف حساب را بنویس:"), [[Button("↩️ انصراف", data="nav:home")]]
+
+
+def debt_pick_direction(person: str) -> Screen:
+    return rtl(f"{person}\n\nجهت را انتخاب کن:"), [
+        [Button("📥 به من بدهکار است", data="dt:dir:owed_to_me")],
+        [Button("📤 من بدهکارم", data="dt:dir:i_owe")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
+def debt_ask_amount() -> Screen:
+    return rtl("مبلغ را بنویس:"), [[Button("↩️ انصراف", data="nav:home")]]
+
+
+def debt_ask_due() -> Screen:
+    return rtl("سررسید کِی است؟\n\nتاریخ بنویس، یا «ندارد» بزن."), [
+        [Button("بدون سررسید", data="dt:nodue")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
+# ------------------------------------------------------------------- loans
+def loan_list(book: Book, rows_with_progress) -> Screen:
+    if not rows_with_progress:
+        text = rtl(
+            f"📄 وام‌های {book.name}\n\n"
+            "هنوز وامی ثبت نشده.\n"
+            "وام را یک بار تعریف کن تا ربات بگوید چند قسط مانده."
+        )
+        buttons = [
+            [Button("➕ افزودن وام", data=f"ln:add:{book.id}")],
+            [Button("⬅️ بازگشت", data=f"book:open:{book.id}")],
+        ]
+        return text, buttons
+
+    lines = [f"📄 وام‌های {book.name}", ""]
+    remaining_total = Decimal("0")
+    for progress in rows_with_progress:
+        remaining_total += progress.remaining_amount
+        lines.append(
+            f"• {progress.loan.title}\n"
+            f"  {progress.paid_count} از {progress.total_count} پرداخت شده ({progress.percent}%)\n"
+            f"  باقی‌مانده: {fmt(progress.remaining_amount, book.base_currency)}"
+        )
+    lines += ["", f"مجموع باقی‌مانده: {fmt(remaining_total, book.base_currency)}"]
+
+    buttons = [[Button("➕ افزودن وام", data=f"ln:add:{book.id}")]]
+    for progress in rows_with_progress[:10]:
+        buttons.append([
+            Button(
+                f"{progress.loan.title[:16]} — {progress.remaining_count} قسط",
+                data=f"ln:open:{progress.loan.id}",
+            )
+        ])
+    buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def loan_detail(book: Book, progress) -> Screen:
+    from ..shared import jalali
+
+    loan = progress.loan
+    lines = [
+        f"📄 {loan.title}",
+        "",
+        f"💵 هر قسط: {fmt(loan.installment_amount, book.base_currency)}",
+        f"🔢 تعداد: {progress.total_count}",
+        f"💰 کل: {fmt(progress.total_amount, book.base_currency)}",
+        "",
+        f"✅ پرداخت‌شده: {progress.paid_count} قسط ({fmt(progress.paid_amount)})",
+        f"⏳ باقی‌مانده: {progress.remaining_count} قسط ({fmt(progress.remaining_amount)})",
+        f"📊 {_bar(progress.percent)} {progress.percent}%",
+        "",
+        f"🗓 شروع: {jalali.to_text(loan.starts_on)}",
+    ]
+    if progress.next_due:
+        lines.append(f"⏰ قسط بعدی: {jalali.to_text(progress.next_due)}")
+    else:
+        lines.append("🏁 تمام شد.")
+
+    buttons = []
+    if progress.remaining_count:
+        buttons.append([Button("✅ ثبت پرداخت قسط", data=f"ln:pay:{loan.id}")])
+    buttons.append([Button("🗑 حذف وام", data=f"ln:del:{loan.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"ln:list:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def loan_ask_title() -> Screen:
+    return rtl("نام وام چیست؟\n\nمثلاً: وام مسکن"), [
+        [Button("↩️ انصراف", data="nav:home")]
+    ]
+
+
+def loan_ask_amount(title: str) -> Screen:
+    return rtl(f"{title}\n\nمبلغ هر قسط چقدر است؟"), [
+        [Button("↩️ انصراف", data="nav:home")]
+    ]
+
+
+def loan_ask_count() -> Screen:
+    return rtl("تعداد کل اقساط چند تاست؟"), [[Button("↩️ انصراف", data="nav:home")]]
+
+
+def loan_ask_start() -> Screen:
+    return rtl("تاریخ اولین قسط؟\n\nشمسی یا میلادی، یا «امروز»."), [
+        [Button("امروز", data="ln:today")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
+def confirm_delete(what: str, yes_data: str, no_data: str) -> Screen:
+    return rtl(f"⚠️ حذف {what}\n\nمطمئنی؟"), [
+        [Button("🗑 بله، حذف کن", data=yes_data)],
+        [Button("↩️ انصراف", data=no_data)],
+    ]
