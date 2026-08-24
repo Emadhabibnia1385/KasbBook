@@ -12,3 +12,4 @@ pyjwt>=2.9
 httpx>=0.27
 jdatetime>=5.0
 python-multipart>=0.0.9
+redis>=5.0
