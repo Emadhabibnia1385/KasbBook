@@ -57,6 +57,7 @@ class Permission(str, enum.Enum):
     MANAGE_SHARES = "manage_shares"
     MANAGE_PAYROLL = "manage_payroll"
     MANAGE_MEMBERS = "manage_members"
+    MANAGE_BUDGETS = "manage_budgets"
     EXPORT = "export"
     VIEW_OTHERS_PAY = "view_others_pay"
     LOCK_PERIOD = "lock_period"
@@ -76,6 +77,7 @@ ROLE_PERMISSIONS = {
         Permission.APPROVE_EXPENSE,
         Permission.MANAGE_TREASURY,
         Permission.MANAGE_PAYROLL,
+        Permission.MANAGE_BUDGETS,
         Permission.EXPORT,
         Permission.VIEW_OTHERS_PAY,
     },

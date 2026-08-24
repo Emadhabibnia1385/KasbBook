@@ -6,12 +6,15 @@ requirement explicit and to give migrations a single, obvious entry point.
 """
 
 from .modules.books.models import Book, Membership  # noqa: F401
+from .modules.budgets.models import Budget  # noqa: F401
+from .modules.debts.models import Debt  # noqa: F401
 from .modules.identity.models import (  # noqa: F401
     AuditEvent,
     Identity,
     LinkToken,
     User,
 )
+from .modules.loans.models import Loan, LoanPayment  # noqa: F401
 from .modules.ledger.models import (  # noqa: F401
     Account,
     JournalEntry,
