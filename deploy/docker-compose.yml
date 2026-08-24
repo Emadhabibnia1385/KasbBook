@@ -1,0 +1,68 @@
+# KasbBook's own datastores.
+#
+# Deliberately not the host's PostgreSQL: that instance carries a fleet of
+# unrelated services, and sharing it would mean one careless migration or a
+# runaway query becoming everyone's problem. An isolated pair costs a few
+# hundred megabytes and removes a whole class of blast radius.
+#
+# Both bind to 127.0.0.1 only. Nothing here is reachable from the internet;
+# the bot and the API talk to them over loopback.
+
+name: kasbbook
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kasbbook}
+      POSTGRES_USER: ${POSTGRES_USER:-kasbbook}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      # Deterministic collation, so ORDER BY does not change under us when the
+      # base image's locale data does.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kasbbook} -d ${POSTGRES_DB:-kasbbook}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # A bookkeeping database for one business does not need much, and this box
+    # is shared: leaving headroom is part of being a good neighbour.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Conversation state only. It is rebuilt by the next /start if lost, so
+    # persistence is a convenience rather than a requirement.
+    command: >
+      redis-server
+      --save 60 1
+      --appendonly no
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6382}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+volumes:
+  postgres-data:
+  redis-data:

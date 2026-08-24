@@ -39,3 +39,6 @@ graph.json
 
 # --- alembic scratch ---
 .migration-check.db
+
+# --- deploy secrets ---
+deploy/.env
