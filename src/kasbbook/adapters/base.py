@@ -78,6 +78,15 @@ class IncomingEvent:
 
 
 @dataclass(frozen=True)
+class OutgoingFile:
+    """Something the user keeps, rather than a screen they read."""
+
+    content: bytes
+    filename: str
+    caption: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class OutgoingMessage:
     """One screen to show. `edit_message_id` asks to replace rather than append."""
 
@@ -85,6 +94,9 @@ class OutgoingMessage:
     text: str
     buttons: Sequence[Sequence[Button]] = ()
     edit_message_id: Optional[str] = None
+    # A file is sent alongside the screen, never instead of it: an export is
+    # something you scroll back to, so it must not be edited away later.
+    document: Optional[OutgoingFile] = None
 
 
 @dataclass(frozen=True)

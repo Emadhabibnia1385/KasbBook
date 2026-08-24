@@ -209,9 +209,10 @@ async def test_cancel_drops_a_half_finished_flow(session):
     await convo.handle(press("tx:flow:income"))
     await convo.handle(command("cancel"))
 
-    # The next typed line is not mistaken for a category.
+    # The next typed line is not mistaken for a category. It falls through to
+    # quick entry, which refuses a line with no amount rather than guessing.
     reply = await convo.handle(says("فروش"))
-    assert "KasbBook" in reply.text
+    assert "متوجه نشدم" in reply.text
     assert await LedgerService(session).transactions(book.id, user.id) == []
 
 
@@ -227,7 +228,11 @@ async def test_the_report_shows_what_was_recorded(session):
     await convo.handle(says("فروش"))
     await convo.handle(says("500000"))
 
-    reply = await convo.handle(press(f"rep:book:{book.id}"))
+    menu = await convo.handle(press(f"rep:book:{book.id}"))
+    assert "کدام بازه" in menu.text
+
+    # This week, since the transaction was recorded today.
+    reply = await convo.handle(press(f"rp:{book.id}:w:0"))
     assert "500,000" in reply.text
 
 
@@ -252,7 +257,7 @@ async def test_a_transaction_from_telegram_belongs_to_the_shared_account(session
 
     # Read from Bale, by the same person, without anything being copied across.
     bale = Conversation(session, MemoryStateStore(), Provider.BALE)
-    reply = await bale.handle(press(f"rep:book:{book.id}", external_id="bale-1"))
+    reply = await bale.handle(press(f"rp:{book.id}:w:0", external_id="bale-1"))
     assert "300,000" in reply.text
 
 
@@ -262,7 +267,7 @@ async def test_a_stranger_cannot_open_someone_elses_book(session):
     await linked_user(session, "غریبه", "999")
 
     convo = await conversation(session)
-    reply = await convo.handle(press(f"rep:book:{book.id}", external_id="999"))
+    reply = await convo.handle(press(f"rp:{book.id}:w:0", external_id="999"))
 
     assert "⚠️" in reply.text
     assert "300,000" not in reply.text

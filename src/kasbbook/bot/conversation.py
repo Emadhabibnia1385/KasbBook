@@ -9,20 +9,24 @@ Bale or Rubika, because the adapter already turned their payload into an
 from __future__ import annotations
 
 import uuid
+from datetime import date
+from decimal import Decimal
 from typing import Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..adapters.base import EventKind, IncomingEvent, OutgoingMessage
+from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
 from ..modules.books.models import BookType
 from ..modules.books.service import BookService
 from ..modules.identity.models import Provider
 from ..modules.identity.service import IdentityService
 from ..modules.ledger.models import Flow, Scope
 from ..modules.ledger.service import LedgerService
+from ..modules.reports import service as reports_service
+from ..modules.reports.service import ReportService
 from ..shared.errors import KasbBookError
 from ..shared.parsing import parse_amount
-from . import screens
+from . import quick, screens
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
 
 # Which book type a scope belongs to, so a team book never records personal money.
@@ -49,6 +53,9 @@ class Conversation:
         self.identity = IdentityService(session)
         self.books = BookService(session)
         self.ledger = LedgerService(session)
+        self.reports = ReportService(session)
+        # Set by a handler that needs to hand the user a file alongside a screen.
+        self._pending_file: Optional[OutgoingFile] = None
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
@@ -64,6 +71,7 @@ class Conversation:
             chat_id=event.chat_id,
             text=text,
             buttons=buttons,
+            document=self._pending_file,
             # Editing the screen in place is what keeps the chat a panel rather
             # than a transcript; the adapter falls back to a new message if the
             # anchor is gone.
@@ -153,6 +161,12 @@ class Conversation:
         if area == "rep":
             return await self._report_callback(action, argument, user)
 
+        if area in ("rp", "rb", "rc"):
+            return await self._period_screen(parts, user, area)
+
+        if area == "qk":
+            return await self._quick_callback(action, argument, user, key)
+
         if area == "acc":
             if action == "newcode":
                 issued = await self.identity.start_link_from_messenger(
@@ -209,10 +223,42 @@ class Conversation:
     async def _report_callback(self, action: str, argument: str, user):
         if action == "book":
             book = await self.books.get_book(uuid.UUID(argument))
-            totals = await self.ledger.totals(book.id, user.id)
-            return screens.book_report(book, totals)
+            years = await self.reports.years_with_data(book.id, user.id)
+            return screens.period_menu(book, years)
 
         return screens.report_menu(await self.books.books_for_user(user.id))
+
+    async def _period_screen(self, parts, user, kind: str):
+        """rp / rb / rc all name a book and a period the same way."""
+        book = await self.books.get_book(uuid.UUID(parts[1]))
+        spec = ":".join(parts[2:])
+        period = reports_service.parse_spec(spec)
+        if period is None:
+            years = await self.reports.years_with_data(book.id, user.id)
+            return screens.period_menu(book, years)
+
+        if kind == "rb":
+            buckets = await self.reports.by_category(book.id, user.id, period)
+            return screens.category_breakdown(book, period.label, buckets, spec)
+
+        if kind == "rc":
+            payload = await self.reports.to_csv(book.id, user.id, period)
+            self._pending_file = OutgoingFile(
+                content=payload,
+                filename="kasbbook-" + spec.replace(":", "-") + ".csv",
+                caption="خروجی " + period.label,
+            )
+            summary = await self.reports.summary(book.id, user.id, period)
+            return screens.period_report(book, period.label, summary, spec)
+
+        summary = await self.reports.summary(book.id, user.id, period)
+        comparison = None
+        compared = await self.reports.compare(book.id, user.id, period)
+        if compared is not None:
+            previous, before, after = compared
+            comparison = screens.comparison_line(previous.label, before, after)
+
+        return screens.period_report(book, period.label, summary, spec, comparison)
 
     # ----------------------------------------------------- free text steps
     async def _text(self, event: IncomingEvent, user, key: str):
@@ -229,7 +275,61 @@ class Conversation:
         if draft.get("flow") == "tx":
             return await self._tx_text(text, draft, user, key)
 
-        # Nothing in flight: treat it as a menu request rather than guessing.
+        # Nothing in flight, so try to read the line as a transaction.
+        entry = quick.parse(text)
+        if entry is None:
+            return screens.unreadable_line()
+
+        books = await self.books.books_for_user(user.id)
+        if not books:
+            return screens.pick_book(books, "tx")
+
+        pending = {
+            "flow": "quick",
+            "category": entry.category,
+            "amount": str(entry.amount),
+            "description": entry.description,
+            "on": entry.on.isoformat() if entry.on else None,
+        }
+        await self.state.set(key, pending)
+
+        if len(books) == 1:
+            pending["book_id"] = str(books[0].id)
+            await self.state.set(key, pending)
+            return screens.quick_pick_flow(entry)
+
+        return screens.quick_pick_book(entry, books)
+
+    async def _quick_callback(self, action: str, argument: str, user, key: str):
+        draft = await self.state.get(key)
+        if draft.get("flow") != "quick":
+            return screens.welcome(user.display_name)
+
+        if action == "book":
+            draft["book_id"] = argument
+            await self.state.set(key, draft)
+            entry = quick.QuickEntry(draft["category"], Decimal(draft["amount"]))
+            return screens.quick_pick_flow(entry)
+
+        if action == "flow":
+            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+            flow = Flow(argument)
+            transaction = await self.ledger.record(
+                book_id=book.id,
+                actor_user_id=user.id,
+                flow=flow,
+                scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+                category=draft["category"],
+                amount=Decimal(draft["amount"]),
+                description=draft.get("description"),
+                occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
+            )
+            await self.state.clear(key)
+            return screens.transaction_saved(
+                book, flow, transaction.category,
+                transaction.converted_amount, book.base_currency,
+            )
+
         return screens.welcome(user.display_name)
 
     async def _tx_text(self, text: str, draft: dict, user, key: str):

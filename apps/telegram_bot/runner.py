@@ -98,6 +98,14 @@ class TelegramRunner:
         else:
             await self.adapter.send_message(reply)
 
+        if reply.document is not None:
+            await self.adapter.send_file(
+                reply.chat_id,
+                reply.document.content,
+                reply.document.filename,
+                reply.document.caption,
+            )
+
     async def poll_once(self, timeout: int = 25) -> int:
         """Fetch and process one batch. Returns how many updates were handled."""
         params: Dict[str, Any] = {"timeout": timeout}

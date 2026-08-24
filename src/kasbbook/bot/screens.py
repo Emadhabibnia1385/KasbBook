@@ -226,5 +226,130 @@ def identity_list(identities: Iterable[Identity], current: Provider) -> Screen:
     return rtl("\n".join(lines)), [[Button("⬅️ بازگشت", data="nav:home")]]
 
 
+# ------------------------------------------------------------ jalali reports
+def period_menu(book: Book, years: Sequence[int]) -> Screen:
+    """Which stretch of time to look at."""
+    rows: List[List[Button]] = [
+        [
+            Button("این هفته", data=f"rp:{book.id}:w:0"),
+            Button("هفتهٔ گذشته", data=f"rp:{book.id}:w:1"),
+        ]
+    ]
+
+    from ..shared import jalali
+
+    this_year, this_month, _ = jalali.to_parts(__import__("datetime").date.today())
+    rows.append([Button(f"{jalali.month_name(this_month)} {this_year}",
+                        data=f"rp:{book.id}:m:{this_year}:{this_month:02d}")])
+
+    buffer: List[Button] = []
+    for year in years[:6]:
+        buffer.append(Button(f"سال {year}", data=f"rp:{book.id}:y:{year}"))
+        if len(buffer) == 2:
+            rows.append(buffer)
+            buffer = []
+    if buffer:
+        rows.append(buffer)
+
+    rows.append([Button("⬅️ بازگشت", data="rep:menu")])
+    return rtl(f"📊 {book.name}\n\nکدام بازه؟"), rows
+
+
+def period_report(
+    book: Book, period_label: str, summary, spec: str, comparison: Optional[str] = None
+) -> Screen:
+    body = (
+        f"📊 {book.name} — {period_label}\n\n"
+        f"💰 درآمد: {fmt(summary.income, book.base_currency)}\n"
+        f"🧾 هزینه: {fmt(summary.expense, book.base_currency)}\n"
+        f"➖ خالص: {fmt(summary.net, book.base_currency)}"
+    )
+    if comparison:
+        body += f"\n\n{comparison}"
+
+    return rtl(body), [
+        [Button("🏷 تفکیک دسته‌ها", data=f"rb:{book.id}:{spec}")],
+        [Button("📥 خروجی CSV", data=f"rc:{book.id}:{spec}")],
+        [Button("📆 بازهٔ دیگر", data=f"rep:book:{book.id}")],
+        [Button("⬅️ منوی اصلی", data="nav:home")],
+    ]
+
+
+def category_breakdown(book: Book, period_label: str, buckets, spec: str) -> Screen:
+    from ..modules.ledger.models import Flow
+
+    lines = [f"🏷 تفکیک — {period_label}"]
+    for flow, title in ((Flow.INCOME, "💰 درآمد"), (Flow.EXPENSE, "🧾 هزینه")):
+        rows = buckets.get(flow, [])
+        lines += ["", title]
+        if not rows:
+            lines.append("— خالی —")
+            continue
+
+        grand = sum((total for _, total, _ in rows), Decimal("0"))
+        for name, total, count in rows[:8]:
+            share = round(total * 100 / grand) if grand else 0
+            lines.append(f"• {name}: {fmt(total, book.base_currency)} ({share}%، {count} مورد)")
+
+    return rtl("\n".join(lines)), [
+        [Button("⬅️ بازگشت", data=f"rp:{book.id}:{spec}")],
+    ]
+
+
+def comparison_line(previous_label: str, before, after) -> str:
+    def delta(name: str, old: Decimal, new: Decimal) -> str:
+        difference = new - old
+        arrow = "▲" if difference > 0 else ("▼" if difference < 0 else "▬")
+        percent = f"{round(difference * 100 / abs(old)):+d}%" if old else "—"
+        return f"{arrow} {name}: {percent}"
+
+    return "\n".join([
+        f"📈 نسبت به {previous_label}:",
+        delta("درآمد", before.income, after.income),
+        delta("هزینه", before.expense, after.expense),
+        delta("خالص", before.net, after.net),
+    ])
+
+
+# --------------------------------------------------------------- quick entry
+def quick_pick_book(entry, books: Sequence[Book]) -> Screen:
+    """A one-line entry still has to say which book it belongs to."""
+    text = rtl(
+        f"🏷 {entry.category}\n"
+        f"💵 {fmt(entry.amount)}\n\n"
+        "در کدام دفتر ثبت شود؟"
+    )
+    rows = [
+        [Button(f"{BOOK_LABELS.get(b.type, '')} {b.name}", data=f"qk:book:{b.id}")]
+        for b in books
+    ]
+    rows.append([Button("↩️ انصراف", data="nav:home")])
+    return text, rows
+
+
+def quick_pick_flow(entry) -> Screen:
+    return (
+        rtl(f"🏷 {entry.category}\n💵 {fmt(entry.amount)}\n\nدرآمد است یا هزینه؟"),
+        [
+            [Button("💰 درآمد", data="qk:flow:income"), Button("🧾 هزینه", data="qk:flow:expense")],
+            [Button("↩️ انصراف", data="nav:home")],
+        ],
+    )
+
+
+def unreadable_line() -> Screen:
+    return (
+        rtl(
+            "❓ متوجه نشدم.\n\n"
+            "برای ثبت سریع بنویس: «دسته مبلغ»\n"
+            "مثال‌ها:\n"
+            "• فروش 250000\n"
+            "• اجاره ۱٫۲م بابت مرداد\n\n"
+            "یا از منو استفاده کن:"
+        ),
+        main_menu(),
+    )
+
+
 def error(message: str) -> Screen:
     return rtl(f"⚠️ {message}"), [[Button("⬅️ منوی اصلی", data="nav:home")]]
