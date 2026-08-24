@@ -98,6 +98,9 @@ class TelegramRunner:
         else:
             await self.adapter.send_message(reply)
 
+        if reply.forward_file_id:
+            await self.adapter.send_stored_file(reply.chat_id, reply.forward_file_id)
+
         if reply.document is not None:
             await self.adapter.send_file(
                 reply.chat_id,

@@ -97,6 +97,9 @@ class OutgoingMessage:
     # A file is sent alongside the screen, never instead of it: an export is
     # something you scroll back to, so it must not be edited away later.
     document: Optional[OutgoingFile] = None
+    # A file the provider is already storing, forwarded by its own id rather
+    # than downloaded and re-uploaded. Receipts work this way.
+    forward_file_id: Optional[str] = None
 
 
 @dataclass(frozen=True)

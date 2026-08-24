@@ -299,3 +299,37 @@ class LedgerService:
             raise NotFound("این تراکنش پیدا نشد")
         return transaction
 
+    async def delete(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, transaction_id: uuid.UUID
+    ) -> None:
+        """Remove a transaction and the journal entry that mirrors it.
+
+        The entry exists only to make this transaction's totals provable, so it
+        has no meaning once the transaction is gone. Removing a balanced entry
+        whole keeps the book balanced — which is checked by a test, because
+        removing only part of one would not.
+        """
+        await self.books.require(book_id, user_id, Permission.DELETE_TRANSACTION)
+
+        transaction = await self.session.get(Transaction, transaction_id)
+        if transaction is None or transaction.book_id != book_id:
+            raise NotFound("این تراکنش پیدا نشد")
+
+        entries = (
+            await self.session.execute(
+                select(JournalEntry).where(JournalEntry.transaction_id == transaction_id)
+            )
+        ).scalars().all()
+
+        for entry in entries:
+            for line in (
+                await self.session.execute(
+                    select(JournalLine).where(JournalLine.entry_id == entry.id)
+                )
+            ).scalars().all():
+                await self.session.delete(line)
+            await self.session.delete(entry)
+
+        await self.session.delete(transaction)
+        await self.session.flush()
+

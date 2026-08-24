@@ -78,6 +78,7 @@ def main_menu() -> List[List[Button]]:
         [Button("📌 ثبت تراکنش", data="tx:new")],
         [Button("📊 گزارش‌ها", data="rep:menu")],
         [Button("📚 دفترهای من", data="book:list")],
+        [Button("🔔 یادآورها", data="rm:panel")],
         [Button("🔗 حساب‌های متصل", data="acc:list")],
     ]
 
@@ -361,10 +362,13 @@ def book_menu(book: Book) -> Screen:
     label = BOOK_LABELS.get(book.type, "")
     return rtl(f"{label} — {book.name}"), [
         [Button("📌 ثبت تراکنش", data=f"tx:book:{book.id}")],
+        [Button("📄 تراکنش‌ها", data=f"td:list:{book.id}"),
+         Button("🔎 جست‌وجو", data=f"sr:new:{book.id}")],
         [Button("📊 گزارش", data=f"rep:book:{book.id}")],
-        [Button("🎯 بودجه‌ها", data=f"bg:list:{book.id}")],
-        [Button("🤝 طلب و بدهی", data=f"dt:list:{book.id}")],
-        [Button("📄 وام و اقساط", data=f"ln:list:{book.id}")],
+        [Button("🎯 بودجه‌ها", data=f"bg:list:{book.id}"),
+         Button("🤝 طلب و بدهی", data=f"dt:list:{book.id}")],
+        [Button("📄 وام و اقساط", data=f"ln:list:{book.id}"),
+         Button("🔁 تکرارشونده", data=f"rr:list:{book.id}")],
         [Button("⬅️ دفترها", data="book:list")],
     ]
 
@@ -576,4 +580,218 @@ def confirm_delete(what: str, yes_data: str, no_data: str) -> Screen:
     return rtl(f"⚠️ حذف {what}\n\nمطمئنی؟"), [
         [Button("🗑 بله، حذف کن", data=yes_data)],
         [Button("↩️ انصراف", data=no_data)],
+    ]
+
+
+# ======================================================= transaction detail
+def transaction_list(book: Book, rows, page: int, total: int, per_page: int = 8) -> Screen:
+    from ..shared import jalali
+
+    if not rows:
+        return rtl(f"📄 {book.name}\n\nهنوز تراکنشی ثبت نشده."), [
+            [Button("➕ ثبت تراکنش", data=f"tx:book:{book.id}")],
+            [Button("⬅️ بازگشت", data=f"book:open:{book.id}")],
+        ]
+
+    lines = [f"📄 تراکنش‌های {book.name} — {total} مورد", ""]
+    buttons: List[List[Button]] = []
+    for tx in rows:
+        mark = "💰" if tx.flow is Flow.INCOME else "🧾"
+        clip = "🧾" if tx.receipt_file_id else ""
+        lines.append(
+            f"{mark} {jalali.to_text(tx.occurred_on)} | {tx.category}: "
+            f"{fmt(tx.converted_amount, book.base_currency)} {clip}"
+        )
+        buttons.append([
+            Button(f"{tx.category[:16]} — {fmt(tx.converted_amount)}", data=f"td:open:{tx.id}")
+        ])
+
+    last = max(0, (total - 1) // per_page)
+    if last:
+        nav: List[Button] = []
+        if page > 0:
+            nav.append(Button("◀️ قبلی", data=f"td:page:{book.id}:{page - 1}"))
+        nav.append(Button(f"{page + 1}/{last + 1}", data="noop:x"))
+        if page < last:
+            nav.append(Button("بعدی ▶️", data=f"td:page:{book.id}:{page + 1}"))
+        buttons.append(nav)
+
+    buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def transaction_detail(book: Book, tx) -> Screen:
+    from ..shared import jalali
+
+    word = "درآمد" if tx.flow is Flow.INCOME else "هزینه"
+    lines = [
+        "🧾 جزئیات تراکنش",
+        "",
+        f"📅 {jalali.to_text(tx.occurred_on)}  ({tx.occurred_on.isoformat()})",
+        f"🔖 {word}",
+        f"🏷 {tx.category}",
+        f"💵 {fmt(tx.converted_amount, book.base_currency)}",
+    ]
+    if tx.original_currency != book.base_currency:
+        lines.append(f"💱 اصل: {fmt(tx.original_amount, tx.original_currency)}"
+                     f" (نرخ {tx.conversion_rate})")
+    if tx.description:
+        lines.append(f"📝 {tx.description}")
+    lines.append("🧾 رسید: " + ("دارد" if tx.receipt_file_id else "ندارد"))
+
+    buttons: List[List[Button]] = []
+    if tx.receipt_file_id:
+        buttons.append([
+            Button("🧾 دیدن رسید", data=f"td:rcpv:{tx.id}"),
+            Button("❌ حذف رسید", data=f"td:rcpd:{tx.id}"),
+        ])
+    else:
+        buttons.append([Button("🧾 افزودن رسید", data=f"td:rcp:{tx.id}")])
+
+    buttons.append([Button("🗑 حذف تراکنش", data=f"td:del:{tx.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"td:list:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def ask_receipt() -> Screen:
+    return rtl("🧾 عکس یا فایل رسید را بفرست.\n\nبرای انصراف /cancel بزن."), []
+
+
+# ================================================================== search
+def ask_search() -> Screen:
+    return rtl("🔎 جست‌وجو\n\nبخشی از نام دسته یا توضیح را بنویس."), [
+        [Button("↩️ انصراف", data="nav:home")]
+    ]
+
+
+def search_results(book: Book, query: str, rows, total: int, amount, page: int,
+                   per_page: int = 10) -> Screen:
+    from ..shared import jalali
+
+    if not total:
+        return rtl(f"🔎 «{query}»\n\nچیزی پیدا نشد."), [
+            [Button("🔎 جست‌وجوی دیگر", data=f"sr:new:{book.id}")],
+            [Button("⬅️ بازگشت", data=f"book:open:{book.id}")],
+        ]
+
+    lines = [f"🔎 «{query}» — {total} نتیجه", f"جمع کل: {fmt(amount, book.base_currency)}", ""]
+    for tx in rows:
+        mark = "💰" if tx.flow is Flow.INCOME else "🧾"
+        note = f" — {tx.description[:24]}" if tx.description else ""
+        lines.append(
+            f"{mark} {jalali.to_text(tx.occurred_on)} | {tx.category}: "
+            f"{fmt(tx.converted_amount)}{note}"
+        )
+
+    buttons: List[List[Button]] = []
+    last = max(0, (total - 1) // per_page)
+    if last:
+        nav: List[Button] = []
+        if page > 0:
+            nav.append(Button("◀️ قبلی", data=f"sr:page:{page - 1}"))
+        nav.append(Button(f"{page + 1}/{last + 1}", data="noop:x"))
+        if page < last:
+            nav.append(Button("بعدی ▶️", data=f"sr:page:{page + 1}"))
+        buttons.append(nav)
+
+    buttons.append([Button("🔎 جست‌وجوی دیگر", data=f"sr:new:{book.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+# =============================================================== recurring
+PERIOD_LABELS = {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}
+
+
+def recurring_list(book: Book, rules) -> Screen:
+    from ..shared import jalali
+
+    if not rules:
+        text = rtl(
+            f"🔁 تکرارشونده‌های {book.name}\n\n"
+            "چیزی تعریف نشده.\n"
+            "اجاره یا حقوق را یک بار تعریف کن تا خودکار ثبت شوند."
+        )
+    else:
+        lines = [f"🔁 تکرارشونده‌های {book.name}", ""]
+        for rule in rules:
+            state = "فعال ✅" if rule.is_active else "متوقف ⏸"
+            word = "درآمد" if rule.flow is Flow.INCOME else "هزینه"
+            lines.append(
+                f"• {rule.category} — {fmt(rule.amount, book.base_currency)}\n"
+                f"  {word} | {PERIOD_LABELS.get(rule.period.value, '')} | {state}\n"
+                f"  بعدی: {jalali.to_text(rule.next_run_on)}"
+            )
+        text = rtl("\n".join(lines))
+
+    buttons = [[Button("➕ افزودن قاعده", data=f"rr:add:{book.id}")]]
+    for rule in rules[:10]:
+        toggle = "⏸" if rule.is_active else "▶️"
+        buttons.append([
+            Button(rule.category[:18], data="noop:x"),
+            Button(toggle, data=f"rr:tog:{rule.id}"),
+            Button("🗑", data=f"rr:del:{rule.id}"),
+        ])
+    buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return text, buttons
+
+
+def recurring_pick_flow() -> Screen:
+    return rtl("درآمد است یا هزینه؟"), [
+        [Button("💰 درآمد", data="rr:flow:income"), Button("🧾 هزینه", data="rr:flow:expense")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
+def recurring_ask_category() -> Screen:
+    return rtl("دسته چیست؟\n\nمثلاً: اجاره، حقوق، اشتراک"), [
+        [Button("↩️ انصراف", data="nav:home")]
+    ]
+
+
+def recurring_ask_amount(category: str) -> Screen:
+    return rtl(f"{category}\n\nمبلغ چقدر است؟"), [[Button("↩️ انصراف", data="nav:home")]]
+
+
+def recurring_pick_period() -> Screen:
+    return rtl("هر چند وقت تکرار شود؟"), [
+        [Button("ماهانه", data="rr:period:monthly")],
+        [Button("هفتگی", data="rr:period:weekly")],
+        [Button("روزانه", data="rr:period:daily")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
+def recurring_ask_start() -> Screen:
+    return rtl("از چه تاریخی شروع شود؟"), [
+        [Button("امروز", data="rr:today")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
+# =============================================================== reminders
+def reminder_settings(user) -> Screen:
+    digest = "روشن ✅" if user.digest_enabled else "خاموش ❌"
+    text = rtl(
+        "🔔 یادآورها\n\n"
+        "خلاصهٔ روزانه، آخر هر روزی که چیزی ثبت شده باشد، فرستاده می‌شود.\n"
+        "یادآور قسط و سررسید، قبل از موعد خبر می‌دهد."
+    )
+    return text, [
+        [Button(f"📊 خلاصهٔ روزانه: {digest}", data="rm:toggle")],
+        [Button(f"🕘 ساعت ارسال: {user.digest_hour}", data="rm:hour")],
+        [Button(f"⏳ چند روز قبل: {user.reminder_days}", data="rm:days")],
+        [Button("⬅️ بازگشت", data="nav:home")],
+    ]
+
+
+def ask_hour() -> Screen:
+    return rtl("ساعت ارسال خلاصه را بنویس (۰ تا ۲۳):"), [
+        [Button("↩️ انصراف", data="rm:panel")]
+    ]
+
+
+def ask_days() -> Screen:
+    return rtl("چند روز قبل از سررسید خبر بدهم؟"), [
+        [Button("↩️ انصراف", data="rm:panel")]
     ]

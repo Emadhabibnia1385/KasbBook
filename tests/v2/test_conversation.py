@@ -304,3 +304,73 @@ async def test_dates_accept_either_calendar():
     assert parse_date("1405-5-31") == date(2026, 8, 22)
     assert parse_date("امروز", today=date(2026, 8, 22)) == date(2026, 8, 22)
     assert parse_date("hello") is None
+
+
+# ------------------------------------------------- callback namespace safety
+async def test_no_two_features_share_a_callback_prefix():
+    """
+    A prefix collision is silent and expensive.
+
+    `rc:` once meant both "report CSV" and "recurring"; the first branch won and
+    every recurring button raised a UUID error. Nothing failed at import, and no
+    existing test noticed. This walks the routing table instead.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/bot/conversation.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    routed: list = []
+    for node in ast.walk(tree):
+        # `if area == "xx"` and `if area in ("xx", "yy")`
+        if not isinstance(node, ast.Compare) or not isinstance(node.left, ast.Name):
+            continue
+        if node.left.id != "area":
+            continue
+
+        for comparator in node.comparators:
+            if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
+                routed.append(comparator.value)
+            elif isinstance(comparator, (ast.Tuple, ast.List)):
+                routed += [
+                    element.value
+                    for element in comparator.elts
+                    if isinstance(element, ast.Constant)
+                ]
+
+    assert routed, "no callback routing found — has the dispatcher moved?"
+
+    duplicates = {prefix for prefix in routed if routed.count(prefix) > 1}
+    assert not duplicates, f"these prefixes are routed twice: {sorted(duplicates)}"
+
+
+async def test_every_button_prefix_the_screens_emit_is_routed():
+    """A button whose prefix nothing handles is a dead end the user can reach."""
+    import ast
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/bot"
+
+    emitted = set()
+    for line in (root / "screens.py").read_text(encoding="utf-8").splitlines():
+        for match in re.finditer(r'data=f?"([a-z]+):', line):
+            emitted.add(match.group(1))
+
+    tree = ast.parse((root / "conversation.py").read_text(encoding="utf-8"))
+    routed = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) \
+                and node.left.id == "area":
+            for comparator in node.comparators:
+                if isinstance(comparator, ast.Constant):
+                    routed.add(comparator.value)
+                elif isinstance(comparator, (ast.Tuple, ast.List)):
+                    routed |= {
+                        element.value for element in comparator.elts
+                        if isinstance(element, ast.Constant)
+                    }
+
+    unrouted = emitted - routed
+    assert not unrouted, f"screens emit prefixes nothing handles: {sorted(unrouted)}"

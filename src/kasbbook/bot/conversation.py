@@ -23,6 +23,8 @@ from ..modules.budgets.service import BudgetService
 from ..modules.debts.models import Direction
 from ..modules.debts.service import DebtService
 from ..modules.loans.service import LoanService
+from ..modules.recurring.models import Period as RecurringPeriod
+from ..modules.recurring.service import RecurringService
 from ..modules.identity.models import Provider
 from ..modules.identity.service import IdentityService
 from ..modules.ledger.models import Flow, Scope
@@ -63,8 +65,11 @@ class Conversation:
         self.budgets = BudgetService(session)
         self.debts = DebtService(session)
         self.loans = LoanService(session)
+        self.recurring = RecurringService(session)
         # Set by a handler that needs to hand the user a file alongside a screen.
         self._pending_file: Optional[OutgoingFile] = None
+        # A receipt the provider already holds: forwarded by id, never downloaded.
+        self._forward_file_id: Optional[str] = None
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
@@ -81,6 +86,7 @@ class Conversation:
             text=text,
             buttons=buttons,
             document=self._pending_file,
+            forward_file_id=self._forward_file_id,
             # Editing the screen in place is what keeps the chat a panel rather
             # than a transcript; the adapter falls back to a new message if the
             # anchor is gone.
@@ -99,6 +105,13 @@ class Conversation:
             return await self._command(event, user, key)
         if event.kind is EventKind.CALLBACK:
             return await self._callback(event, user, key)
+        if event.kind is EventKind.ATTACHMENT or (
+            event.attachment is not None and event.kind is EventKind.MESSAGE
+        ):
+            handled = await self._attachment(event, user, key)
+            if handled is not None:
+                return handled
+
         if event.kind is EventKind.MESSAGE and event.text:
             return await self._text(event, user, key)
 
@@ -184,6 +197,18 @@ class Conversation:
 
         if area == "ln":
             return await self._loan_callback(action, argument, user, key)
+
+        if area == "td":
+            return await self._tx_detail_callback(action, argument, user, key, event)
+
+        if area == "sr":
+            return await self._search_callback(action, argument, user, key)
+
+        if area == "rr":
+            return await self._recurring_callback(action, argument, user, key)
+
+        if area == "rm":
+            return await self._reminder_callback(action, user, key)
 
         if area == "noop":
             # An inert label; the screen stays as it is.
@@ -280,6 +305,187 @@ class Conversation:
             comparison = screens.comparison_line(previous.label, before, after)
 
         return screens.period_report(book, period.label, summary, spec, comparison)
+
+    async def _attachment(self, event: IncomingEvent, user, key: str):
+        """A file only means something while a receipt is being asked for."""
+        draft = await self.state.get(key)
+        if draft.get("flow") != "receipt" or event.attachment is None:
+            return None
+
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        await self.ledger.attach_receipt(
+            book.id, user.id, uuid.UUID(draft["tx_id"]),
+            event.attachment.file_id, self.provider.value,
+        )
+        await self.state.clear(key)
+
+        tx = await self.ledger.get_transaction(
+            book.id, user.id, uuid.UUID(draft["tx_id"])
+        )
+        return screens.transaction_detail(book, tx)
+
+    # -------------------------------------------------- transactions & receipts
+    TX_PAGE = 8
+
+    async def _tx_list(self, book, user, page: int = 0):
+        rows = await self.ledger.transactions(book.id, user.id)
+        start = max(0, page) * self.TX_PAGE
+        return screens.transaction_list(
+            book, rows[start:start + self.TX_PAGE], page, len(rows), self.TX_PAGE
+        )
+
+    async def _tx_and_book(self, user, transaction_id: uuid.UUID):
+        for book in await self.books.books_for_user(user.id):
+            try:
+                tx = await self.ledger.get_transaction(book.id, user.id, transaction_id)
+            except KasbBookError:
+                continue
+            return book, tx
+        return None, None
+
+    async def _tx_detail_callback(self, action: str, argument: str, user, key: str, event):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            return await self._tx_list(book, user)
+
+        if action == "page":
+            parts = (event.callback_data or "").split(":")
+            book = await self.books.get_book(uuid.UUID(parts[2]))
+            return await self._tx_list(book, user, int(parts[3]))
+
+        target = uuid.UUID(argument)
+        book, tx = await self._tx_and_book(user, target)
+        if tx is None:
+            return screens.error("این تراکنش پیدا نشد")
+
+        if action == "open":
+            return screens.transaction_detail(book, tx)
+
+        if action == "rcp":
+            await self.state.set(key, {"flow": "receipt", "tx_id": str(tx.id),
+                                       "book_id": str(book.id)})
+            return screens.ask_receipt()
+
+        if action == "rcpv":
+            # The file lives on the provider; hand its id back so the adapter
+            # can forward it without us ever holding the bytes.
+            self._pending_file = None
+            self._forward_file_id = tx.receipt_file_id
+            return screens.transaction_detail(book, tx)
+
+        if action == "rcpd":
+            await self.ledger.attach_receipt(book.id, user.id, tx.id, None, None)
+            fresh = await self.ledger.get_transaction(book.id, user.id, tx.id)
+            return screens.transaction_detail(book, fresh)
+
+        if action == "del":
+            return screens.confirm_delete(
+                f"تراکنش «{tx.category}»", f"td:delok:{tx.id}", f"td:open:{tx.id}"
+            )
+
+        if action == "delok":
+            await self.ledger.delete(book.id, user.id, tx.id)
+            return await self._tx_list(book, user)
+
+        return screens.transaction_detail(book, tx)
+
+    # --------------------------------------------------------------- search
+    async def _search_callback(self, action: str, argument: str, user, key: str):
+        if action == "new":
+            await self.state.set(key, {"flow": "search", "book_id": argument})
+            return screens.ask_search()
+
+        if action == "page":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "search" or not draft.get("query"):
+                return screens.welcome(user.display_name)
+            return await self._search_screen(user, draft, int(argument))
+
+        return screens.welcome(user.display_name)
+
+    async def _search_screen(self, user, draft: dict, page: int):
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        rows, total, amount = await self.reports.search(
+            book.id, user.id, draft["query"], page
+        )
+        return screens.search_results(book, draft["query"], rows, total, amount, page)
+
+    # ------------------------------------------------------------ recurring
+    async def _recurring_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.clear(key)
+            rules = await self.recurring.list_rules(book.id, user.id)
+            return screens.recurring_list(book, rules)
+
+        if action == "add":
+            await self.state.set(key, {"flow": "recurring", "book_id": argument})
+            return screens.recurring_pick_flow()
+
+        if action == "flow":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "recurring":
+                return screens.welcome(user.display_name)
+            draft["direction"] = argument
+            await self.state.set(key, draft)
+            return screens.recurring_ask_category()
+
+        if action == "period":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "recurring":
+                return screens.welcome(user.display_name)
+            draft["period"] = argument
+            await self.state.set(key, draft)
+            return screens.recurring_ask_start()
+
+        if action == "today":
+            return await self._save_recurring(user, key, date.today())
+
+        target = uuid.UUID(argument)
+        for book in await self.books.books_for_user(user.id):
+            for rule in await self.recurring.list_rules(book.id, user.id):
+                if rule.id != target:
+                    continue
+                if action == "tog":
+                    await self.recurring.toggle(book.id, user.id, target)
+                elif action == "del":
+                    await self.recurring.delete(book.id, user.id, target)
+                rules = await self.recurring.list_rules(book.id, user.id)
+                return screens.recurring_list(book, rules)
+
+        return screens.error("این قاعده پیدا نشد")
+
+    async def _save_recurring(self, user, key: str, starts_on):
+        draft = await self.state.get(key)
+        if draft.get("flow") != "recurring" or not draft.get("period"):
+            return screens.welcome(user.display_name)
+
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        await self.recurring.create(
+            book.id, user.id, Flow(draft["direction"]), draft["category"],
+            Decimal(draft["amount"]), RecurringPeriod(draft["period"]), starts_on,
+        )
+        await self.state.clear(key)
+        rules = await self.recurring.list_rules(book.id, user.id)
+        return screens.recurring_list(book, rules)
+
+    # ------------------------------------------------------------ reminders
+    async def _reminder_callback(self, action: str, user, key: str):
+        if action == "toggle":
+            user.digest_enabled = not user.digest_enabled
+            await self.session.flush()
+            return screens.reminder_settings(user)
+
+        if action == "hour":
+            await self.state.set(key, {"flow": "reminder", "field": "hour"})
+            return screens.ask_hour()
+
+        if action == "days":
+            await self.state.set(key, {"flow": "reminder", "field": "days"})
+            return screens.ask_days()
+
+        await self.state.clear(key)
+        return screens.reminder_settings(user)
 
     # -------------------------------------------------------------- budgets
     async def _budget_screen(self, book, user):
@@ -472,6 +678,19 @@ class Conversation:
         if draft.get("flow") == "loan":
             return await self._loan_text(text, draft, user, key)
 
+        if draft.get("flow") == "search":
+            if len(text) < 2:
+                return screens.ask_search()
+            draft["query"] = text[:60]
+            await self.state.set(key, draft)
+            return await self._search_screen(user, draft, 0)
+
+        if draft.get("flow") == "recurring":
+            return await self._recurring_text(text, draft, user, key)
+
+        if draft.get("flow") == "reminder":
+            return await self._reminder_text(text, draft, user, key)
+
         # Nothing in flight, so try to read the line as a transaction.
         entry = quick.parse(text)
         if entry is None:
@@ -594,6 +813,45 @@ class Conversation:
         if starts_on is None:
             return screens.loan_ask_start()
         return await self._save_loan(user, key, starts_on)
+
+    async def _recurring_text(self, text: str, draft: dict, user, key: str):
+        if not draft.get("category"):
+            draft["category"] = text[:80]
+            await self.state.set(key, draft)
+            return screens.recurring_ask_amount(draft["category"])
+
+        if not draft.get("amount"):
+            amount = parse_amount(text)
+            if amount is None or amount <= 0:
+                return screens.recurring_ask_amount(draft["category"])
+            draft["amount"] = str(amount)
+            await self.state.set(key, draft)
+            return screens.recurring_pick_period()
+
+        if not draft.get("period"):
+            return screens.recurring_pick_period()
+
+        starts_on = parse_date(text)
+        if starts_on is None:
+            return screens.recurring_ask_start()
+        return await self._save_recurring(user, key, starts_on)
+
+    async def _reminder_text(self, text: str, draft: dict, user, key: str):
+        digits = to_ascii_digits(text).strip()
+        if not digits.isdigit():
+            return screens.ask_hour() if draft["field"] == "hour" else screens.ask_days()
+
+        value = int(digits)
+        if draft["field"] == "hour":
+            if value > 23:
+                return screens.ask_hour()
+            user.digest_hour = value
+        else:
+            user.reminder_days = min(value, 60)
+
+        await self.session.flush()
+        await self.state.clear(key)
+        return screens.reminder_settings(user)
 
     async def _tx_text(self, text: str, draft: dict, user, key: str):
         if not draft.get("direction"):

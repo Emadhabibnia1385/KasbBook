@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    Integer,
     Boolean,
     DateTime,
     Enum,
@@ -59,6 +60,13 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     locale: Mapped[str] = mapped_column(String(8), nullable=False, default="fa")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Tehran")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Notification preferences. On by default: a bookkeeping tool that never
+    # speaks first is one people forget to open. The hour is local to the
+    # user's own timezone, not the server's.
+    digest_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    digest_hour: Mapped[int] = mapped_column(Integer, nullable=False, default=21)
+    reminder_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
 
     identities: Mapped[list["Identity"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"

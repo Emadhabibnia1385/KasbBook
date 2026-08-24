@@ -254,3 +254,18 @@ class TelegramAdapter:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def send_stored_file(self, chat_id: str, file_id: str) -> Optional[str]:
+        """Forward a file Telegram already has, by its id.
+
+        Sending the id back is what keeps a receipt out of our storage entirely.
+        A file id can belong to a photo or a document, and Telegram will not say
+        which, so the second call covers the case the first rejects.
+        """
+        for method in ("sendPhoto", "sendDocument"):
+            field = "photo" if method == "sendPhoto" else "document"
+            result = await self._call(method, {"chat_id": chat_id, field: file_id})
+            if result is not None:
+                return str(result.get("message_id"))
+        return None
+
