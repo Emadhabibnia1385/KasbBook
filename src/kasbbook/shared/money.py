@@ -47,7 +47,9 @@ def quantize(value: Optional[Amount]) -> Decimal:
 class Money(TypeDecorator):
     """Exact decimal storage on every engine we support."""
 
-    impl = Numeric
+    # Alembic renders a TypeDecorator from its impl, so the precision has to
+    # live here or the generated migration would emit a bare NUMERIC.
+    impl = Numeric(28, 4)
     cache_ok = True
 
     def load_dialect_impl(self, dialect):

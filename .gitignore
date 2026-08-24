@@ -29,3 +29,13 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.swp
+
+# --- graphify knowledge graph (generated) -----------------------------------
+# Rebuilt from source by `graphify update .`, so it is derived data, not source.
+# The official install only asks for .claude/ and CLAUDE.md to be versioned.
+graphify-out/
+graph.json
+.graphify_analysis.json
+
+# --- alembic scratch ---
+.migration-check.db
