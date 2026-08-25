@@ -163,3 +163,75 @@ class AuditEvent(UUIDPrimaryKey, Timestamped, Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     subject: Mapped[Optional[str]] = mapped_column(String(120))
     detail: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class RefreshToken(UUIDPrimaryKey, Timestamped, Base):
+    """A long-lived credential that buys short-lived access tokens.
+
+    Two rules make this safe, and both are in the columns rather than in
+    someone's memory:
+
+    `token_digest` — the raw token is returned once and never stored, so a
+    database leak yields nothing replayable.
+
+    `family_id` + `replaced_by_id` — every refresh mints a new token and
+    revokes the one it came from. A revoked token being presented again means
+    someone kept a copy, so the whole family is killed rather than that one
+    token. The legitimate holder is logged out, which is the correct outcome
+    when there are two holders.
+    """
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        Index("ix_refresh_tokens_digest", "token_digest", unique=True),
+        Index("ix_refresh_tokens_family", "family_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    family_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, default=uuid.uuid4)
+    replaced_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Kept for the user's own "where am I signed in" screen, and for telling
+    # them which session was cut off when a family is revoked.
+    user_agent: Mapped[Optional[str]] = mapped_column(String(200))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45))
+
+    @property
+    def is_open(self) -> bool:
+        return self.revoked_at is None
+
+
+class ApiKey(UUIDPrimaryKey, Timestamped, Base):
+    """A credential for something that is not a person.
+
+    Shown once, stored as a digest. The `prefix` is the first few characters,
+    kept in the clear so a key can be named in a list and revoked without the
+    owner having to produce it.
+    """
+
+    __tablename__ = "api_keys"
+    __table_args__ = (
+        Index("ix_api_keys_digest", "token_digest", unique=True),
+        Index("ix_api_keys_user", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(12), nullable=False, default="")
+
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def is_open(self) -> bool:
+        return self.revoked_at is None

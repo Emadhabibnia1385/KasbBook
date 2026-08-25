@@ -11,16 +11,26 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
+import sqlalchemy as sa
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+ROOT = Path(__file__).resolve().parents[1]
+
+# Order matters and is not cosmetic. The first-generation package at the repo
+# root is also called `kasbbook`, so src/ has to win the name or `import
+# kasbbook` loads the old bot and dies on a dependency this project no longer
+# has. src goes to the front; the root is appended, only so that
+# `migrations.comparators` resolves.
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
 from kasbbook.models import Base  # noqa: E402
+from migrations.comparators import compare_type  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
@@ -40,7 +50,7 @@ def run_migrations_offline() -> None:
         render_item=render_item,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True,
+        compare_type=compare_type,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -64,7 +74,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         render_item=render_item,
-        compare_type=True,
+        compare_type=compare_type,
         # Needed for SQLite, harmless elsewhere: it lets ALTER-style changes
         # rebuild a table instead of failing.
         render_as_batch=connection.dialect.name == "sqlite",

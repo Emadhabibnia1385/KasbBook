@@ -9,9 +9,11 @@ from .modules.books.models import Book, Membership
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
 from .modules.identity.models import (
+    ApiKey,
     AuditEvent,
     Identity,
     LinkToken,
+    RefreshToken,
     User,
 )
 from .modules.loans.models import Loan, LoanPayment
@@ -43,6 +45,7 @@ from .shared.database import Base
 __all__ = [
     "Base",
     "Account",
+    "ApiKey",
     "Adjustment",
     "AuditEvent",
     "Book",
@@ -59,6 +62,7 @@ __all__ = [
     "Payment",
     "Payslip",
     "PerformanceRecord",
+    "RefreshToken",
     "RecurringRule",
     "ShareRule",
     "Transaction",
