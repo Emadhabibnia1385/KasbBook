@@ -395,3 +395,84 @@ async def test_the_adapter_never_reaches_the_database():
 
     # The one module it may touch is the Provider enum, which is a label, not a table.
     assert any("identity.models" in name for name in imported)
+
+
+# ------------------------------------------- every outgoing call, really made
+#
+# `send_plain` and `send_stored_file` both passed their parameters to `_call`
+# as a positional dict where it takes keyword arguments. Both raised TypeError
+# on the first line of the body, and both shipped: the reminder tests use a spy
+# adapter, and the receipt tests assert on the reply object without ever
+# handing it to Telegram. So the two methods nothing else covered were exactly
+# the two that were broken.
+#
+# The table below is checked against the class itself, so a new outgoing method
+# cannot be added without a case here.
+
+CALLS = {
+    "send_message": lambda a: a.send_message(OutgoingMessage("1", "سلام")),
+    "edit_message": lambda a: a.edit_message(
+        OutgoingMessage("1", "سلام", edit_message_id="9")
+    ),
+    "delete_message": lambda a: a.delete_message("1", "9"),
+    "send_file": lambda a: a.send_file("1", b"data", "export.csv"),
+    "send_plain": lambda a: a.send_plain("1", "خلاصهٔ امروز"),
+    "send_stored_file": lambda a: a.send_stored_file("1", "PHOTO-1"),
+    "answer_callback": lambda a: a.answer_callback("cb1"),
+    "set_webhook": lambda a: a.set_webhook("https://example.test/hook"),
+    "aclose": lambda a: a.aclose(),
+}
+
+
+@pytest.mark.parametrize("name", sorted(CALLS))
+async def test_every_outgoing_method_survives_a_real_call(name):
+    fake = FakeTelegram()
+    await CALLS[name](fake.adapter())
+
+
+async def test_a_digest_reaches_telegram_as_a_plain_message():
+    """The reminder loop's only way to speak. It was raising TypeError."""
+    fake = FakeTelegram()
+    assert await fake.adapter().send_plain("555", "خلاصهٔ امروز") == "42"
+
+    assert fake.calls[0]["method"] == "sendMessage"
+    assert fake.calls[0]["body"] == {"chat_id": "555", "text": "خلاصهٔ امروز"}
+
+
+async def test_a_receipt_is_forwarded_by_id_not_re_uploaded():
+    fake = FakeTelegram()
+    assert await fake.adapter().send_stored_file("555", "PHOTO-1") == "42"
+
+    assert fake.calls[0]["method"] == "sendPhoto"
+    assert fake.calls[0]["body"] == {"chat_id": "555", "photo": "PHOTO-1"}
+
+
+async def test_a_receipt_telegram_calls_a_document_still_arrives():
+    """A file id does not say what it is, so the second attempt covers the first."""
+    calls: List[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        method = request.url.path.rsplit("/", 1)[-1]
+        calls.append(method)
+        if method == "sendPhoto":
+            return httpx.Response(200, json={"ok": False, "description": "wrong type"})
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 8}})
+
+    adapter = TelegramAdapter(
+        token="t", client=httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    )
+    assert await adapter.send_stored_file("555", "DOC-1") == "8"
+    assert calls == ["sendPhoto", "sendDocument"]
+
+
+async def test_the_call_table_covers_every_outgoing_method():
+    """A method with no case here is a method nothing proves works."""
+    import inspect
+
+    public = {
+        name
+        for name, member in inspect.getmembers(TelegramAdapter, inspect.iscoroutinefunction)
+        if not name.startswith("_")
+    }
+    missing = public - set(CALLS)
+    assert not missing, f"outgoing methods with no test: {sorted(missing)}"

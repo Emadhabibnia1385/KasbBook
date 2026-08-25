@@ -263,13 +263,13 @@ class TelegramAdapter:
         """
         for method in ("sendPhoto", "sendDocument"):
             field = "photo" if method == "sendPhoto" else "document"
-            result = await self._call(method, {"chat_id": chat_id, field: file_id})
+            result = await self._call(method, **{"chat_id": chat_id, field: file_id})
             if result is not None:
                 return str(result.get("message_id"))
         return None
 
     async def send_plain(self, chat_id: str, text: str) -> Optional[str]:
         """A message the bot starts, with no buttons and no screen to replace."""
-        result = await self._call("sendMessage", {"chat_id": chat_id, "text": text})
+        result = await self._call("sendMessage", chat_id=chat_id, text=text)
         return str(result.get("message_id")) if result else None
 
