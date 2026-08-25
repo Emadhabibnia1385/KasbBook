@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -22,7 +22,6 @@ from kasbbook.modules.identity.service import IdentityService
 from kasbbook.modules.ledger.models import Flow, Scope
 from kasbbook.modules.ledger.service import LedgerService
 from kasbbook.modules.recurring.service import RecurringService
-from kasbbook.shared import jalali
 
 pytestmark = pytest.mark.asyncio
 TG = Provider.TELEGRAM

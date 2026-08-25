@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from kasbbook.modules.books.models import BookType, Permission, Role
+from kasbbook.modules.books.models import BookType, Role
 from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.service import IdentityService
 from kasbbook.modules.ledger.models import Flow, Scope

@@ -5,24 +5,24 @@ its side effect is easy to delete by accident, so this file exists to make that
 requirement explicit and to give migrations a single, obvious entry point.
 """
 
-from .modules.books.models import Book, Membership  # noqa: F401
-from .modules.budgets.models import Budget  # noqa: F401
-from .modules.debts.models import Debt  # noqa: F401
-from .modules.identity.models import (  # noqa: F401
+from .modules.books.models import Book, Membership
+from .modules.budgets.models import Budget
+from .modules.debts.models import Debt
+from .modules.identity.models import (
     AuditEvent,
     Identity,
     LinkToken,
     User,
 )
-from .modules.loans.models import Loan, LoanPayment  # noqa: F401
-from .modules.recurring.models import RecurringRule  # noqa: F401
-from .modules.ledger.models import (  # noqa: F401
+from .modules.loans.models import Loan, LoanPayment
+from .modules.recurring.models import RecurringRule
+from .modules.ledger.models import (
     Account,
     JournalEntry,
     JournalLine,
     Transaction,
 )
-from .modules.payroll.models import (  # noqa: F401
+from .modules.payroll.models import (
     Adjustment,
     FinancialPeriod,
     Payment,
@@ -30,11 +30,40 @@ from .modules.payroll.models import (  # noqa: F401
     PerformanceRecord,
     ShareRule,
 )
-from .modules.treasury.models import (  # noqa: F401
+from .modules.treasury.models import (
     TreasuryAllocation,
     TreasuryFund,
     TreasuryRule,
 )
-from .shared.database import Base  # noqa: F401
+from .shared.database import Base
 
-__all__ = ["Base"]
+# Everything here is imported for its side effect: Alembic autogenerate only
+# sees the tables that have been imported. __all__ is how that intent is
+# stated in a way the linter understands, rather than a noqa it ignores.
+__all__ = [
+    "Base",
+    "Account",
+    "Adjustment",
+    "AuditEvent",
+    "Book",
+    "Budget",
+    "Debt",
+    "FinancialPeriod",
+    "Identity",
+    "JournalEntry",
+    "JournalLine",
+    "LinkToken",
+    "Loan",
+    "LoanPayment",
+    "Membership",
+    "Payment",
+    "Payslip",
+    "PerformanceRecord",
+    "RecurringRule",
+    "ShareRule",
+    "Transaction",
+    "TreasuryAllocation",
+    "TreasuryFund",
+    "TreasuryRule",
+    "User",
+]

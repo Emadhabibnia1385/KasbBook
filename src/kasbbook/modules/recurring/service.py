@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
-from decimal import Decimal
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,7 @@ from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Book, BookType, Permission
 from ..books.service import BookService
-from ..ledger.models import Flow, Scope, Transaction
+from ..ledger.models import Flow, Scope
 from ..ledger.service import LedgerService
 from .models import Period, RecurringRule
 

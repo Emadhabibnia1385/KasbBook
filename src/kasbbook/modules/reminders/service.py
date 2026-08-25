@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
 from typing import List, Optional, Sequence
 
 from sqlalchemy import select
@@ -22,7 +21,6 @@ from ..books.models import Book, Membership
 from ..budgets.service import BudgetService
 from ..debts.models import Debt, Direction
 from ..identity.models import Identity, Provider
-from ..loans.models import Loan
 from ..loans.service import LoanService
 from ..reports import service as reports
 from ..reports.service import ReportService

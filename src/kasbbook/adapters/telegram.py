@@ -8,7 +8,6 @@ network — which is also what lets the same tests run in CI.
 from __future__ import annotations
 
 import hmac
-import json
 from typing import Any, Dict, Optional, Sequence
 
 import httpx

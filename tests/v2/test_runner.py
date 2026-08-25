@@ -187,8 +187,6 @@ async def test_an_update_the_bot_ignores_costs_nothing(db, session):
 
 
 async def test_a_telegram_error_does_not_crash_the_poller(db, session):
-    server = FakeTelegramServer([])
-
     def failing(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"ok": False, "description": "flood wait"})
 

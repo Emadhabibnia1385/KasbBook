@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -522,9 +522,7 @@ class Conversation:
             return screens.budget_ask_amount(label)
 
         if action == "del":
-            draft = await self.state.get(key)
             budget_id = uuid.UUID(argument)
-            book_id = draft.get("book_id")
             # The delete button lives on a list, so the book is whichever one
             # owns the budget; look it up rather than trusting stale state.
             for book in await self.books.books_for_user(user.id):
@@ -660,9 +658,7 @@ class Conversation:
         text = (event.text or "").strip()
 
         if draft.get("flow") == "new_book":
-            book = await self.books.create_book(
-                user.id, text, BookType(draft["type"])
-            )
+            await self.books.create_book(user.id, text, BookType(draft["type"]))
             await self.state.clear(key)
             return screens.book_list(await self.books.books_for_user(user.id))
 

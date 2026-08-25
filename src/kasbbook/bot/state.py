@@ -9,7 +9,7 @@ the conversation code should not be able to tell the difference.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Protocol
 
 # Long enough to finish a flow, short enough that an abandoned one does not
 # reappear days later and confuse someone.

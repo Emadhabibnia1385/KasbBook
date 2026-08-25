@@ -220,7 +220,6 @@ async def test_cancel_drops_a_half_finished_flow(session):
 async def test_the_report_shows_what_was_recorded(session):
     user = await linked_user(session)
     book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
-    ledger = LedgerService(session)
     convo = await conversation(session)
 
     await convo.handle(press(f"tx:book:{book.id}"))

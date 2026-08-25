@@ -30,7 +30,7 @@ from ...shared.security import (
     utcnow,
     verify_password,
 )
-from .models import AuditEvent, Identity, LinkDirection, LinkToken, Provider
+from .models import AuditEvent, Identity, LinkDirection, LinkToken, Provider, User
 
 # Long enough to switch apps and paste, short enough that a leaked link is dead
 # before anyone finds it.
@@ -58,7 +58,6 @@ class IdentityService:
         phone: Optional[str] = None,
         password: Optional[str] = None,
     ) -> "User":
-        from .models import User
 
         user = User(
             display_name=display_name,
@@ -72,7 +71,6 @@ class IdentityService:
         return user
 
     async def authenticate(self, identifier: str, password: str) -> Optional["User"]:
-        from .models import User
 
         needle = identifier.lower().strip()
         stmt = select(User).where((User.email == needle) | (User.phone == identifier.strip()))
@@ -87,7 +85,6 @@ class IdentityService:
         return user
 
     async def get_user(self, user_id: uuid.UUID) -> "User":
-        from .models import User
 
         user = await self.session.get(User, user_id)
         if user is None:
