@@ -19,11 +19,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Order matters and is not cosmetic. The first-generation package at the repo
-# root is also called `kasbbook`, so src/ has to win the name or `import
-# kasbbook` loads the old bot and dies on a dependency this project no longer
-# has. src goes to the front; the root is appended, only so that
-# `migrations.comparators` resolves.
+# Alembic runs this file directly: src/ for `kasbbook`, the repo root for
+# `migrations.comparators`.
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 if str(ROOT) not in sys.path:

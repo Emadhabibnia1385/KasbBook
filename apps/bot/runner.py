@@ -19,10 +19,8 @@ from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Order matters and is not cosmetic. The first-generation package at the repo
-# root is also called `kasbbook`, so src/ has to win the name or `import
-# kasbbook` silently loads the old bot. src goes to the front; the root is
-# appended, only so `apps.bot.*` resolves when this runs as a script.
+# systemd runs this file as a script, so nothing is on the path yet: src/ for
+# `kasbbook`, the repo root for `apps.bot.*`.
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 if str(ROOT) not in sys.path:

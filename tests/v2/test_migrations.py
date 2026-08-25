@@ -167,18 +167,18 @@ def test_money_columns_keep_their_precision():
     assert "sa.Numeric(precision=28, scale=4)" in source
 
 
-def test_alembic_loads_the_new_package_and_not_the_legacy_one():
-    """`kasbbook` names two packages, and only one of them is this project.
+def test_alembic_runs_from_a_clean_process():
+    """Alembic loads env.py directly, with nothing on the path yet.
 
-    The first-generation bot still sits at the repo root under the same name.
-    Whichever path comes first in sys.path wins, and the loser is silent: the
-    old package imports python-telegram-bot, which is no longer a dependency,
-    so a wrong order shows up as ModuleNotFoundError for a module nobody
-    mentioned. It has already happened twice — once in the service unit, once
-    in env.py.
+    Every other test in this file imports through pytest, which has already
+    arranged sys.path. That difference has broken this twice — once when the
+    first-generation package at the repo root answered to the same name as
+    src/kasbbook and won, once when a sibling import went in above the line
+    that puts src/ on the path. Both looked like ModuleNotFoundError for a
+    module nobody had mentioned.
 
-    Alembic is run here the way a deploy runs it, in its own process, because
-    the failure is entirely about import order.
+    So this runs alembic the way a deploy runs it: its own process, its own
+    path, no help.
     """
     import subprocess
 
@@ -196,7 +196,5 @@ def test_alembic_loads_the_new_package_and_not_the_legacy_one():
         database.unlink(missing_ok=True)
 
     combined = result.stdout + result.stderr
-    assert "No module named 'telegram'" not in combined, (
-        "the legacy package shadowed src/kasbbook:\n" + combined[-800:]
-    )
+    assert "ModuleNotFoundError" not in combined, combined[-800:]
     assert result.returncode == 0, combined[-800:]

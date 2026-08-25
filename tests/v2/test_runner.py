@@ -248,9 +248,6 @@ async def test_the_runner_loads_when_executed_as_a_script():
     combined = result.stdout + result.stderr
     assert "ImportError" not in combined, combined[-600:]
     assert "ModuleNotFoundError" not in combined, combined[-600:]
-    # The legacy package at the repo root answers to the same name; if it wins
-    # the import, the new bot never runs at all.
-    assert "python-telegram-bot" not in combined
     # It should get all the way to the one thing genuinely missing: a token.
     assert "BotFather" in combined, combined[-600:]
 
