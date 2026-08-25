@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from apps.telegram_bot.reminders import ReminderLoop, _local_hour  # noqa: E402
+from apps.bot.reminders import ReminderLoop, _local_hour  # noqa: E402
 from kasbbook.bot.state import MemoryStateStore  # noqa: E402
 from kasbbook.modules.books.models import BookType  # noqa: E402
 from kasbbook.modules.books.service import BookService  # noqa: E402

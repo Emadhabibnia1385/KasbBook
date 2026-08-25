@@ -378,23 +378,25 @@ async def test_the_adapter_never_reaches_the_database():
     import ast
     import pathlib
 
-    module = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/adapters/telegram.py"
-    tree = ast.parse(module.read_text(encoding="utf-8"))
+    folder = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/adapters"
+    modules = sorted(p for p in folder.glob("*.py") if p.name != "__init__.py")
+    assert len(modules) >= 4, "every adapter module has to be checked, not just one"
 
-    imported = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imported.add(node.module or "")
-            imported.update(f"{node.module or ''}.{a.name}" for a in node.names)
+    for module in modules:
+        tree = ast.parse(module.read_text(encoding="utf-8"))
 
-    banned = ("sqlalchemy", "shared.database", "modules.books", "modules.ledger", "service")
-    leaked = [name for name in imported for bad in banned if bad in name]
-    assert not leaked, f"the adapter imports persistence: {leaked}"
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module or "")
+                imported.update(f"{node.module or ''}.{a.name}" for a in node.names)
 
-    # The one module it may touch is the Provider enum, which is a label, not a table.
-    assert any("identity.models" in name for name in imported)
+        banned = ("sqlalchemy", "shared.database", "modules.books", "modules.ledger",
+                  ".service")
+        leaked = [name for name in imported for bad in banned if bad in name]
+        assert not leaked, f"{module.name} imports persistence: {leaked}"
 
 
 # ------------------------------------------- every outgoing call, really made
@@ -420,6 +422,9 @@ CALLS = {
     "send_stored_file": lambda a: a.send_stored_file("1", "PHOTO-1"),
     "answer_callback": lambda a: a.answer_callback("cb1"),
     "set_webhook": lambda a: a.set_webhook("https://example.test/hook"),
+    "delete_webhook": lambda a: a.delete_webhook(),
+    "get_me": lambda a: a.get_me(),
+    "fetch_updates": lambda a: a.fetch_updates(offset=1, timeout=0),
     "aclose": lambda a: a.aclose(),
 }
 

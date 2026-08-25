@@ -20,7 +20,7 @@ APPS = Path(__file__).resolve().parents[2]
 if str(APPS) not in sys.path:
     sys.path.insert(0, str(APPS))
 
-from apps.telegram_bot.runner import TelegramRunner  # noqa: E402
+from apps.bot.runner import BotRunner, build_adapter  # noqa: E402
 from kasbbook.adapters.telegram import TelegramAdapter  # noqa: E402
 from kasbbook.bot.state import MemoryStateStore  # noqa: E402
 from kasbbook.modules.books.models import BookType  # noqa: E402
@@ -91,7 +91,7 @@ async def build(db, updates):
         token="test", bot_username="KasbBookTest",
         client=httpx.AsyncClient(transport=server.transport()),
     )
-    runner = TelegramRunner(
+    runner = BotRunner(
         Settings(database_url="sqlite+aiosqlite://"), db, adapter, MemoryStateStore()
     )
     return server, runner
@@ -193,7 +193,7 @@ async def test_a_telegram_error_does_not_crash_the_poller(db, session):
     adapter = TelegramAdapter(
         token="test", client=httpx.AsyncClient(transport=httpx.MockTransport(failing))
     )
-    runner = TelegramRunner(
+    runner = BotRunner(
         Settings(database_url="sqlite+aiosqlite://"), db, adapter, MemoryStateStore()
     )
 
@@ -222,7 +222,7 @@ async def test_settings_default_to_sqlite_so_a_dev_can_just_run_it(monkeypatch):
 # ------------------------------------------------------- the systemd path
 async def test_the_runner_loads_when_executed_as_a_script():
     """
-    systemd runs `python apps/telegram_bot/runner.py`, not `-m`.
+    systemd runs `python apps/bot/runner.py`, not `-m`.
 
     Importing it as a module — which every other test here does — hides a
     relative import that has no parent package when it is a script. That
@@ -241,7 +241,7 @@ async def test_the_runner_loads_when_executed_as_a_script():
     env.pop("TELEGRAM_BOT_TOKEN", None)
 
     result = subprocess.run(
-        [_sys.executable, str(repo / "apps" / "telegram_bot" / "runner.py")],
+        [_sys.executable, str(repo / "apps" / "bot" / "runner.py")],
         capture_output=True, text=True, timeout=60, env=env,
     )
 
@@ -253,3 +253,135 @@ async def test_the_runner_loads_when_executed_as_a_script():
     assert "python-telegram-bot" not in combined
     # It should get all the way to the one thing genuinely missing: a token.
     assert "BotFather" in combined, combined[-600:]
+
+
+# ------------------------------------------------ the same loop, another app
+#
+# The point of the adapter layer is that this file's other tests describe
+# Telegram only by accident. These run the identical loop against Bale, with
+# nothing changed but a setting.
+
+async def test_the_same_runner_drives_bale(db, session):
+    """A whole conversation on Bale, through the same conversation layer."""
+    from kasbbook.adapters.bale import BaleAdapter
+
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد")
+    issued = await identity.start_link_from_web(user.id, Provider.BALE)
+    await identity.complete_link_from_messenger(issued.token, Provider.BALE, "555001")
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await session.commit()
+
+    server = FakeTelegramServer([
+        update(1, text="/start"),
+        update(2, data=f"tx:book:{book.id}"),
+        update(3, data="tx:flow:income"),
+        update(4, text="فروش"),
+        update(5, text="۲۵۰ک"),
+    ])
+    adapter = BaleAdapter(
+        token="test", bot_username="KasbBookBot",
+        client=httpx.AsyncClient(transport=server.transport()),
+    )
+    runner = BotRunner(
+        Settings(database_url="sqlite+aiosqlite://", provider=Provider.BALE),
+        db, adapter, MemoryStateStore(),
+    )
+
+    assert await runner.poll_once() == 5
+
+    rows = await LedgerService(session).transactions(book.id, user.id)
+    assert len(rows) == 1
+    assert rows[0].converted_amount == Decimal("250000")
+    assert any("ثبت شد" in text for text in server.texts())
+
+
+async def test_a_bale_user_is_not_a_telegram_user_with_the_same_number(db, session):
+    """The isolation the whole identity model exists to provide."""
+    from kasbbook.adapters.bale import BaleAdapter
+
+    identity = IdentityService(session)
+    telegram_user = await identity.create_user("عماد تلگرام")
+    issued = await identity.start_link_from_web(telegram_user.id, Provider.TELEGRAM)
+    await identity.complete_link_from_messenger(issued.token, Provider.TELEGRAM, "555001")
+    await session.commit()
+
+    # The same external id arrives from Bale. It is a stranger.
+    server = FakeTelegramServer([update(1, text="/start")])
+    runner = BotRunner(
+        Settings(database_url="sqlite+aiosqlite://", provider=Provider.BALE), db,
+        BaleAdapter(token="t", client=httpx.AsyncClient(transport=server.transport())),
+        MemoryStateStore(),
+    )
+    await runner.poll_once()
+
+    # Not greeted as the Telegram account: no books, and an invitation to link.
+    assert not any("مغازه" in text for text in server.texts())
+
+
+# ------------------------------------------------------- choosing a provider
+async def test_the_provider_is_a_setting_not_a_code_change():
+    from kasbbook.adapters.bale import BaleAdapter
+    from kasbbook.adapters.rubika import RubikaAdapter
+    from kasbbook.adapters.telegram import TelegramAdapter
+
+    expected = {
+        Provider.TELEGRAM: TelegramAdapter,
+        Provider.BALE: BaleAdapter,
+        Provider.RUBIKA: RubikaAdapter,
+    }
+    for provider, adapter_class in expected.items():
+        settings = Settings(
+            database_url="sqlite+aiosqlite://", provider=provider,
+            telegram_token="t", bale_token="t", rubika_token="t",
+        )
+        assert isinstance(build_adapter(settings, client=httpx.AsyncClient()), adapter_class)
+
+
+async def test_each_provider_reads_its_own_token():
+    """A Bale process must not silently start with the Telegram token."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite://", provider=Provider.BALE,
+        telegram_token="TELEGRAM-SECRET", bale_token="BALE-SECRET",
+    )
+    assert settings.token == "BALE-SECRET"
+    assert build_adapter(settings, client=httpx.AsyncClient()).token == "BALE-SECRET"
+
+
+async def test_the_wrong_providers_token_is_a_startup_failure_naming_the_right_one():
+    settings = Settings(
+        database_url="sqlite+aiosqlite://", provider=Provider.BALE,
+        telegram_token="TELEGRAM-SECRET",  # set, but not for this provider
+    )
+    with pytest.raises(RuntimeError) as caught:
+        settings.require_token()
+
+    assert "BALE_BOT_TOKEN" in str(caught.value)
+    assert "Bale" in str(caught.value)
+
+
+async def test_an_unknown_provider_name_is_refused_at_startup(monkeypatch):
+    monkeypatch.setenv("KASBBOOK_PROVIDER", "whatsapp")
+    with pytest.raises(RuntimeError) as caught:
+        Settings.from_env()
+
+    assert "telegram" in str(caught.value)
+
+
+async def test_eitaa_is_named_but_has_no_adapter_yet_and_says_so():
+    """Deliberately deferred. It must fail with the reason, not an AttributeError."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite://", provider=Provider.EITAA, telegram_token="t"
+    )
+    with pytest.raises(RuntimeError) as caught:
+        build_adapter(settings, client=httpx.AsyncClient())
+
+    assert "no adapter" in str(caught.value)
+
+
+async def test_the_signing_key_has_no_default():
+    """A guessable key is worse than a missing one, because it starts."""
+    with pytest.raises(RuntimeError) as caught:
+        Settings(database_url="sqlite+aiosqlite://").require_secret_key()
+
+    assert "KASBBOOK_SECRET_KEY" in str(caught.value)

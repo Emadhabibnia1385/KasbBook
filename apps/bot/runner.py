@@ -1,9 +1,9 @@
-"""Running the Telegram bot.
+"""Running the bot, on whichever provider it was pointed at.
 
-This module is wiring and nothing else: it builds the adapter, pulls updates,
-hands each one to the shared conversation layer, and sends the reply back. All
-the behaviour being exercised lives in kasbbook/, which is why the same runner
-shape will work for Bale and Rubika.
+This module is wiring and nothing else: it builds an adapter, pulls updates,
+hands each one to the shared conversation layer, and sends the reply back. It
+names no provider — Telegram, Bale and Rubika all arrive through the same
+`MessagingAdapter` contract, and which one runs is a setting.
 
 Every update gets its own database session. One bad update rolls back its own
 work and is logged; it never takes the loop down with it.
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # Order matters and is not cosmetic. The first-generation package at the repo
 # root is also called `kasbbook`, so src/ has to win the name or `import
 # kasbbook` silently loads the old bot. src goes to the front; the root is
-# appended, only so `apps.telegram_bot.*` resolves when this runs as a script.
+# appended, only so `apps.bot.*` resolves when this runs as a script.
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 if str(ROOT) not in sys.path:
@@ -30,18 +30,22 @@ if str(ROOT) not in sys.path:
 
 import httpx  # noqa: E402
 
-from kasbbook.adapters.telegram import API_ROOT, TelegramAdapter  # noqa: E402
+from kasbbook.adapters.bale import BaleAdapter  # noqa: E402
+from kasbbook.adapters.base import MessagingAdapter  # noqa: E402
+from kasbbook.adapters.rubika import RubikaAdapter  # noqa: E402
+from kasbbook.adapters.telegram import TelegramAdapter  # noqa: E402
 from kasbbook.bot.conversation import Conversation  # noqa: E402
 from kasbbook.bot.state import MemoryStateStore, RedisStateStore, StateStore  # noqa: E402
 from kasbbook.modules.identity.models import Provider  # noqa: E402
 from kasbbook.shared.database import Database  # noqa: E402
 from kasbbook.shared.settings import Settings  # noqa: E402
 
-from apps.telegram_bot.reminders import ReminderLoop  # noqa: E402
+from apps.bot.reminders import ReminderLoop  # noqa: E402
 
-logger = logging.getLogger("kasbbook.telegram")
+logger = logging.getLogger("kasbbook.bot")
 
-# httpx logs full request URLs at INFO, and a Telegram URL contains the token.
+# httpx logs full request URLs at INFO, and every one of these APIs puts the
+# bot token in the path. That is how a token ends up in the journal.
 for _noisy in ("httpx", "httpcore"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
@@ -64,12 +68,36 @@ async def build_state_store(settings: Settings) -> StateStore:
     return RedisStateStore(client)
 
 
-class TelegramRunner:
+ADAPTERS = {
+    Provider.TELEGRAM: TelegramAdapter,
+    Provider.BALE: BaleAdapter,
+    Provider.RUBIKA: RubikaAdapter,
+}
+
+
+def build_adapter(settings: Settings, client=None) -> MessagingAdapter:
+    """The adapter for whichever provider this process was pointed at."""
+    provider = settings.provider
+    if provider not in ADAPTERS:
+        raise RuntimeError(
+            f"KASBBOOK_PROVIDER={provider.value} has no adapter. "
+            f"Choose one of: {', '.join(p.value for p in ADAPTERS)}"
+        )
+
+    return ADAPTERS[provider](
+        token=settings.require_token(),
+        bot_username=settings.bot_username,
+        webhook_secret=settings.webhook_secret,
+        client=client or httpx.AsyncClient(timeout=60),
+    )
+
+
+class BotRunner:
     def __init__(
         self,
         settings: Settings,
         database: Database,
-        adapter: TelegramAdapter,
+        adapter: MessagingAdapter,
         state: StateStore,
     ) -> None:
         self.settings = settings
@@ -94,7 +122,10 @@ class TelegramRunner:
 
         async for session in self.database.session():
             try:
-                conversation = Conversation(session, self.state, Provider.TELEGRAM)
+                # The adapter's own provider, not a setting: the two cannot
+                # disagree, and a Bale update must never resolve to a Telegram
+                # identity with the same external id.
+                conversation = Conversation(session, self.state, self.adapter.provider)
                 reply = await conversation.handle(event)
                 await session.commit()
             except Exception:
@@ -119,27 +150,26 @@ class TelegramRunner:
             )
 
     async def poll_once(self, timeout: int = 25) -> int:
-        """Fetch and process one batch. Returns how many updates were handled."""
-        params: Dict[str, Any] = {"timeout": timeout}
-        if self._offset is not None:
-            params["offset"] = self._offset
+        """Fetch and process one batch. Returns how many updates were handled.
 
-        try:
-            response = await self.adapter._client.post(
-                f"{API_ROOT}/bot{self.adapter.token}/getUpdates", json=params
-            )
-            body = response.json()
-        except Exception:
-            logger.warning("getUpdates failed; retrying", exc_info=True)
+        The three outcomes get three different responses. An unreachable
+        provider is usually a blip, so it retries soon. A refusal is a revoked
+        token or a flood wait, so it backs off harder — hammering it makes both
+        worse.
+        """
+        batch = await self.adapter.fetch_updates(self._offset, timeout)
+
+        if batch.unreachable:
+            logger.warning("could not reach the provider: %s", batch.refused)
             await asyncio.sleep(3)
             return 0
 
-        if not body.get("ok"):
-            logger.error("Telegram refused getUpdates: %s", body.get("description"))
+        if batch.refused:
+            logger.error("the provider refused getUpdates: %s", batch.refused)
             await asyncio.sleep(5)
             return 0
 
-        updates: List[Dict[str, Any]] = body.get("result", [])
+        updates: List[Dict[str, Any]] = batch.updates
         for update in updates:
             # Advance the offset before handling, so a repeatedly failing update
             # cannot wedge the bot in a loop on the same message.
@@ -153,7 +183,7 @@ class TelegramRunner:
         logger.info("KasbBook telegram bot started")
 
         # Polling and a webhook cannot both be active.
-        await self.adapter._call("deleteWebhook")
+        await self.adapter.delete_webhook()
 
         while self._running:
             await self.poll_once()
@@ -169,26 +199,24 @@ async def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    token = settings.require_telegram()
     database = Database(settings.database_url)
-    adapter = TelegramAdapter(
-        token=token,
-        bot_username=settings.telegram_bot_username,
-        webhook_secret=settings.telegram_webhook_secret,
-        client=httpx.AsyncClient(timeout=60),
+    adapter = build_adapter(settings)
+
+    identity = await adapter.get_me()
+    if identity is None:
+        raise RuntimeError(f"{settings.provider.value} rejected the token")
+    logger.info(
+        "connected to %s as @%s",
+        settings.provider.value,
+        identity.get("username") or identity.get("bot", {}).get("username", "?"),
     )
 
-    identity = await adapter._call("getMe")
-    if identity is None:
-        raise RuntimeError("Telegram rejected the token")
-    logger.info("connected as @%s", identity.get("username"))
-
     state = await build_state_store(settings)
-    runner = TelegramRunner(settings, database, adapter, state)
+    runner = BotRunner(settings, database, adapter, state)
 
     # Reminders run beside the poller rather than inside it, so a slow digest
     # cannot delay someone's next button press.
-    reminders = ReminderLoop(database, adapter, state)
+    reminders = ReminderLoop(database, adapter, state, provider=settings.provider)
     reminder_task = asyncio.create_task(reminders.run())
 
     try:
