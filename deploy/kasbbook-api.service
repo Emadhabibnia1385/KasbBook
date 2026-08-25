@@ -1,0 +1,39 @@
+# The HTTP API.
+#
+# Bound to loopback on purpose. Anything public goes through the reverse proxy
+# already on this box, which is where TLS and rate limiting at the edge belong —
+# not in the application process.
+
+[Unit]
+Description=KasbBook API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kasbbook-v2
+EnvironmentFile=/opt/kasbbook-v2/.env
+ExecStart=/opt/kasbbook-v2/venv/bin/uvicorn \
+    --factory kasbbook.api.app:create_app \
+    --host 127.0.0.1 \
+    --port 8210 \
+    --workers 2 \
+    --proxy-headers \
+    --no-server-header
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kasbbook-v2
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/kasbbook-v2/src
+
+[Install]
+WantedBy=multi-user.target

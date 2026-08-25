@@ -1,0 +1,38 @@
+# The Telegram bot. One unit per provider: a Bale bot is a second copy of this
+# with KASBBOOK_PROVIDER=bale and its own environment file, never one process
+# holding two identities.
+#
+# Laid down by scripts/install.sh and rewritten by scripts/update.sh, so a
+# change to the entry point ships with the code that moved it rather than being
+# a manual step somebody forgets.
+
+[Unit]
+Description=KasbBook bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kasbbook-v2
+EnvironmentFile=/opt/kasbbook-v2/.env
+ExecStart=/opt/kasbbook-v2/venv/bin/python /opt/kasbbook-v2/apps/bot/runner.py
+Restart=always
+RestartSec=5
+
+# The bot needs no privileges at all: it makes outbound HTTPS calls and talks
+# to loopback. Everything below is what it is therefore denied.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kasbbook-v2
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# The journal is read by a human looking for a stack trace; unbuffered output
+# means the trace is there when they look, not after the next flush.
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
