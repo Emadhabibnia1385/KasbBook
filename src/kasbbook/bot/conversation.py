@@ -23,6 +23,8 @@ from ..modules.budgets.service import BudgetService
 from ..modules.debts.models import Direction
 from ..modules.debts.service import DebtService
 from ..modules.loans.service import LoanService
+from ..modules.payroll.models import AdjustmentKind, AdjustmentMode, PeriodStatus
+from ..modules.payroll.service import PayrollService
 from ..modules.recurring.models import Period as RecurringPeriod
 from ..modules.recurring.service import RecurringService
 from ..modules.identity.models import Provider
@@ -30,6 +32,8 @@ from ..modules.identity.service import IdentityService
 from ..modules.ledger.models import Flow, Scope
 from ..modules.ledger.service import LedgerService
 from ..modules.reports import service as reports_service
+from ..modules.treasury.models import FundKind, RuleBasis
+from ..modules.treasury.service import TreasuryService
 from ..modules.reports.service import ReportService
 from ..shared.errors import KasbBookError
 from ..shared import jalali
@@ -66,6 +70,8 @@ class Conversation:
         self.debts = DebtService(session)
         self.loans = LoanService(session)
         self.recurring = RecurringService(session)
+        self.payroll = PayrollService(session)
+        self.treasury = TreasuryService(session)
         # Set by a handler that needs to hand the user a file alongside a screen.
         self._pending_file: Optional[OutgoingFile] = None
         # A receipt the provider already holds: forwarded by id, never downloaded.
@@ -209,6 +215,12 @@ class Conversation:
 
         if area == "rm":
             return await self._reminder_callback(action, user, key)
+
+        if area == "pr":
+            return await self._payroll_callback(action, argument, user, key)
+
+        if area == "tf":
+            return await self._treasury_callback(action, argument, user, key)
 
         if area == "noop":
             # An inert label; the screen stays as it is.
@@ -652,6 +664,341 @@ class Conversation:
         await self.state.clear(key)
         return await self._loan_screen(book, user)
 
+    # ---------------------------------------------------------- treasury
+    async def _fund_screen(self, book, user):
+        """Every fund with what it has actually taken, not what it might."""
+        funds = await self.treasury.funds(book.id, user.id)
+        rows = [
+            (fund, await self.treasury.balance(book.id, user.id, fund.id))
+            for fund in funds
+        ]
+        return screens.fund_list(book, rows)
+
+    async def _fund_detail(self, book, user, fund):
+        rules = await self.treasury.rules(book.id, user.id, fund.id)
+        balance = await self.treasury.balance(book.id, user.id, fund.id)
+        return screens.fund_detail(book, fund, rules, balance)
+
+    async def _treasury_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.clear(key)
+            return await self._fund_screen(book, user)
+
+        if action == "add":
+            await self.state.set(key, {"flow": "fund", "book_id": argument})
+            return screens.fund_ask_name()
+
+        if action == "kind":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "fund" or not draft.get("name"):
+                return screens.welcome(user.display_name)
+
+            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+            await self.treasury.create_fund(
+                book.id, user.id, draft["name"], FundKind(argument)
+            )
+            await self.state.clear(key)
+            return await self._fund_screen(book, user)
+
+        if action == "basis":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "rule":
+                return screens.welcome(user.display_name)
+
+            draft["basis"] = argument
+            await self.state.set(key, draft)
+            return screens.rule_ask_value(argument)
+
+        # Everything below acts on something already in the database, so the
+        # book comes from that record rather than from the callback — a book id
+        # in a button is a book id someone can edit.
+        if action in ("rtog", "rdel"):
+            from ..modules.treasury.models import TreasuryRule
+
+            rule = await self.session.get(TreasuryRule, uuid.UUID(argument))
+            if rule is None:
+                return screens.error("این قاعده پیدا نشد")
+
+            book = await self.books.get_book(rule.book_id)
+            fund_id = rule.fund_id
+            if action == "rtog":
+                await self.treasury.toggle_rule(book.id, user.id, rule.id)
+            else:
+                await self.treasury.delete_rule(book.id, user.id, rule.id)
+
+            fund = await self.treasury.get_fund(book.id, user.id, fund_id)
+            return await self._fund_detail(book, user, fund)
+
+        from ..modules.treasury.models import TreasuryFund
+
+        fund = await self.session.get(TreasuryFund, uuid.UUID(argument))
+        if fund is None:
+            return screens.error("این صندوق پیدا نشد")
+        book = await self.books.get_book(fund.book_id)
+
+        if action == "open":
+            return await self._fund_detail(book, user, fund)
+
+        if action == "rule":
+            await self.state.set(
+                key, {"flow": "rule", "book_id": str(book.id), "fund_id": str(fund.id)}
+            )
+            return screens.rule_pick_basis(fund.name)
+
+        if action == "tog":
+            await self.treasury.toggle_fund(book.id, user.id, fund.id)
+            return await self._fund_detail(book, user, fund)
+
+        if action == "del":
+            await self.treasury.delete_fund(book.id, user.id, fund.id)
+            return await self._fund_screen(book, user)
+
+        return screens.welcome(user.display_name)
+
+    # ----------------------------------------------------------- payroll
+    async def _member_names(self, book_id) -> dict:
+        """user_id → display name, for every screen that lists people."""
+        names = {}
+        for member in await self.books.members(book_id):
+            person = await self.identity.get_user(member.user_id)
+            names[member.user_id] = person.display_name
+        return names
+
+    async def _period_list_screen(self, book, user):
+        periods = await self.payroll.periods(book.id, user.id)
+        year, month, _ = jalali.to_parts(date.today())
+        return screens.period_list(book, periods, f"{jalali.month_name(month)} {year}")
+
+    async def _period_detail(self, book, user, period):
+        distribution = await self.payroll.compute_distribution(period.id)
+        slips = await self.payroll.payslips(user.id, period.id)
+        return screens.period_detail(book, period, distribution, len(slips))
+
+    async def _payroll_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.clear(key)
+            return await self._period_list_screen(book, user)
+
+        if action == "new":
+            book = await self.books.get_book(uuid.UUID(argument))
+            today = date.today()
+            year, month, _ = jalali.to_parts(today)
+            start, end = jalali.month_range(year, month)
+            period = await self.payroll.open_period(
+                user.id, book.id, f"{jalali.month_name(month)} {year}", start, end
+            )
+            await self.state.clear(key)
+            return await self._period_detail(book, user, period)
+
+        if action in ("slip", "pay", "payall"):
+            return await self._payslip_action(action, argument, user, key)
+
+        if action in ("adjok", "adjwho", "adjadd", "adjnoreason"):
+            return await self._adjustment_action(action, argument, user, key)
+
+        period = await self.payroll.get_period(uuid.UUID(argument))
+        book = await self.books.get_book(period.book_id)
+
+        if action == "open":
+            await self.state.clear(key)
+            return await self._period_detail(book, user, period)
+
+        if action == "calc":
+            await self.payroll.calculate(user.id, period.id)
+            return await self._period_detail(book, user, period)
+
+        if action == "slips":
+            slips = await self.payroll.payslips(user.id, period.id)
+            return screens.payslip_list(book, slips, await self._member_names(book.id))
+
+        if action == "adj":
+            adjustments = await self.payroll.adjustments(user.id, period.id)
+            return screens.adjustment_list(
+                book, period, adjustments, await self._member_names(book.id)
+            )
+
+        if action == "lock":
+            await self.payroll.advance_period(user.id, period.id, PeriodStatus.LOCKED)
+            period = await self.payroll.get_period(period.id)
+            return await self._period_detail(book, user, period)
+
+        return screens.welcome(user.display_name)
+
+    async def _payslip_action(self, action: str, argument: str, user, key: str):
+        from ..modules.payroll.models import Payslip
+
+        slip = await self.session.get(Payslip, uuid.UUID(argument))
+        if slip is None:
+            return screens.error("این فیش پیدا نشد")
+
+        book = await self.books.get_book(slip.book_id)
+        names = await self._member_names(book.id)
+        name = names.get(slip.user_id, "—")
+        outstanding = slip.net_pay - sum(
+            (p.amount for p in slip.payments), Decimal("0")
+        )
+
+        if action == "slip":
+            await self.state.clear(key)
+            return screens.payslip_detail(book, slip, name)
+
+        if action == "payall":
+            # The common case by a long way: someone was paid what they were
+            # owed, and typing the number again is a chance to mistype it.
+            await self.payroll.pay(user.id, slip.id, outstanding)
+            await self.session.refresh(slip)
+            return screens.payslip_detail(book, slip, name)
+
+        if action == "pay":
+            await self.state.set(key, {"flow": "payslip", "slip_id": argument})
+            return screens.payslip_ask_amount(name, outstanding, book.base_currency)
+
+        return screens.welcome(user.display_name)
+
+    async def _adjustment_action(self, action: str, argument: str, user, key: str):
+        from ..modules.payroll.models import Adjustment
+
+        if action == "adjadd":
+            period = await self.payroll.get_period(uuid.UUID(argument))
+            book = await self.books.get_book(period.book_id)
+            await self.state.set(
+                key, {"flow": "adjustment", "period_id": argument}
+            )
+            return screens.adjustment_pick_member(
+                period, await self.books.members(book.id), await self._member_names(book.id)
+            )
+
+        if action == "adjwho":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "adjustment":
+                return screens.welcome(user.display_name)
+
+            draft["user_id"] = argument
+            await self.state.set(key, draft)
+            period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
+            names = await self._member_names(period.book_id)
+            return screens.adjustment_ask_value(names.get(uuid.UUID(argument), "—"))
+
+        if action == "adjnoreason":
+            return await self._save_adjustment(user, key, reason=None)
+
+        if action == "adjok":
+            adjustment = await self.session.get(Adjustment, uuid.UUID(argument))
+            if adjustment is None:
+                return screens.error("این مورد پیدا نشد")
+
+            await self.payroll.approve_adjustment(user.id, adjustment.id)
+            period = await self.payroll.get_period(adjustment.period_id)
+            book = await self.books.get_book(period.book_id)
+            return screens.adjustment_list(
+                book, period,
+                await self.payroll.adjustments(user.id, period.id),
+                await self._member_names(book.id),
+            )
+
+        return screens.welcome(user.display_name)
+
+    async def _save_adjustment(self, user, key: str, reason):
+        draft = await self.state.get(key)
+        if draft.get("flow") != "adjustment" or "value" not in draft:
+            return screens.welcome(user.display_name)
+
+        period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
+        book = await self.books.get_book(period.book_id)
+
+        value = Decimal(draft["value"])
+        # The sign already says which it is, so asking the person to pick a
+        # kind as well would be asking the same question twice.
+        kind = AdjustmentKind.BONUS if value > 0 else AdjustmentKind.PENALTY
+
+        await self.payroll.add_adjustment(
+            user.id, period.id, uuid.UUID(draft["user_id"]),
+            kind, AdjustmentMode.AMOUNT, value, reason=reason,
+        )
+        await self.state.clear(key)
+        return screens.adjustment_list(
+            book, period,
+            await self.payroll.adjustments(user.id, period.id),
+            await self._member_names(book.id),
+        )
+
+    async def _fund_text(self, text: str, draft: dict, user, key: str):
+        draft["name"] = text[:80]
+        await self.state.set(key, draft)
+        return screens.fund_pick_kind(draft["name"])
+
+    async def _rule_text(self, text: str, draft: dict, user, key: str):
+        basis = draft.get("basis")
+        if not basis:
+            return screens.welcome(user.display_name)
+
+        if basis == "fixed":
+            value = parse_amount(text)
+        else:
+            # A percentage is a plain number, so the amount parser's "۵م means
+            # five million" shortcut would read "10" as ten and "۱۰م" as ten
+            # million percent. Only digits are accepted here.
+            try:
+                value = Decimal(to_ascii_digits(text).strip())
+            except Exception:
+                value = None
+
+        if value is None or value <= 0:
+            return screens.rule_ask_value(basis)
+
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        fund = await self.treasury.get_fund(
+            book.id, user.id, uuid.UUID(draft["fund_id"])
+        )
+        await self.treasury.add_rule(
+            book.id, user.id, fund.id, RuleBasis(basis), value
+        )
+        await self.state.clear(key)
+        return await self._fund_detail(book, user, fund)
+
+    async def _payslip_text(self, text: str, draft: dict, user, key: str):
+        from ..modules.payroll.models import Payslip
+
+        amount = parse_amount(text)
+        slip = await self.session.get(Payslip, uuid.UUID(draft["slip_id"]))
+        if slip is None:
+            await self.state.clear(key)
+            return screens.error("این فیش پیدا نشد")
+
+        book = await self.books.get_book(slip.book_id)
+        names = await self._member_names(book.id)
+        name = names.get(slip.user_id, "—")
+        outstanding = slip.net_pay - sum((p.amount for p in slip.payments), Decimal("0"))
+
+        if amount is None or amount <= 0:
+            return screens.payslip_ask_amount(name, outstanding, book.base_currency)
+
+        await self.payroll.pay(user.id, slip.id, amount)
+        await self.session.refresh(slip)
+        await self.state.clear(key)
+        return screens.payslip_detail(book, slip, name)
+
+    async def _adjustment_text(self, text: str, draft: dict, user, key: str):
+        if "user_id" not in draft:
+            return screens.welcome(user.display_name)
+
+        # A deduction is a negative number, and the amount parser only reads
+        # magnitudes — so the sign has to be taken off the front first.
+        cleaned = to_ascii_digits(text).strip()
+        negative = cleaned.startswith("-")
+        amount = parse_amount(cleaned.lstrip("-+").strip())
+
+        if amount is None or amount <= 0:
+            period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
+            names = await self._member_names(period.book_id)
+            return screens.adjustment_ask_value(names.get(uuid.UUID(draft["user_id"]), "—"))
+
+        draft["value"] = str(-amount if negative else amount)
+        await self.state.set(key, draft)
+        return screens.adjustment_ask_reason()
+
     # ----------------------------------------------------- free text steps
     async def _text(self, event: IncomingEvent, user, key: str):
         draft = await self.state.get(key)
@@ -686,6 +1033,20 @@ class Conversation:
 
         if draft.get("flow") == "reminder":
             return await self._reminder_text(text, draft, user, key)
+
+        if draft.get("flow") == "fund":
+            return await self._fund_text(text, draft, user, key)
+
+        if draft.get("flow") == "rule":
+            return await self._rule_text(text, draft, user, key)
+
+        if draft.get("flow") == "payslip":
+            return await self._payslip_text(text, draft, user, key)
+
+        if draft.get("flow") == "adjustment":
+            if "value" in draft:
+                return await self._save_adjustment(user, key, reason=text[:120])
+            return await self._adjustment_text(text, draft, user, key)
 
         # Nothing in flight, so try to read the line as a transaction.
         entry = quick.parse(text)

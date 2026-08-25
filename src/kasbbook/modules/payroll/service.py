@@ -82,6 +82,32 @@ class PayrollService:
         await self.session.flush()
         return period
 
+    async def periods(
+        self, book_id: uuid.UUID, user_id: uuid.UUID
+    ) -> Sequence[FinancialPeriod]:
+        """Newest first — the one being worked on is almost always the last one."""
+        await self.books.require(book_id, user_id, Permission.VIEW_REPORTS)
+        return (
+            await self.session.execute(
+                select(FinancialPeriod)
+                .where(FinancialPeriod.book_id == book_id)
+                .order_by(FinancialPeriod.starts_on.desc())
+            )
+        ).scalars().all()
+
+    async def adjustments(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID
+    ) -> Sequence[Adjustment]:
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.VIEW_REPORTS)
+        return (
+            await self.session.execute(
+                select(Adjustment)
+                .where(Adjustment.period_id == period_id)
+                .order_by(Adjustment.created_at)
+            )
+        ).scalars().all()
+
     async def get_period(self, period_id: uuid.UUID) -> FinancialPeriod:
         period = await self.session.get(FinancialPeriod, period_id)
         if period is None:

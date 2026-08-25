@@ -369,6 +369,10 @@ def book_menu(book: Book) -> Screen:
          Button("🤝 طلب و بدهی", data=f"dt:list:{book.id}")],
         [Button("📄 وام و اقساط", data=f"ln:list:{book.id}"),
          Button("🔁 تکرارشونده", data=f"rr:list:{book.id}")],
+        # Only where there is more than one person to pay. On a personal book
+        # the whole idea is noise, so it is not offered.
+        *([[Button("👥 حقوق و سهم", data=f"pr:list:{book.id}")]]
+          if book.type in (BookType.TEAM, BookType.ORGANIZATION) else []),
         [Button("⬅️ دفترها", data="book:list")],
     ]
 
@@ -794,4 +798,359 @@ def ask_hour() -> Screen:
 def ask_days() -> Screen:
     return rtl("چند روز قبل از سررسید خبر بدهم؟"), [
         [Button("↩️ انصراف", data="rm:panel")]
+    ]
+
+
+# ---------------------------------------------------------------- treasury
+FUND_LABELS = {
+    "main": "🏦 خزانهٔ اصلی",
+    "emergency": "🚨 ذخیرهٔ اضطراری",
+    "tax": "🧾 مالیات",
+    "development": "🌱 توسعه",
+    "equipment": "🛠 تجهیزات",
+    "bonus": "🎁 پاداش",
+}
+
+BASIS_LABELS = {
+    "gross_percent": "٪ از درآمد ناخالص",
+    "net_percent": "٪ از سود خالص",
+    "fixed": "مبلغ ثابت",
+}
+
+
+def fund_list(book: Book, funds_with_balance) -> Screen:
+    """Funds are what the team keeps before anyone is paid."""
+    if not funds_with_balance:
+        return rtl(
+            f"🏦 خزانهٔ {book.name}\n\n"
+            "هنوز صندوقی ساخته نشده.\n"
+            "صندوق جایی است که پیش از تقسیم سود، سهمی کنار گذاشته می‌شود — "
+            "مثل ذخیرهٔ اضطراری یا کنارگذاشتن مالیات."
+        ), [
+            [Button("➕ صندوق تازه", data=f"tf:add:{book.id}")],
+            [Button("⬅️ بازگشت", data=f"pr:list:{book.id}")],
+        ]
+
+    lines = [f"🏦 خزانهٔ {book.name}", ""]
+    total = Decimal("0")
+    for fund, balance in funds_with_balance:
+        total += balance
+        mark = "" if fund.is_active else " (خاموش)"
+        label = FUND_LABELS.get(fund.kind.value, "🏦")
+        lines.append(f"• {label} — {fund.name}{mark}\n  تاکنون: {fmt(balance, book.base_currency)}")
+    lines += ["", f"مجموع کنارگذاشته‌شده: {fmt(total, book.base_currency)}"]
+
+    buttons = [[Button("➕ صندوق تازه", data=f"tf:add:{book.id}")]]
+    for fund, _ in funds_with_balance[:10]:
+        buttons.append([Button(f"{fund.name[:20]}", data=f"tf:open:{fund.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:list:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def fund_ask_name() -> Screen:
+    return rtl(
+        "🏦 نام صندوق چیست؟\n\nمثلاً: ذخیرهٔ اضطراری، مالیات، توسعه"
+    ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def fund_pick_kind(name: str) -> Screen:
+    return rtl(f"«{name}» از چه نوعی است؟"), [
+        [Button("🏦 اصلی", data="tf:kind:main"),
+         Button("🚨 اضطراری", data="tf:kind:emergency")],
+        [Button("🧾 مالیات", data="tf:kind:tax"),
+         Button("🌱 توسعه", data="tf:kind:development")],
+        [Button("🛠 تجهیزات", data="tf:kind:equipment"),
+         Button("🎁 پاداش", data="tf:kind:bonus")],
+        [Button("⬅️ انصراف", data="nav:home")],
+    ]
+
+
+def fund_detail(book: Book, fund, rules, balance) -> Screen:
+    label = FUND_LABELS.get(fund.kind.value, "🏦")
+    lines = [
+        f"{label} {fund.name}",
+        "",
+        f"وضعیت: {'روشن' if fund.is_active else 'خاموش'}",
+        f"تاکنون کنار گذاشته: {fmt(balance, book.base_currency)}",
+        "",
+    ]
+
+    if not rules:
+        lines.append("هنوز قاعده‌ای ندارد، پس چیزی برنمی‌دارد.")
+    else:
+        lines.append("قاعده‌ها:")
+        for rule in rules:
+            mark = "•" if rule.is_active else "◦"
+            basis = BASIS_LABELS.get(rule.basis.value, rule.basis.value)
+            amount = (
+                fmt(rule.value, book.base_currency)
+                if rule.basis.value == "fixed" else f"{rule.value:,.0f}٪"
+            )
+            lines.append(f"  {mark} {amount} — {basis}")
+
+    buttons = [[Button("➕ قاعدهٔ تازه", data=f"tf:rule:{fund.id}")]]
+    for rule in rules[:6]:
+        state = "خاموش کن" if rule.is_active else "روشن کن"
+        buttons.append([
+            Button(f"{state}: {BASIS_LABELS.get(rule.basis.value, '')[:16]}",
+                   data=f"tf:rtog:{rule.id}"),
+            Button("🗑", data=f"tf:rdel:{rule.id}"),
+        ])
+    buttons.append([
+        Button("🔴 خاموش" if fund.is_active else "🟢 روشن", data=f"tf:tog:{fund.id}"),
+        Button("🗑 حذف صندوق", data=f"tf:del:{fund.id}"),
+    ])
+    buttons.append([Button("⬅️ بازگشت", data=f"tf:list:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def rule_pick_basis(fund_name: str) -> Screen:
+    return rtl(
+        f"قاعدهٔ «{fund_name}» بر چه پایه‌ای باشد؟\n\n"
+        "درصد از درآمد ناخالص: پیش از کسر هزینه‌ها.\n"
+        "درصد از سود خالص: بعد از کسر هزینه‌ها.\n"
+        "مبلغ ثابت: هر دوره همان عدد."
+    ), [
+        [Button("٪ درآمد ناخالص", data="tf:basis:gross_percent")],
+        [Button("٪ سود خالص", data="tf:basis:net_percent")],
+        [Button("مبلغ ثابت", data="tf:basis:fixed")],
+        [Button("⬅️ انصراف", data="nav:home")],
+    ]
+
+
+def rule_ask_value(basis: str) -> Screen:
+    if basis == "fixed":
+        return rtl("چه مبلغی هر دوره کنار گذاشته شود؟\n\nمثلاً: ۵م"), [
+            [Button("⬅️ انصراف", data="nav:home")]
+        ]
+    return rtl("چند درصد؟\n\nفقط عدد بنویس. مثلاً: ۱۰"), [
+        [Button("⬅️ انصراف", data="nav:home")]
+    ]
+
+
+# ----------------------------------------------------------------- payroll
+PERIOD_LABELS = {
+    "open": "🟢 باز",
+    "calculating": "🧮 در حال محاسبه",
+    "awaiting_approval": "⏳ منتظر تأیید",
+    "approved": "✅ تأییدشده",
+    "paid": "💵 پرداخت‌شده",
+    "locked": "🔒 بسته",
+}
+
+
+def period_list(book: Book, periods, month_label: str) -> Screen:
+    """Payroll starts here: a period is the window everything is measured over."""
+    if book.type.value in ("personal", "business"):
+        return rtl(
+            f"👥 حقوق و سهم — {book.name}\n\n"
+            "این بخش برای دفترهای تیمی و سازمانی است، جایی که سود میان چند نفر "
+            "تقسیم می‌شود.\n"
+            "این دفتر شخصی/کسب‌وکار است و صاحبش یک نفر است."
+        ), [[Button("⬅️ بازگشت", data=f"book:open:{book.id}")]]
+
+    if not periods:
+        return rtl(
+            f"👥 حقوق و سهم — {book.name}\n\n"
+            "هنوز دوره‌ای باز نشده.\n"
+            "دوره یعنی بازه‌ای که درآمد و هزینه‌اش با هم حساب می‌شود و "
+            "ته‌اش میان اعضا تقسیم می‌شود."
+        ), [
+            [Button(f"➕ دورهٔ {month_label}", data=f"pr:new:{book.id}")],
+            [Button("🏦 خزانه", data=f"tf:list:{book.id}")],
+            [Button("⬅️ بازگشت", data=f"book:open:{book.id}")],
+        ]
+
+    lines = [f"👥 حقوق و سهم — {book.name}", ""]
+    for period in periods[:12]:
+        state = PERIOD_LABELS.get(period.status.value, period.status.value)
+        lines.append(f"• {period.label} — {state}")
+
+    buttons = [[Button(f"➕ دورهٔ {month_label}", data=f"pr:new:{book.id}")]]
+    for period in periods[:8]:
+        buttons.append([
+            Button(f"{period.label} — {PERIOD_LABELS.get(period.status.value, '')}",
+                   data=f"pr:open:{period.id}")
+        ])
+    buttons.append([Button("🏦 خزانه", data=f"tf:list:{book.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def period_detail(book: Book, period, distribution, slip_count: int) -> Screen:
+    """The whole arithmetic, shown rather than asserted.
+
+    Every line of it is here on purpose: someone about to be paid a share of a
+    number should be able to see how that number was reached.
+    """
+    currency = book.base_currency
+    state = PERIOD_LABELS.get(period.status.value, period.status.value)
+
+    lines = [
+        f"📅 {period.label}",
+        f"وضعیت: {state}",
+        "",
+        f"درآمد دوره:     {fmt(distribution.gross_income, currency)}",
+        f"هزینهٔ دوره:    {fmt(distribution.direct_costs, currency)}",
+        f"سود خالص:      {fmt(distribution.net_profit, currency)}",
+    ]
+    if distribution.treasury_total:
+        lines.append(f"سهم خزانه:     {fmt(distribution.treasury_total, currency)}")
+    lines += [
+        "",
+        f"قابل تقسیم:    {fmt(distribution.distributable, currency)}",
+    ]
+
+    if slip_count:
+        lines += ["", f"{slip_count} فیش صادر شده."]
+
+    buttons = []
+    if period.status.value not in ("locked", "paid"):
+        buttons.append([Button("🧮 محاسبهٔ فیش‌ها", data=f"pr:calc:{period.id}")])
+    if slip_count:
+        buttons.append([Button("💵 فیش‌ها", data=f"pr:slips:{period.id}")])
+    buttons.append([
+        Button("➕ کسر/اضافه", data=f"pr:adj:{period.id}"),
+        Button("🏦 خزانه", data=f"tf:list:{book.id}"),
+    ])
+    if period.status.value == "approved":
+        buttons.append([Button("🔒 بستن دوره", data=f"pr:lock:{period.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:list:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def payslip_list(book: Book, slips, names) -> Screen:
+    if not slips:
+        return rtl(
+            "💵 هنوز فیشی صادر نشده.\n\n"
+            "«محاسبهٔ فیش‌ها» را بزن تا سهم هر نفر حساب شود."
+        ), [[Button("⬅️ بازگشت", data="nav:home")]]
+
+    currency = book.base_currency
+    lines = ["💵 فیش‌های این دوره", ""]
+    total = Decimal("0")
+    for slip in slips:
+        total += slip.net_pay
+        paid = sum((p.amount for p in slip.payments), Decimal("0"))
+        mark = "✅" if paid >= slip.net_pay else ("🟡" if paid else "⚪️")
+        lines.append(
+            f"{mark} {names.get(slip.user_id, '—')}: {fmt(slip.net_pay, currency)}"
+        )
+    lines += ["", f"مجموع: {fmt(total, currency)}"]
+
+    buttons = [
+        [Button(f"{names.get(slip.user_id, '—')[:18]}", data=f"pr:slip:{slip.id}")]
+        for slip in slips[:10]
+    ]
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:open:{slips[0].period_id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def payslip_detail(book: Book, slip, name: str) -> Screen:
+    """One person's slip, with every input that produced it."""
+    currency = book.base_currency
+    paid = sum((p.amount for p in slip.payments), Decimal("0"))
+    outstanding = slip.net_pay - paid
+
+    basis = {
+        "percent": "درصدی",
+        "shares": "سهمی",
+        "fixed": "ثابت",
+    }.get(slip.share_basis_snapshot.value, slip.share_basis_snapshot.value)
+
+    lines = [
+        f"💵 فیش {name}",
+        "",
+        f"قابل تقسیم دوره: {fmt(slip.distributable_snapshot, currency)}",
+        f"پایهٔ سهم:       {basis} ({slip.share_value_snapshot:,.0f})",
+        f"سهم پایه:        {fmt(slip.base_share, currency)}",
+    ]
+    if slip.adjustments_total:
+        sign = "+" if slip.adjustments_total > 0 else ""
+        lines.append(f"کسر و اضافه:     {sign}{fmt(slip.adjustments_total, currency)}")
+    lines += [
+        "",
+        f"خالص پرداختی:   {fmt(slip.net_pay, currency)}",
+    ]
+
+    if slip.payments:
+        lines += ["", "پرداخت‌ها:"]
+        for payment in slip.payments:
+            lines.append(f"  • {fmt(payment.amount, currency)} — {payment.paid_on}")
+        lines.append("")
+        lines.append(
+            f"مانده: {fmt(outstanding, currency)}" if outstanding > 0
+            else "کامل پرداخت شده ✅"
+        )
+
+    buttons = []
+    if outstanding > 0:
+        buttons.append([
+            Button(f"💵 پرداخت کامل ({fmt(outstanding, currency)})",
+                   data=f"pr:payall:{slip.id}")
+        ])
+        buttons.append([Button("✏️ پرداخت جزئی", data=f"pr:pay:{slip.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:slips:{slip.period_id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def payslip_ask_amount(name: str, outstanding: Decimal, currency: str) -> Screen:
+    return rtl(
+        f"چقدر به {name} پرداخت شد؟\n\n"
+        f"مانده: {fmt(outstanding, currency)}\n"
+        "مثلاً: ۵م"
+    ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def adjustment_list(book: Book, period, adjustments, names) -> Screen:
+    """Bonuses and deductions, before the slips are calculated."""
+    lines = [f"➕ کسر و اضافهٔ {period.label}", ""]
+
+    if not adjustments:
+        lines.append(
+            "چیزی ثبت نشده.\n"
+            "پاداش، جریمه یا هر تعدیل دیگری را این‌جا اضافه کن؛ "
+            "در محاسبهٔ بعدی روی فیش‌ها می‌نشیند."
+        )
+    else:
+        for adjustment in adjustments:
+            sign = "+" if adjustment.value > 0 else ""
+            mark = "✅" if adjustment.approved_at else "⏳"
+            unit = "٪" if adjustment.mode.value == "percent" else ""
+            lines.append(
+                f"{mark} {names.get(adjustment.user_id, '—')}: "
+                f"{sign}{adjustment.value:,.0f}{unit} — {adjustment.reason or '—'}"
+            )
+
+    buttons = [[Button("➕ افزودن", data=f"pr:adjadd:{period.id}")]]
+    for adjustment in adjustments[:8]:
+        if not adjustment.approved_at:
+            buttons.append([
+                Button(f"✅ تأیید: {names.get(adjustment.user_id, '—')[:14]}",
+                       data=f"pr:adjok:{adjustment.id}")
+            ])
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:open:{period.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def adjustment_pick_member(period, members, names) -> Screen:
+    return rtl("کسر یا اضافه برای چه کسی؟"), [
+        *[[Button(names.get(m.user_id, "—")[:20], data=f"pr:adjwho:{m.user_id}")]
+          for m in members[:10]],
+        [Button("⬅️ انصراف", data=f"pr:adj:{period.id}")],
+    ]
+
+
+def adjustment_ask_value(name: str) -> Screen:
+    return rtl(
+        f"چه مبلغی برای {name}؟\n\n"
+        "برای پاداش عدد مثبت، برای کسر عدد منفی بنویس.\n"
+        "مثلاً: ۲م یا ‎-۵۰۰ک"
+    ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def adjustment_ask_reason() -> Screen:
+    return rtl("بابت چه چیزی؟\n\nمثلاً: پاداش پروژه، جریمهٔ تأخیر"), [
+        [Button("بدون توضیح", data="pr:adjnoreason")],
+        [Button("⬅️ انصراف", data="nav:home")],
     ]
