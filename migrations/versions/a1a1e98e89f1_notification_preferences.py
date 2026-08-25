@@ -1,5 +1,9 @@
 """notification preferences
 
+Every column carries a server_default. Adding a NOT NULL column to a table
+that already has rows fails on PostgreSQL without one — SQLite hides this,
+because batch mode rebuilds the table and applies the Python-side default.
+
 Revision ID: a1a1e98e89f1
 Revises: c2f358636dfb
 Create Date: 2026-08-24 18:14:54.007395
@@ -168,9 +172,12 @@ def upgrade() -> None:
                existing_nullable=False)
 
     with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('digest_enabled', sa.Boolean(), nullable=False))
-        batch_op.add_column(sa.Column('digest_hour', sa.Integer(), nullable=False))
-        batch_op.add_column(sa.Column('reminder_days', sa.Integer(), nullable=False))
+        batch_op.add_column(sa.Column('digest_enabled', sa.Boolean(), nullable=False,
+                            server_default=sa.true()))
+        batch_op.add_column(sa.Column('digest_hour', sa.Integer(), nullable=False,
+                            server_default='21'))
+        batch_op.add_column(sa.Column('reminder_days', sa.Integer(), nullable=False,
+                            server_default='3'))
 
     # ### end Alembic commands ###
 
