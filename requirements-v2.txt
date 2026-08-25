@@ -1,9 +1,12 @@
 # Runtime for the v2 core. Pinned loosely for now; a lock file lands with the
 # Docker image, where the exact versions actually matter.
 fastapi>=0.115
+uvicorn[standard]>=0.32
 sqlalchemy[asyncio]>=2.0
 alembic>=1.13
 pydantic>=2.9
+# EmailStr needs it; without it an email field raises at import time.
+email-validator>=2.2
 pydantic-settings>=2.5
 asyncpg>=0.30
 aiosqlite>=0.20

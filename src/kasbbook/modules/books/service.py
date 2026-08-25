@@ -84,6 +84,19 @@ class BookService:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def members(self, book_id: uuid.UUID) -> Sequence[Membership]:
+        """Everyone currently on this book, owner first.
+
+        Deactivated memberships are left out: they are kept as history, not as
+        people who can still see the books.
+        """
+        stmt = (
+            select(Membership)
+            .where(Membership.book_id == book_id, Membership.is_active.is_(True))
+            .order_by(Membership.role, Membership.created_at)
+        )
+        return (await self.session.execute(stmt)).scalars().all()
+
     async def add_member(
         self,
         actor_user_id: uuid.UUID,

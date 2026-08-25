@@ -72,6 +72,7 @@ def parse_spec(spec: str, today: Optional[date] = None) -> Optional[Period]:
 class Summary:
     income: Decimal = ZERO
     expense: Decimal = ZERO
+    count: int = 0
 
     @property
     def net(self) -> Decimal:
@@ -106,8 +107,9 @@ class ReportService:
                 result.income += tx.converted_amount
             else:
                 result.expense += tx.converted_amount
+            result.count += 1
 
-        return Summary(quantize(result.income), quantize(result.expense))
+        return Summary(quantize(result.income), quantize(result.expense), result.count)
 
     async def by_category(
         self, book_id: uuid.UUID, user_id: uuid.UUID, period: Optional[Period] = None

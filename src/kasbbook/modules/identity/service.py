@@ -84,6 +84,22 @@ class IdentityService:
             return None
         return user
 
+    async def find_by_identifier(self, identifier: str) -> Optional["User"]:
+        """Look someone up the way a person would name them: email or phone.
+
+        Used to add a colleague to a book. It returns the account without any
+        credential check, so nothing that reaches this may expose more than a
+        display name — knowing an address should not reveal what else it does.
+        """
+        needle = (identifier or "").strip()
+        if not needle:
+            return None
+
+        stmt = select(User).where(
+            (User.email == needle.lower()) | (User.phone == needle)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def get_user(self, user_id: uuid.UUID) -> "User":
 
         user = await self.session.get(User, user_id)
