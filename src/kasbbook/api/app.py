@@ -19,7 +19,16 @@ from ..shared.database import Database
 from ..shared.settings import Settings
 from . import errors
 from .ratelimit import MemoryRateLimiter, RateLimiter
-from .routers import auth, books, health, identities, planning, reports, webhooks
+from .routers import (
+    auth,
+    books,
+    health,
+    identities,
+    payroll,
+    planning,
+    reports,
+    webhooks,
+)
 
 logger = logging.getLogger("kasbbook.api")
 
@@ -111,5 +120,6 @@ def create_app(
     app.include_router(books.router, prefix=api)
     app.include_router(reports.router, prefix=api)
     app.include_router(planning.router, prefix=api)
+    app.include_router(payroll.router, prefix=api)
     app.include_router(webhooks.router, prefix=api)
     return app

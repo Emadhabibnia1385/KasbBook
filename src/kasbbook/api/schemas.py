@@ -247,3 +247,148 @@ class HealthResponse(Model):
     status: str
     database: str
     version: str
+
+
+# ---------------------------------------------------- payroll and treasury
+class PeriodRequest(Model):
+    label: str = Field(min_length=1, max_length=60)
+    starts_on: date
+    ends_on: date
+
+
+class PeriodResponse(Model):
+    id: uuid.UUID
+    label: str
+    status: str
+    starts_on: date
+    ends_on: date
+    locked_at: Optional[datetime] = None
+
+
+class DistributionResponse(MoneyModel):
+    gross_income: Decimal
+    direct_costs: Decimal
+    net_profit: Decimal
+    treasury_total: Decimal
+    distributable: Decimal
+
+
+class ShareRequest(MoneyModel):
+    user_id: uuid.UUID
+    basis: str
+    value: Decimal = Field(gt=0)
+    effective_from: Optional[date] = None
+
+
+class ShareResponse(MoneyModel):
+    user_id: uuid.UUID
+    display_name: str
+    basis: str
+    value: Decimal
+    effective_from: date
+
+
+class PerformanceRequest(MoneyModel):
+    user_id: uuid.UUID
+    hours_worked: Optional[Decimal] = Field(default=None, ge=0)
+    days_worked: Optional[Decimal] = Field(default=None, ge=0)
+    overtime_hours: Optional[Decimal] = Field(default=None, ge=0)
+    absence_days: Optional[Decimal] = Field(default=None, ge=0)
+    leave_days: Optional[Decimal] = Field(default=None, ge=0)
+    mission_days: Optional[Decimal] = Field(default=None, ge=0)
+    late_count: Optional[Decimal] = Field(default=None, ge=0)
+    points: Optional[Decimal] = Field(default=None, ge=0)
+
+
+class PerformanceResponse(MoneyModel):
+    user_id: uuid.UUID
+    display_name: str
+    hours_worked: Decimal
+    days_worked: Decimal
+    overtime_hours: Decimal
+    absence_days: Decimal
+    leave_days: Decimal
+    mission_days: Decimal
+    late_count: Decimal
+    points: Decimal
+
+
+class AdjustmentRequest(MoneyModel):
+    user_id: uuid.UUID
+    kind: str
+    mode: str = "amount"
+    # Signed: negative is a deduction. One field rather than a value plus a
+    # direction, because two fields can disagree and a sign cannot.
+    value: Decimal
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdjustmentResponse(MoneyModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    kind: str
+    mode: str
+    value: Decimal
+    reason: Optional[str] = None
+    is_approved: bool
+
+
+class PaymentResponse(MoneyModel):
+    id: uuid.UUID
+    amount: Decimal
+    currency: str
+    paid_on: date
+    reference: Optional[str] = None
+
+
+class PayslipResponse(MoneyModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    distributable_snapshot: Decimal
+    share_basis: str
+    share_value: Decimal
+    base_share: Decimal
+    adjustments_total: Decimal
+    net_pay: Decimal
+    paid: Decimal
+    outstanding: Decimal
+    currency: str
+    payments: List[PaymentResponse]
+
+
+class PayRequest(MoneyModel):
+    amount: Decimal = Field(gt=0)
+    paid_on: Optional[date] = None
+    reference: Optional[str] = Field(default=None, max_length=120)
+
+
+class FundRequest(Model):
+    name: str = Field(min_length=1, max_length=80)
+    kind: str = "main"
+
+
+class FundResponse(MoneyModel):
+    id: uuid.UUID
+    name: str
+    kind: str
+    is_active: bool
+    balance: Decimal
+
+
+class TreasuryRuleRequest(MoneyModel):
+    basis: str
+    value: Decimal = Field(gt=0)
+    effective_from: Optional[date] = None
+    category: Optional[str] = Field(default=None, max_length=80)
+
+
+class TreasuryRuleResponse(MoneyModel):
+    id: uuid.UUID
+    fund_id: uuid.UUID
+    basis: str
+    value: Decimal
+    category: Optional[str] = None
+    effective_from: date
+    is_active: bool

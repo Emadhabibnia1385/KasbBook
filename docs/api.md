@@ -151,6 +151,36 @@ by email or phone.
 A loan is described by what one instalment costs and how many there are,
 because that is how a loan is described to a person: "twelve of 4,000,000".
 
+## Payroll and treasury
+
+Team and organization books only. Every route calls the same service the bot
+calls, so a share set here is what Telegram reports and a payslip calculated in
+Telegram is what this returns.
+
+| | |
+|---|---|
+| `GET`/`POST /books/{id}/periods` | list, or open one |
+| `GET /books/{id}/periods/{p}/distribution` | income − costs − treasury = distributable |
+| `POST /books/{id}/periods/{p}/status/{status}` | only the documented transitions |
+| `GET`/`PUT /books/{id}/shares` | who takes what; `PUT` end-dates the previous rule |
+| `DELETE /books/{id}/shares/{user}` | stop paying this member |
+| `GET`/`PUT /books/{id}/periods/{p}/performance` | hours, days, points — for measured bases |
+| `GET`/`POST /books/{id}/periods/{p}/adjustments` | bonuses and deductions, signed |
+| `POST …/adjustments/{a}/approve` | recording and approving are separate |
+| `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them |
+| `GET /books/{id}/periods/{p}/payslips` | everyone's, or only yours, by permission |
+| `POST /books/{id}/payslips/{slip}/payments` | staged; instalments are the norm |
+| `GET`/`POST`/`DELETE /books/{id}/funds` | treasury funds |
+| `GET`/`POST`/`DELETE /books/{id}/funds/{f}/rules` | what feeds them |
+
+`calculate` returns **422**, not an empty list, when no member has a share. A
+run that produces nothing because the question was never answered is not an
+empty result.
+
+Deleting a fund that has already taken money is refused — a paid period would
+be left pointing at nothing. Deactivate it instead. Deleting a *rule* is always
+safe, because what past periods took is snapshotted rather than recomputed.
+
 ## Webhooks
 
 `POST /api/v1/webhooks/{provider}/{secret}`

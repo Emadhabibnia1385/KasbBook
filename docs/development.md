@@ -10,7 +10,7 @@ python3 -m venv venv
 ./venv/bin/python -m pytest tests/v2 -q
 ```
 
-379 tests, about forty seconds, on SQLite. No network, no token, no database
+397 tests, about forty seconds, on SQLite. No network, no token, no database
 server.
 
 Six migration tests skip unless `KASBBOOK_TEST_POSTGRES_URL` is set — that is
