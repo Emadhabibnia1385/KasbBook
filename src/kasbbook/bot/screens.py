@@ -957,7 +957,8 @@ def period_list(book: Book, periods, month_label: str) -> Screen:
             "ته‌اش میان اعضا تقسیم می‌شود."
         ), [
             [Button(f"➕ دورهٔ {month_label}", data=f"pr:new:{book.id}")],
-            [Button("🏦 خزانه", data=f"tf:list:{book.id}")],
+            [Button("🧾 سهم اعضا", data=f"sh:open:{book.id}"),
+             Button("🏦 خزانه", data=f"tf:list:{book.id}")],
             [Button("⬅️ بازگشت", data=f"book:open:{book.id}")],
         ]
 
@@ -972,7 +973,10 @@ def period_list(book: Book, periods, month_label: str) -> Screen:
             Button(f"{period.label} — {PERIOD_LABELS.get(period.status.value, '')}",
                    data=f"pr:open:{period.id}")
         ])
-    buttons.append([Button("🏦 خزانه", data=f"tf:list:{book.id}")])
+    buttons.append([
+        Button("🧾 سهم اعضا", data=f"sh:open:{book.id}"),
+        Button("🏦 خزانه", data=f"tf:list:{book.id}"),
+    ])
     buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
     return rtl("\n".join(lines)), buttons
 
@@ -1011,6 +1015,10 @@ def period_detail(book: Book, period, distribution, slip_count: int) -> Screen:
         buttons.append([Button("💵 فیش‌ها", data=f"pr:slips:{period.id}")])
     buttons.append([
         Button("➕ کسر/اضافه", data=f"pr:adj:{period.id}"),
+        Button("⏱ کارکرد", data=f"pf:list:{period.id}"),
+    ])
+    buttons.append([
+        Button("🧾 سهم اعضا", data=f"sh:open:{book.id}"),
         Button("🏦 خزانه", data=f"tf:list:{book.id}"),
     ])
     if period.status.value == "approved":
@@ -1153,4 +1161,159 @@ def adjustment_ask_reason() -> Screen:
     return rtl("بابت چه چیزی؟\n\nمثلاً: پاداش پروژه، جریمهٔ تأخیر"), [
         [Button("بدون توضیح", data="pr:adjnoreason")],
         [Button("⬅️ انصراف", data="nav:home")],
+    ]
+
+
+# ------------------------------------------------------------------ shares
+SHARE_BASIS_LABELS = {
+    "percent": "درصدی",
+    "fixed": "مبلغ ثابت",
+    "hours": "ساعتی",
+    "days": "روزانه",
+    "points": "امتیازی",
+    "project": "پروژه‌ای",
+}
+
+MEASURED_BASES = ("hours", "days", "points")
+
+
+def share_list(book: Book, members, names, rules) -> Screen:
+    """Who takes what. Without this, a payroll run produces nothing at all."""
+    lines = [f"🧾 سهم اعضای {book.name}", ""]
+
+    unset = [m for m in members if m.user_id not in rules]
+    for member in members:
+        name = names.get(member.user_id, "—")
+        rule = rules.get(member.user_id)
+        if rule is None:
+            lines.append(f"⚪️ {name} — سهمی تعریف نشده")
+            continue
+
+        basis = SHARE_BASIS_LABELS.get(rule.basis.value, rule.basis.value)
+        amount = (
+            f"{rule.value:,.0f}٪" if rule.basis.value == "percent"
+            else fmt(rule.value, book.base_currency) if rule.basis.value == "fixed"
+            else f"ضریب {rule.value:,.0f}"
+        )
+        lines.append(f"• {name} — {amount} ({basis})")
+
+    percent_total = sum(
+        (r.value for r in rules.values() if r.basis.value == "percent"), Decimal("0")
+    )
+    if percent_total:
+        lines += ["", f"مجموع درصدها: {percent_total:,.0f}٪"]
+        if percent_total > 100:
+            lines.append("⚠️ بیشتر از ۱۰۰٪ است — بیش از قابل‌تقسیم پرداخت می‌شود.")
+        elif percent_total < 100:
+            lines.append(f"باقی‌مانده: {100 - percent_total:,.0f}٪ تقسیم نمی‌شود.")
+
+    if unset:
+        lines += ["", "کسی که سهمی ندارد در محاسبه فیشی نمی‌گیرد."]
+
+    buttons = [
+        [Button(f"{names.get(m.user_id, '—')[:18]}", data=f"sh:set:{m.user_id}")]
+        for m in members[:10]
+    ]
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:list:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def share_pick_basis(name: str, current) -> Screen:
+    lines = [f"سهم {name} چطور حساب شود؟", ""]
+    if current is not None:
+        basis = SHARE_BASIS_LABELS.get(current.basis.value, current.basis.value)
+        lines += [f"الان: {basis} ({current.value:,.0f})", ""]
+    lines.append(
+        "درصدی: سهمی از قابل‌تقسیم.\n"
+        "مبلغ ثابت: همان عدد، هر دوره.\n"
+        "ساعتی/روزانه/امتیازی: به نسبت کاری که در آن دوره ثبت شده."
+    )
+
+    buttons = [
+        [Button("٪ درصدی", data="sh:basis:percent"),
+         Button("مبلغ ثابت", data="sh:basis:fixed")],
+        [Button("ساعتی", data="sh:basis:hours"),
+         Button("روزانه", data="sh:basis:days"),
+         Button("امتیازی", data="sh:basis:points")],
+    ]
+    if current is not None:
+        buttons.append([Button("🗑 حذف سهم", data="sh:clear")])
+    buttons.append([Button("⬅️ انصراف", data="sh:list")])
+    return rtl("\n".join(lines)), buttons
+
+
+def share_ask_value(name: str, basis: str) -> Screen:
+    if basis == "percent":
+        return rtl(f"{name} چند درصد بگیرد؟\n\nفقط عدد. مثلاً: ۵۰"), [
+            [Button("⬅️ انصراف", data="sh:list")]
+        ]
+    if basis == "fixed":
+        return rtl(f"{name} هر دوره چه مبلغی بگیرد؟\n\nمثلاً: ۱۵م"), [
+            [Button("⬅️ انصراف", data="sh:list")]
+        ]
+
+    unit = {"hours": "ساعت", "days": "روز", "points": "امتیاز"}.get(basis, "واحد")
+    return rtl(
+        f"ضریب {name} چند باشد؟\n\n"
+        f"سهمش به نسبت {unit}هایی که در هر دوره ثبت می‌شود حساب می‌شود، "
+        f"ضربدر این عدد.\nبرای وزن برابر ۱ بنویس."
+    ), [[Button("⬅️ انصراف", data="sh:list")]]
+
+
+def performance_list(book: Book, period, members, names, records, rules) -> Screen:
+    """Only shown when somebody is actually paid by measure."""
+    lines = [f"⏱ کارکرد {period.label}", ""]
+
+    measured = [
+        m for m in members
+        if m.user_id in rules and rules[m.user_id].basis.value in MEASURED_BASES
+    ]
+    if not measured:
+        return rtl(
+            "⏱ کارکرد\n\n"
+            "کسی در این دفتر ساعتی، روزانه یا امتیازی حساب نمی‌شود، "
+            "پس چیزی برای ثبت نیست."
+        ), [[Button("⬅️ بازگشت", data=f"pr:open:{period.id}")]]
+
+    for member in measured:
+        name = names.get(member.user_id, "—")
+        basis = rules[member.user_id].basis.value
+        record = records.get(member.user_id)
+        value = {
+            "hours": record.hours_worked if record else Decimal("0"),
+            "days": record.days_worked if record else Decimal("0"),
+            "points": record.points if record else Decimal("0"),
+        }[basis]
+        unit = {"hours": "ساعت", "days": "روز", "points": "امتیاز"}[basis]
+        mark = "•" if record else "⚪️"
+        lines.append(f"{mark} {name}: {value:,.0f} {unit}")
+
+    buttons = [
+        [Button(f"{names.get(m.user_id, '—')[:18]}", data=f"pf:set:{m.user_id}")]
+        for m in measured[:10]
+    ]
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:open:{period.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def performance_ask_value(name: str, basis: str) -> Screen:
+    unit = {"hours": "ساعت", "days": "روز", "points": "امتیاز"}.get(basis, "واحد")
+    return rtl(f"{name} در این دوره چند {unit} داشت؟\n\nفقط عدد."), [
+        [Button("⬅️ انصراف", data="nav:home")]
+    ]
+
+
+def no_shares_defined(book: Book, period) -> Screen:
+    """What used to happen silently: calculate, and get nothing.
+
+    A run that produces no payslips because nobody has a share is not an empty
+    result, it is an unanswered question.
+    """
+    return rtl(
+        "🧾 هنوز سهم کسی تعریف نشده\n\n"
+        "محاسبه چیزی تولید نمی‌کند تا وقتی مشخص شود هر نفر چه سهمی می‌برد.\n"
+        "از «سهم اعضا» شروع کن."
+    ), [
+        [Button("🧾 سهم اعضا", data="sh:list")],
+        [Button("⬅️ بازگشت", data=f"pr:open:{period.id}")],
     ]

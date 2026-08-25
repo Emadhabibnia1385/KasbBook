@@ -74,10 +74,36 @@ A `ShareRule` per member, per book, with an effective date:
 |---|---|
 | `percent` | a percentage each |
 | `fixed` | a fixed amount each |
-| `hours` · `days` · `points` | recorded performance for the period |
+| `hours` · `days` · `points` | recorded performance for the period, times the rule's weight |
 | `project` | project contribution |
 
 Where two rules overlap, the one that started later wins.
+
+Setting a share **closes** the previous rule rather than editing it: the old
+one gets an end date the day before the new one starts, and both stay readable.
+That is what stops a raise agreed today from silently rewriting what the same
+person was paid last spring.
+
+Clearing a share deactivates it rather than deleting it, because a payslip
+already issued names the rule it was worked out from.
+
+**Nobody is paid until they have a share.** A calculation with no share rules
+produces no payslips — so the bot refuses to run one and points at the shares
+screen instead, rather than returning an empty result that looks like success.
+
+## Performance
+
+The three measured bases need something to measure. `⏱ کارکرد` on the period
+screen records hours, days or points per member, and only lists the people
+whose share is actually paid by measure — asking for hours from someone on a
+flat percentage is a question with no use for the answer.
+
+One record per member per period, so correcting a figure changes it rather than
+failing on the unique constraint.
+
+Weight-based shares split what is left **after** the fixed and percentage
+claims are settled. Two people on `hours` with weight 1, at 120 and 40 hours,
+take three quarters and one quarter of the remainder.
 
 ## Adjustments
 

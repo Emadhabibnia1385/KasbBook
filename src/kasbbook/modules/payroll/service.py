@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence
 
@@ -280,6 +280,148 @@ class PayrollService:
             )
             out[user_id] = (rules[user_id], portion)
         return out
+
+    async def set_share(
+        self,
+        book_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        user_id: uuid.UUID,
+        basis: ShareBasis,
+        value,
+        effective_from: Optional[date] = None,
+    ) -> ShareRule:
+        """Set what one member's cut is, from today or from a chosen date.
+
+        A previous rule is *closed*, never edited. Effective dating is the whole
+        point of this table: a raise agreed today must not silently rewrite what
+        the same person was paid last spring. So the old rule gets an end date
+        the day before the new one starts, and both remain readable.
+        """
+        await self.books.require(book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        if await self.books.membership(book_id, user_id) is None:
+            raise ValidationError("این شخص عضو این دفتر نیست")
+
+        amount = quantize(to_decimal(value))
+        if amount <= ZERO:
+            raise ValidationError("سهم باید بیشتر از صفر باشد")
+        if basis is ShareBasis.PERCENT and amount > HUNDRED:
+            raise ValidationError("درصد نمی‌تواند بیشتر از ۱۰۰ باشد")
+
+        starts_on = effective_from or date.today()
+
+        for existing in (
+            await self.session.execute(
+                select(ShareRule).where(
+                    ShareRule.book_id == book_id,
+                    ShareRule.user_id == user_id,
+                    ShareRule.is_active.is_(True),
+                )
+            )
+        ).scalars().all():
+            if existing.effective_from >= starts_on:
+                # A rule that had not taken effect yet is a mistake being
+                # corrected, not history worth keeping.
+                existing.is_active = False
+            else:
+                existing.effective_to = starts_on - timedelta(days=1)
+
+        rule = ShareRule(
+            book_id=book_id, user_id=user_id, basis=basis,
+            value=amount, effective_from=starts_on,
+        )
+        self.session.add(rule)
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id, action="share.set",
+                subject=str(user_id), detail=f"{basis.value}:{amount}",
+            )
+        )
+        await self.session.flush()
+        return rule
+
+    async def shares(
+        self, book_id: uuid.UUID, actor_user_id: uuid.UUID, on: Optional[date] = None
+    ) -> Dict[uuid.UUID, ShareRule]:
+        """The rule in force for each member, for a screen to display."""
+        await self.books.require(book_id, actor_user_id, Permission.VIEW_REPORTS)
+        return await self.share_rules_for(book_id, on or date.today())
+
+    async def clear_share(
+        self, book_id: uuid.UUID, actor_user_id: uuid.UUID, user_id: uuid.UUID
+    ) -> None:
+        """Stop this member taking a share from now on.
+
+        Deactivates rather than deletes: a payslip already issued names the rule
+        it was worked out from, and that has to keep meaning something.
+        """
+        await self.books.require(book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        for rule in (
+            await self.session.execute(
+                select(ShareRule).where(
+                    ShareRule.book_id == book_id,
+                    ShareRule.user_id == user_id,
+                    ShareRule.is_active.is_(True),
+                )
+            )
+        ).scalars().all():
+            rule.is_active = False
+        await self.session.flush()
+
+    # -------------------------------------------------------- performance
+    async def record_performance(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID, user_id: uuid.UUID, **measures
+    ) -> PerformanceRecord:
+        """What a member actually did, for the bases that are paid by measure.
+
+        Upserts by (period, user) because the unique constraint says there is
+        one record per member per period — correcting a figure should change it
+        rather than fail.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        await self._require_editable(period)
+
+        record = (
+            await self.session.execute(
+                select(PerformanceRecord).where(
+                    PerformanceRecord.period_id == period_id,
+                    PerformanceRecord.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if record is None:
+            record = PerformanceRecord(
+                book_id=period.book_id, period_id=period_id, user_id=user_id
+            )
+            self.session.add(record)
+
+        for measure, value in measures.items():
+            if not hasattr(record, measure):
+                raise ValidationError(f"{measure} چنین چیزی ثبت نمی‌شود")
+            setattr(record, measure, quantize(to_decimal(value)))
+
+        await self.session.flush()
+        return record
+
+    async def performance(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID
+    ) -> Dict[uuid.UUID, PerformanceRecord]:
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.VIEW_REPORTS)
+
+        return {
+            record.user_id: record
+            for record in (
+                await self.session.execute(
+                    select(PerformanceRecord).where(
+                        PerformanceRecord.period_id == period_id
+                    )
+                )
+            ).scalars().all()
+        }
 
     # ---------------------------------------------------------- adjustments
     async def add_adjustment(

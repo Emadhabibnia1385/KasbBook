@@ -142,7 +142,7 @@ apps/bot/        runner.py (the entry point), reminders.py
 migrations/      alembic env, comparators, versions/
 deploy/          docker-compose.yml, the two systemd units
 scripts/         install, update, backup, restore, uninstall, lib
-tests/v2/        363 tests
+tests/v2/        379 tests
 ```
 
 ## Deliberate non-choices

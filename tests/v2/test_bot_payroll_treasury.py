@@ -397,3 +397,266 @@ async def test_a_stranger_cannot_create_a_fund_in_another_teams_book(session):
     await other.handle(press("tf:kind:main", external_id="999"))
 
     assert await TreasuryService(session).funds(book.id, owner.id) == []
+
+
+# ==================================================================== shares
+#
+# The gap that made the whole payroll feature inert: ShareRule was read by
+# `calculate()` and written by nothing. A team could open a period, see the
+# distribution, press calculate, and get zero payslips with no explanation —
+# because no member had a share, and there was no screen anywhere to give them
+# one. Every test above set them up by touching the session directly, which is
+# exactly how the hole stayed invisible.
+
+async def bare_team(session):
+    """Like `team`, but with no share rules — the state a real book starts in."""
+    identity = IdentityService(session)
+    owner = await identity.create_user("عماد")
+    issued = await identity.start_link_from_web(owner.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "555001")
+    colleague = await identity.create_user("سارا")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, colleague.id, Role.MEMBER)
+
+    ledger = LedgerService(session)
+    await ledger.record(book.id, owner.id, Flow.INCOME, Scope.TEAM, "فروش",
+                        Decimal("100000000"), occurred_on=DAY)
+    await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "اجاره",
+                        Decimal("20000000"), occurred_on=DAY)
+
+    return owner, colleague, book, Conversation(session, MemoryStateStore(), TG)
+
+
+async def test_calculating_with_no_shares_says_so_instead_of_doing_nothing(session):
+    """It used to return an empty period screen and let you believe it worked."""
+    owner, _, book, convo = await bare_team(session)
+    await convo.handle(press(f"pr:new:{book.id}"))
+    period = (await PayrollService(session).periods(book.id, owner.id))[0]
+
+    reply = await convo.handle(press(f"pr:calc:{period.id}"))
+
+    assert "سهم" in reply.text
+    assert any("سهم اعضا" in label for label in labels(reply))
+    assert await PayrollService(session).payslips(owner.id, period.id) == []
+
+
+async def test_shares_are_reachable_from_the_payroll_screen(session):
+    owner, _, book, convo = await bare_team(session)
+    reply = await convo.handle(press(f"pr:list:{book.id}"))
+
+    assert any("سهم اعضا" in label for label in labels(reply))
+
+
+async def test_a_percentage_share_can_be_set_from_the_bot(session):
+    owner, colleague, book, convo = await bare_team(session)
+
+    await convo.handle(press(f"sh:open:{book.id}"))
+    await convo.handle(press(f"sh:set:{colleague.id}"))
+    await convo.handle(press("sh:basis:percent"))
+    reply = await convo.handle(says("۵۰"))
+
+    rules = await PayrollService(session).shares(book.id, owner.id)
+    assert rules[colleague.id].value == Decimal("50")
+    assert rules[colleague.id].basis is ShareBasis.PERCENT
+    assert "سارا" in reply.text
+
+
+async def test_a_share_percentage_is_not_read_as_money(session):
+    """"۵۰" is fifty percent. The amount parser would read "۵۰م" as fifty million."""
+    owner, colleague, book, convo = await bare_team(session)
+
+    await convo.handle(press(f"sh:open:{book.id}"))
+    await convo.handle(press(f"sh:set:{colleague.id}"))
+    await convo.handle(press("sh:basis:percent"))
+    await convo.handle(says("۵۰"))
+
+    rules = await PayrollService(session).shares(book.id, owner.id)
+    assert rules[colleague.id].value == Decimal("50")
+
+
+async def test_a_fixed_share_is_read_as_money(session):
+    owner, colleague, book, convo = await bare_team(session)
+
+    await convo.handle(press(f"sh:open:{book.id}"))
+    await convo.handle(press(f"sh:set:{colleague.id}"))
+    await convo.handle(press("sh:basis:fixed"))
+    await convo.handle(says("۱۵م"))
+
+    rules = await PayrollService(session).shares(book.id, owner.id)
+    assert rules[colleague.id].value == Decimal("15000000")
+    assert rules[colleague.id].basis is ShareBasis.FIXED
+
+
+async def test_the_screen_warns_when_the_percentages_do_not_add_up(session):
+    owner, colleague, book, convo = await bare_team(session)
+    payroll = PayrollService(session)
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 60,
+                            effective_from=date(2026, 1, 1))
+    await payroll.set_share(book.id, owner.id, colleague.id, ShareBasis.PERCENT, 60,
+                            effective_from=date(2026, 1, 1))
+
+    reply = await convo.handle(press(f"sh:open:{book.id}"))
+    assert "۱۰۰" in reply.text or "100" in reply.text
+    assert "بیشتر" in reply.text
+
+
+async def test_a_member_with_no_share_is_shown_as_such(session):
+    owner, colleague, book, convo = await bare_team(session)
+    reply = await convo.handle(press(f"sh:open:{book.id}"))
+
+    assert "تعریف نشده" in reply.text
+    assert "سارا" in reply.text
+
+
+async def test_setting_a_share_end_dates_the_old_one_rather_than_editing_it(session):
+    """A raise agreed today must not rewrite what was paid last spring."""
+    owner, colleague, book, convo = await bare_team(session)
+    payroll = PayrollService(session)
+
+    await payroll.set_share(book.id, owner.id, colleague.id, ShareBasis.PERCENT, 40,
+                            effective_from=date(2026, 1, 1))
+    await payroll.set_share(book.id, owner.id, colleague.id, ShareBasis.PERCENT, 50,
+                            effective_from=date(2026, 6, 1))
+
+    # Last spring still says forty.
+    spring = await payroll.shares(book.id, owner.id, date(2026, 3, 15))
+    assert spring[colleague.id].value == Decimal("40")
+
+    # Today says fifty.
+    now = await payroll.shares(book.id, owner.id, date(2026, 8, 24))
+    assert now[colleague.id].value == Decimal("50")
+
+
+async def test_clearing_a_share_stops_that_member_being_paid(session):
+    owner, colleague, book, convo = await bare_team(session)
+    payroll = PayrollService(session)
+    await payroll.set_share(book.id, owner.id, colleague.id, ShareBasis.PERCENT, 50,
+                            effective_from=date(2026, 1, 1))
+
+    await convo.handle(press(f"sh:open:{book.id}"))
+    await convo.handle(press(f"sh:set:{colleague.id}"))
+    reply = await convo.handle(press("sh:clear"))
+
+    assert colleague.id not in await payroll.shares(book.id, owner.id)
+    assert "تعریف نشده" in reply.text
+
+
+async def test_a_share_over_a_hundred_percent_is_refused(session):
+    owner, colleague, book, convo = await bare_team(session)
+
+    await convo.handle(press(f"sh:open:{book.id}"))
+    await convo.handle(press(f"sh:set:{colleague.id}"))
+    await convo.handle(press("sh:basis:percent"))
+    await convo.handle(says("۱۵۰"))
+
+    assert colleague.id not in await PayrollService(session).shares(book.id, owner.id)
+
+
+async def test_a_share_cannot_be_given_to_someone_who_is_not_a_member(session):
+    owner, _, book, convo = await bare_team(session)
+    outsider = await IdentityService(session).create_user("غریبه")
+
+    with pytest.raises(Exception):
+        await PayrollService(session).set_share(
+            book.id, owner.id, outsider.id, ShareBasis.PERCENT, 50
+        )
+
+
+async def test_shares_set_from_the_bot_actually_produce_payslips(session):
+    """End to end: the loop that was broken, now closed."""
+    owner, colleague, book, convo = await bare_team(session)
+
+    for person in (owner, colleague):
+        await convo.handle(press(f"sh:open:{book.id}"))
+        await convo.handle(press(f"sh:set:{person.id}"))
+        await convo.handle(press("sh:basis:percent"))
+        await convo.handle(says("۵۰"))
+
+    await convo.handle(press(f"pr:new:{book.id}"))
+    period = (await PayrollService(session).periods(book.id, owner.id))[0]
+    reply = await convo.handle(press(f"pr:calc:{period.id}"))
+
+    slips = await PayrollService(session).payslips(owner.id, period.id)
+    assert len(slips) == 2
+    assert all(slip.net_pay == Decimal("40000000") for slip in slips)
+    assert "2 فیش" in reply.text
+
+
+# =============================================================== performance
+async def test_performance_is_only_asked_for_when_somebody_is_paid_by_measure(session):
+    owner, colleague, book, convo = await bare_team(session)
+    payroll = PayrollService(session)
+    await payroll.set_share(book.id, owner.id, colleague.id, ShareBasis.PERCENT, 50,
+                            effective_from=date(2026, 1, 1))
+    await convo.handle(press(f"pr:new:{book.id}"))
+    period = (await payroll.periods(book.id, owner.id))[0]
+
+    reply = await convo.handle(press(f"pf:list:{period.id}"))
+    assert "چیزی برای ثبت نیست" in reply.text
+
+
+async def test_hours_can_be_recorded_and_split_the_money(session):
+    """The three bases that existed in the enum and could not be used."""
+    owner, colleague, book, convo = await bare_team(session)
+    payroll = PayrollService(session)
+
+    # Equal weight each, paid by the hour.
+    for person in (owner, colleague):
+        await payroll.set_share(book.id, owner.id, person.id, ShareBasis.HOURS, 1,
+                                effective_from=date(2026, 1, 1))
+
+    await convo.handle(press(f"pr:new:{book.id}"))
+    period = (await payroll.periods(book.id, owner.id))[0]
+
+    await convo.handle(press(f"pf:list:{period.id}"))
+    await convo.handle(press(f"pf:set:{owner.id}"))
+    await convo.handle(says("۱۲۰"))
+    await convo.handle(press(f"pf:set:{colleague.id}"))
+    reply = await convo.handle(says("۴۰"))
+
+    assert "120" in reply.text and "40" in reply.text
+
+    await convo.handle(press(f"pr:calc:{period.id}"))
+    slips = {s.user_id: s for s in await payroll.payslips(owner.id, period.id)}
+
+    # 80,000,000 split 120:40 — three quarters and one quarter.
+    assert slips[owner.id].net_pay == Decimal("60000000")
+    assert slips[colleague.id].net_pay == Decimal("20000000")
+
+
+async def test_correcting_a_recorded_figure_replaces_it(session):
+    owner, colleague, book, convo = await bare_team(session)
+    payroll = PayrollService(session)
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.HOURS, 1,
+                            effective_from=date(2026, 1, 1))
+    await convo.handle(press(f"pr:new:{book.id}"))
+    period = (await payroll.periods(book.id, owner.id))[0]
+
+    await convo.handle(press(f"pf:list:{period.id}"))
+    await convo.handle(press(f"pf:set:{owner.id}"))
+    await convo.handle(says("۱۰۰"))
+    await convo.handle(press(f"pf:set:{owner.id}"))
+    await convo.handle(says("۱۲۰"))
+
+    records = await payroll.performance(owner.id, period.id)
+    assert records[owner.id].hours_worked == Decimal("120")
+    assert len(records) == 1
+
+
+async def test_a_stranger_cannot_set_shares_in_another_teams_book(session):
+    owner, colleague, book, convo = await bare_team(session)
+
+    identity = IdentityService(session)
+    stranger = await identity.create_user("غریبه")
+    issued = await identity.start_link_from_web(stranger.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "999")
+
+    other = Conversation(session, MemoryStateStore(), TG)
+    await other.handle(press(f"sh:open:{book.id}", external_id="999"))
+    await other.handle(press(f"sh:set:{colleague.id}", external_id="999"))
+    await other.handle(press("sh:basis:percent", external_id="999"))
+    await other.handle(says("۹۹", external_id="999"))
+
+    assert await PayrollService(session).shares(book.id, owner.id) == {}

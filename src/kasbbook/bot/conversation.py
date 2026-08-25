@@ -23,7 +23,12 @@ from ..modules.budgets.service import BudgetService
 from ..modules.debts.models import Direction
 from ..modules.debts.service import DebtService
 from ..modules.loans.service import LoanService
-from ..modules.payroll.models import AdjustmentKind, AdjustmentMode, PeriodStatus
+from ..modules.payroll.models import (
+    AdjustmentKind,
+    AdjustmentMode,
+    PeriodStatus,
+    ShareBasis,
+)
 from ..modules.payroll.service import PayrollService
 from ..modules.recurring.models import Period as RecurringPeriod
 from ..modules.recurring.service import RecurringService
@@ -221,6 +226,12 @@ class Conversation:
 
         if area == "tf":
             return await self._treasury_callback(action, argument, user, key)
+
+        if area == "sh":
+            return await self._share_callback(action, argument, user, key)
+
+        if area == "pf":
+            return await self._performance_callback(action, argument, user, key)
 
         if area == "noop":
             # An inert label; the screen stays as it is.
@@ -806,6 +817,12 @@ class Conversation:
             return await self._period_detail(book, user, period)
 
         if action == "calc":
+            if not await self.payroll.shares(book.id, user.id, period.ends_on):
+                # Zero payslips because nobody has a share is an unanswered
+                # question, not an empty result.
+                await self.state.set(key, {"flow": "share", "book_id": str(book.id)})
+                return screens.no_shares_defined(book, period)
+
             await self.payroll.calculate(user.id, period.id)
             return await self._period_detail(book, user, period)
 
@@ -999,6 +1016,161 @@ class Conversation:
         await self.state.set(key, draft)
         return screens.adjustment_ask_reason()
 
+    # ------------------------------------------------------------- shares
+    async def _share_screen(self, book, user):
+        return screens.share_list(
+            book,
+            await self.books.members(book.id),
+            await self._member_names(book.id),
+            await self.payroll.shares(book.id, user.id),
+        )
+
+    async def _share_book(self, user, key: str):
+        """Which book this flow is about. Held in state, never in the button."""
+        draft = await self.state.get(key)
+        if not draft.get("book_id"):
+            return None, draft
+        return await self.books.get_book(uuid.UUID(draft["book_id"])), draft
+
+    async def _share_callback(self, action: str, argument: str, user, key: str):
+        if action == "open":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.state.set(key, {"flow": "share", "book_id": argument})
+            return await self._share_screen(book, user)
+
+        book, draft = await self._share_book(user, key)
+        if book is None:
+            return screens.welcome(user.display_name)
+
+        if action == "list":
+            await self.state.set(key, {"flow": "share", "book_id": str(book.id)})
+            return await self._share_screen(book, user)
+
+        if action == "set":
+            draft["user_id"] = argument
+            await self.state.set(key, draft)
+            rules = await self.payroll.shares(book.id, user.id)
+            names = await self._member_names(book.id)
+            return screens.share_pick_basis(
+                names.get(uuid.UUID(argument), "—"), rules.get(uuid.UUID(argument))
+            )
+
+        if action == "basis":
+            if "user_id" not in draft:
+                return await self._share_screen(book, user)
+            draft["basis"] = argument
+            await self.state.set(key, draft)
+            names = await self._member_names(book.id)
+            return screens.share_ask_value(
+                names.get(uuid.UUID(draft["user_id"]), "—"), argument
+            )
+
+        if action == "clear":
+            if "user_id" in draft:
+                await self.payroll.clear_share(
+                    book.id, user.id, uuid.UUID(draft["user_id"])
+                )
+            await self.state.set(key, {"flow": "share", "book_id": str(book.id)})
+            return await self._share_screen(book, user)
+
+        return await self._share_screen(book, user)
+
+    async def _share_text(self, text: str, draft: dict, user, key: str):
+        basis = draft.get("basis")
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        if not basis or "user_id" not in draft:
+            return await self._share_screen(book, user)
+
+        names = await self._member_names(book.id)
+        name = names.get(uuid.UUID(draft["user_id"]), "—")
+
+        if basis == "fixed":
+            value = parse_amount(text)
+        else:
+            # A percentage and a weight are plain numbers. The amount parser
+            # reads "۵۰م" as fifty million, which would be fifty million
+            # percent, or a weight nothing could outweigh.
+            try:
+                value = Decimal(to_ascii_digits(text).strip())
+            except Exception:
+                value = None
+
+        if value is None or value <= 0:
+            return screens.share_ask_value(name, basis)
+
+        await self.payroll.set_share(
+            book.id, user.id, uuid.UUID(draft["user_id"]), ShareBasis(basis), value
+        )
+        await self.state.set(key, {"flow": "share", "book_id": str(book.id)})
+        return await self._share_screen(book, user)
+
+    # --------------------------------------------------------- performance
+    async def _performance_screen(self, book, user, period):
+        return screens.performance_list(
+            book, period,
+            await self.books.members(book.id),
+            await self._member_names(book.id),
+            await self.payroll.performance(user.id, period.id),
+            await self.payroll.shares(book.id, user.id, period.ends_on),
+        )
+
+    async def _performance_callback(self, action: str, argument: str, user, key: str):
+        if action == "list":
+            period = await self.payroll.get_period(uuid.UUID(argument))
+            book = await self.books.get_book(period.book_id)
+            await self.state.set(
+                key, {"flow": "performance", "period_id": argument}
+            )
+            return await self._performance_screen(book, user, period)
+
+        draft = await self.state.get(key)
+        if not draft.get("period_id"):
+            return screens.welcome(user.display_name)
+
+        period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
+        book = await self.books.get_book(period.book_id)
+
+        if action == "set":
+            draft["user_id"] = argument
+            await self.state.set(key, draft)
+            rules = await self.payroll.shares(book.id, user.id, period.ends_on)
+            names = await self._member_names(book.id)
+            rule = rules.get(uuid.UUID(argument))
+            return screens.performance_ask_value(
+                names.get(uuid.UUID(argument), "—"),
+                rule.basis.value if rule else "hours",
+            )
+
+        return await self._performance_screen(book, user, period)
+
+    async def _performance_text(self, text: str, draft: dict, user, key: str):
+        period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
+        book = await self.books.get_book(period.book_id)
+        if "user_id" not in draft:
+            return await self._performance_screen(book, user, period)
+
+        member_id = uuid.UUID(draft["user_id"])
+        rules = await self.payroll.shares(book.id, user.id, period.ends_on)
+        rule = rules.get(member_id)
+        basis = rule.basis.value if rule else "hours"
+
+        try:
+            value = Decimal(to_ascii_digits(text).strip())
+        except Exception:
+            value = None
+
+        if value is None or value < 0:
+            names = await self._member_names(book.id)
+            return screens.performance_ask_value(names.get(member_id, "—"), basis)
+
+        column = {"hours": "hours_worked", "days": "days_worked", "points": "points"}[basis]
+        await self.payroll.record_performance(
+            user.id, period.id, member_id, **{column: value}
+        )
+        draft.pop("user_id", None)
+        await self.state.set(key, draft)
+        return await self._performance_screen(book, user, period)
+
     # ----------------------------------------------------- free text steps
     async def _text(self, event: IncomingEvent, user, key: str):
         draft = await self.state.get(key)
@@ -1042,6 +1214,12 @@ class Conversation:
 
         if draft.get("flow") == "payslip":
             return await self._payslip_text(text, draft, user, key)
+
+        if draft.get("flow") == "share":
+            return await self._share_text(text, draft, user, key)
+
+        if draft.get("flow") == "performance":
+            return await self._performance_text(text, draft, user, key)
 
         if draft.get("flow") == "adjustment":
             if "value" in draft:

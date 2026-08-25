@@ -65,7 +65,6 @@ no inbound port, which is most of the boxes this will ever run on.
 | **Attachment types beyond photos** | Documents and voice parse already; only photos are wired to receipts. |
 | **Category suggestions** | The bot knows what you have typed before and could offer it. |
 | **Budget periods other than monthly** | The model has `kind`; only monthly is exercised. |
-| **Performance-based shares** | `hours`, `days`, `points` exist in `ShareBasis` and `PerformanceRecord` is a real table, but nothing records against it from the bot. |
 | **Exports beyond CSV** | A real accountant wants something their software imports. |
 
 ## Not planned
