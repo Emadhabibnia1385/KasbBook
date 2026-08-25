@@ -42,7 +42,10 @@ pytestmark = pytest.mark.skipif(
 
 
 def _sync_url() -> str:
-    return RAW_URL.replace("+asyncpg", "").replace("postgresql+psycopg", "postgresql")
+    """Alembic's command API is synchronous, so it needs a synchronous driver."""
+    return RAW_URL.replace("+asyncpg", "+psycopg").replace(
+        "postgresql://", "postgresql+psycopg://"
+    )
 
 
 def _async_url() -> str:
