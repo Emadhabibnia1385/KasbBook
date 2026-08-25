@@ -30,6 +30,8 @@ from kasbbook.modules.identity.models import Provider  # noqa: E402
 from kasbbook.shared.database import Database  # noqa: E402
 from kasbbook.shared.settings import Settings  # noqa: E402
 
+from .reminders import ReminderLoop  # noqa: E402
+
 logger = logging.getLogger("kasbbook.telegram")
 
 # httpx logs full request URLs at INFO, and a Telegram URL contains the token.
@@ -177,9 +179,16 @@ async def main() -> None:
     state = await build_state_store(settings)
     runner = TelegramRunner(settings, database, adapter, state)
 
+    # Reminders run beside the poller rather than inside it, so a slow digest
+    # cannot delay someone's next button press.
+    reminders = ReminderLoop(database, adapter, state)
+    reminder_task = asyncio.create_task(reminders.run())
+
     try:
         await runner.run()
     finally:
+        reminders.stop()
+        reminder_task.cancel()
         await adapter.aclose()
         await database.dispose()
 
