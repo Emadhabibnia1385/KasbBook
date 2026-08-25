@@ -17,9 +17,16 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-SRC = Path(__file__).resolve().parents[2] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+ROOT = Path(__file__).resolve().parents[2]
+
+# Order matters and is not cosmetic. The first-generation package at the repo
+# root is also called `kasbbook`, so src/ has to win the name or `import
+# kasbbook` silently loads the old bot. src goes to the front; the root is
+# appended, only so `apps.telegram_bot.*` resolves when this runs as a script.
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 
 import httpx  # noqa: E402
 
@@ -30,7 +37,7 @@ from kasbbook.modules.identity.models import Provider  # noqa: E402
 from kasbbook.shared.database import Database  # noqa: E402
 from kasbbook.shared.settings import Settings  # noqa: E402
 
-from .reminders import ReminderLoop  # noqa: E402
+from apps.telegram_bot.reminders import ReminderLoop  # noqa: E402
 
 logger = logging.getLogger("kasbbook.telegram")
 

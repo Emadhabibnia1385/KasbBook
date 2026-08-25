@@ -219,3 +219,39 @@ async def test_settings_default_to_sqlite_so_a_dev_can_just_run_it(monkeypatch):
     assert settings.database_url.startswith("sqlite")
     assert not settings.uses_postgres
     assert settings.telegram_token is None
+
+
+# ------------------------------------------------------- the systemd path
+async def test_the_runner_loads_when_executed_as_a_script():
+    """
+    systemd runs `python apps/telegram_bot/runner.py`, not `-m`.
+
+    Importing it as a module — which every other test here does — hides a
+    relative import that has no parent package when it is a script. That
+    difference took the bot down once; this is the test that would have caught
+    it, so it runs the file the way the service does.
+    """
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    repo = _Path(__file__).resolve().parents[2]
+    import os as _os
+
+    env = dict(_os.environ)
+    env["KASBBOOK_DATABASE_URL"] = "sqlite+aiosqlite://"
+    env.pop("TELEGRAM_BOT_TOKEN", None)
+
+    result = subprocess.run(
+        [_sys.executable, str(repo / "apps" / "telegram_bot" / "runner.py")],
+        capture_output=True, text=True, timeout=60, env=env,
+    )
+
+    combined = result.stdout + result.stderr
+    assert "ImportError" not in combined, combined[-600:]
+    assert "ModuleNotFoundError" not in combined, combined[-600:]
+    # The legacy package at the repo root answers to the same name; if it wins
+    # the import, the new bot never runs at all.
+    assert "python-telegram-bot" not in combined
+    # It should get all the way to the one thing genuinely missing: a token.
+    assert "BotFather" in combined, combined[-600:]
