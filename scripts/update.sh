@@ -5,6 +5,23 @@
 # bad commit into an outage that lasts until somebody wakes up; one that checks
 # and reverts turns it into a failed update and a bot that is still running.
 
+# Run from a copy of ourselves, before touching the working tree.
+#
+# This is not caution, it is a bug that already happened. bash reads a script
+# incrementally and keeps a byte offset into the file. `git reset --hard` a few
+# lines down rewrites this very file in place, and bash then carries on reading
+# at that same offset in the *new* content — so what executes is a splice of two
+# versions. The symptom was an update that skipped a step it plainly contains
+# and then reported the service healthy while it was crash-looping.
+if [ -z "${KASBBOOK_UPDATE_DETACHED:-}" ]; then
+    SELF_DIR="$(dirname "$(readlink -f "$0")")"
+    STAGING="$(mktemp -d)"
+    trap 'rm -rf "$STAGING"' EXIT
+    cp "$SELF_DIR"/*.sh "$STAGING/"
+    export KASBBOOK_UPDATE_DETACHED=1
+    exec bash "$STAGING/$(basename "$0")" "$@"
+fi
+
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 need_root
 trust_checkout
@@ -90,6 +107,18 @@ for unit in "${UNITS[@]}"; do
         roll_back
     fi
 done
+
+# An API that has not crashed is not the same as an API that answers. This is
+# the only check that would have caught the last failure on its own.
+if systemctl is-enabled --quiet kasbbook-api 2>/dev/null; then
+    if curl -fsS --max-time 5 http://127.0.0.1:8210/readyz >/dev/null 2>&1; then
+        ok "the API answers /readyz"
+    else
+        warn "the API is running but does not answer /readyz"
+        show_failure kasbbook-api
+        roll_back
+    fi
+fi
 
 echo
 ok "updated to $(git log --oneline -1)"

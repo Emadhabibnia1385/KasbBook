@@ -169,6 +169,38 @@ rather than letting git produce a confusing one.
 
 ---
 
+## The update reported success and left the API down
+
+**What it looked like:** `update.sh` printed `✓ kasbbook-api: active, log clean,
+0 restarts` and exited zero. The API was crash-looping on
+`ModuleNotFoundError: No module named 'kasbbook.api'`, and the step that would
+have prevented it — `pip install -e .` — plainly exists in the script that had
+just been checked out.
+
+**What it was:** the script rewrote itself while running. bash reads a script
+incrementally and keeps a byte offset into the file; `git reset --hard` a few
+lines down replaced `update.sh` in place, and bash carried on reading at that
+same offset in the *new* content. What executed was a splice of two versions.
+
+Two consequences, and the second is the dangerous one: a step was skipped, and
+the health check reported success for a service that was down.
+
+**Fix:** `update.sh` now copies itself and `lib.sh` to a temporary directory and
+`exec`s from there before touching the working tree, guarded by an environment
+variable so the second run does not recurse.
+
+And the health check was made harder to fool:
+
+- it compares `NRestarts` before and after the wait, because `Restart=always`
+  keeps a crash-looping service `active` indefinitely and that word alone means
+  very little;
+- `--since "-10s"` replaces `--since "10s ago"`, an unambiguous form;
+- the API additionally has to answer `/readyz`. A process that has not crashed
+  is not the same as a process that serves.
+
+**The lesson:** any script that updates the tree it lives in must not be running
+from that tree. This applies to `update.sh` here and to anything shaped like it.
+
 ## Everyday checks
 
 ```bash

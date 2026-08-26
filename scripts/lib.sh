@@ -40,10 +40,21 @@ env_value() {
 # restarts something has to pass before it calls itself done.
 service_is_healthy() {
     local unit="$1" seconds="${2:-10}"
+
+    local before
+    before="$(systemctl show "$unit" -p NRestarts --value 2>/dev/null || echo 0)"
     sleep "$seconds"
 
     systemctl is-active --quiet "$unit" || return 1
-    if journalctl -u "$unit" --since "${seconds}s ago" -o cat --no-pager \
+
+    # `Restart=always` keeps a crash-looping service "active" forever, so the
+    # word means very little on its own. A restart counter that moved while we
+    # were watching means the process died and came back.
+    local after
+    after="$(systemctl show "$unit" -p NRestarts --value 2>/dev/null || echo 0)"
+    [ "$after" = "$before" ] || return 1
+
+    if journalctl -u "$unit" --since "-${seconds}s" -o cat --no-pager \
         | grep -qiE "Traceback|ModuleNotFoundError|ImportError|CRITICAL"; then
         return 1
     fi
