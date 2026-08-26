@@ -14,7 +14,7 @@ every transaction has a balanced journal entry behind it.
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Tests](https://img.shields.io/badge/tests-397-success?style=flat-square)](./tests/v2)
+[![Tests](https://img.shields.io/badge/tests-406-success?style=flat-square)](./tests/v2)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 **English** · [فارسی](./README.fa.md)
@@ -138,7 +138,7 @@ cd KasbBook && python3 -m venv venv
 ./venv/bin/python -m pytest tests/v2 -q
 ```
 
-The suite runs on SQLite with no network and no token — 397 tests in about
+The suite runs on SQLite with no network and no token — 406 tests in about
 forty seconds. The migration tests additionally rehearse against a real
 PostgreSQL when `KASBBOOK_TEST_POSTGRES_URL` is set, which is what CI does,
 because that is where the interesting failures live.

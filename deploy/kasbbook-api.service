@@ -33,7 +33,6 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/opt/kasbbook-v2/src
 
 [Install]
 WantedBy=multi-user.target

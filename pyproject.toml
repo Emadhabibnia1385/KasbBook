@@ -1,0 +1,48 @@
+# Packaging, so `kasbbook` is importable because it is installed rather than
+# because something arranged sys.path first. That arrangement has broken three
+# times — a systemd unit, an Alembic env, and uvicorn, where WorkingDirectory
+# quietly wins over PYTHONPATH.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kasbbook"
+version = "2.0.0"
+description = "Bookkeeping for a small business, wherever that business already talks"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+
+# Kept in step with requirements-v2.txt by a test in tests/v2/test_runner.py —
+# two dependency lists that drift are worse than one long one.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.9",
+    "email-validator>=2.2",
+    "pydantic-settings>=2.5",
+    "asyncpg>=0.30",
+    "aiosqlite>=0.20",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.9",
+    "httpx>=0.27",
+    "jdatetime>=5.0",
+    "python-multipart>=0.0.9",
+    "redis>=5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pyflakes==3.2.0", "pytest>=8.3", "pytest-asyncio>=0.24", "psycopg[binary]>=3.2"]
+
+[project.scripts]
+kasbbook-bot = "apps.bot.runner:run"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

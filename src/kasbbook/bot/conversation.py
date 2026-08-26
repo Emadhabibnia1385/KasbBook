@@ -284,8 +284,29 @@ class Conversation:
                 return screens.pick_book(await self.books.books_for_user(user.id), "tx")
 
             draft["direction"] = argument
+            flow = Flow(argument)
+
+            # Kept in the draft so a press can name one by position. The
+            # callback payload has sixty-four bytes; a Persian category does
+            # not reliably fit, and a button that overflows it fails silently.
+            recent = list(await self.ledger.recent_categories(
+                uuid.UUID(draft["book_id"]), user.id, flow
+            ))
+            draft["recent"] = recent
             await self.state.set(key, draft)
-            return screens.ask_category(Flow(argument))
+            return screens.ask_category(flow, recent)
+
+        if action == "cat":
+            draft = await self.state.get(key)
+            recent = draft.get("recent") or []
+            try:
+                draft["category"] = recent[int(argument)]
+            except (ValueError, IndexError):
+                # The suggestions moved on since this screen was drawn.
+                return screens.ask_category(Flow(draft.get("direction", "expense")), recent)
+
+            await self.state.set(key, draft)
+            return screens.ask_amount(draft["category"])
 
         return screens.pick_book(await self.books.books_for_user(user.id), "tx")
 

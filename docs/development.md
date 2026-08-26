@@ -7,10 +7,15 @@ git clone -b v2 https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook
 python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
+./venv/bin/pip install --no-deps -e .
 ./venv/bin/python -m pytest tests/v2 -q
 ```
 
-397 tests, about forty seconds, on SQLite. No network, no token, no database
+The editable install is what makes `kasbbook` importable because it is
+installed, rather than because something arranged `sys.path` first. That
+arrangement has broken three times — see [troubleshooting.md](./troubleshooting.md).
+
+406 tests, about forty seconds, on SQLite. No network, no token, no database
 server.
 
 Six migration tests skip unless `KASBBOOK_TEST_POSTGRES_URL` is set — that is

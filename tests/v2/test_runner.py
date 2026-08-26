@@ -382,3 +382,64 @@ async def test_the_signing_key_has_no_default():
         Settings(database_url="sqlite+aiosqlite://").require_secret_key()
 
     assert "KASBBOOK_SECRET_KEY" in str(caught.value)
+
+
+# ------------------------------------------------------------- packaging
+#
+# `tomllib` is stdlib from 3.11, which is also this project's floor. Skipping on
+# anything older keeps a developer on an old interpreter running the rest of the
+# suite; CI is on 3.12, so these always run where it counts.
+needs_tomllib = pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="tomllib arrived in 3.11"
+)
+
+
+@needs_tomllib
+async def test_the_two_dependency_lists_agree():
+    """pyproject.toml and requirements-v2.txt both name the runtime dependencies.
+
+    Two lists is one more than ideal, but pip wants a requirements file and the
+    package metadata wants its own. What is not acceptable is them disagreeing:
+    an installed wheel that pulls a different set than a deployment does is a
+    difference nobody discovers until something is missing in production.
+    """
+    import re
+    import tomllib
+
+    repo = Path(__file__).resolve().parents[2]
+
+    def name_of(spec: str) -> str:
+        # "uvicorn[standard]>=0.32" and "uvicorn>=0.30" are the same package.
+        return re.split(r"[<>=!\[;]", spec.strip(), 1)[0].strip().lower()
+
+    declared = {
+        name_of(item)
+        for item in tomllib.loads(
+            (repo / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]["dependencies"]
+    }
+    required = {
+        name_of(line)
+        for line in (repo / "requirements-v2.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "-"))
+    }
+
+    assert declared == required, (
+        f"only in pyproject: {sorted(declared - required)}; "
+        f"only in requirements: {sorted(required - declared)}"
+    )
+
+
+@needs_tomllib
+async def test_the_console_entry_point_exists():
+    """pyproject names `apps.bot.runner:run`; a typo there fails at install time."""
+    import tomllib
+
+    repo = Path(__file__).resolve().parents[2]
+    scripts = tomllib.loads(
+        (repo / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["scripts"]
+
+    module_path, _, attribute = scripts["kasbbook-bot"].partition(":")
+    module = __import__(module_path, fromlist=[attribute])
+    assert callable(getattr(module, attribute))

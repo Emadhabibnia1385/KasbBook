@@ -61,9 +61,7 @@ no inbound port, which is most of the boxes this will ever run on.
 
 | | |
 |---|---|
-| **`pyproject.toml`** | The API unit sets `PYTHONPATH` because the package is not installed. `pip install -e .` would remove that. |
 | **Attachment types beyond photos** | Documents and voice parse already; only photos are wired to receipts. |
-| **Category suggestions** | The bot knows what you have typed before and could offer it. |
 | **Budget periods other than monthly** | The model has `kind`; only monthly is exercised. |
 | **Exports beyond CSV** | A real accountant wants something their software imports. |
 

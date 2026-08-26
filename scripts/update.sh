@@ -30,6 +30,7 @@ roll_back() {
     warn "rolling back to $PREVIOUS"
     git reset --quiet --hard "$PREVIOUS"
     ./venv/bin/pip install --quiet -r requirements-v2.txt || true
+    ./venv/bin/pip install --quiet --no-deps -e . || true
     install_units
     for unit in "${UNITS[@]}"; do
         systemctl restart "$unit" 2>/dev/null || true
@@ -56,6 +57,7 @@ git log --oneline -1
 
 say "dependencies"
 ./venv/bin/pip install --quiet --upgrade -r requirements-v2.txt || roll_back
+./venv/bin/pip install --quiet --no-deps -e . || roll_back
 
 say "tests"
 # Run before the migration, not after: a suite that fails here means the commit

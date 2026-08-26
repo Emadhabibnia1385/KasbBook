@@ -13,7 +13,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, Sequence, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import BalanceError, NotFound, ValidationError
@@ -220,6 +220,33 @@ class LedgerService:
 
         stmt = stmt.order_by(Transaction.occurred_on, Transaction.created_at)
         return (await self.session.execute(stmt)).scalars().all()
+
+    async def recent_categories(
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        flow: Flow,
+        limit: int = 6,
+    ) -> Sequence[str]:
+        """The categories this book actually uses, most recent first.
+
+        Ordered by last use rather than by count, because a shop's categories
+        drift: what was typed most often last year is not what is being typed
+        this week, and the point of offering them is to save typing the next
+        one — not to be a historically accurate ranking.
+        """
+        await self.books.require(book_id, user_id, Permission.VIEW_TRANSACTIONS)
+
+        rows = (
+            await self.session.execute(
+                select(Transaction.category, func.max(Transaction.created_at))
+                .where(Transaction.book_id == book_id, Transaction.flow == flow)
+                .group_by(Transaction.category)
+                .order_by(func.max(Transaction.created_at).desc())
+                .limit(limit)
+            )
+        ).all()
+        return [row[0] for row in rows]
 
     async def totals(
         self,

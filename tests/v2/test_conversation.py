@@ -19,6 +19,7 @@ from kasbbook.modules.books.models import BookType
 from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.models import Provider
 from kasbbook.modules.identity.service import IdentityService
+from kasbbook.modules.ledger.models import Flow, Scope
 from kasbbook.modules.ledger.service import LedgerService
 from kasbbook.shared.parsing import parse_amount, parse_date
 
@@ -373,3 +374,158 @@ async def test_every_button_prefix_the_screens_emit_is_routed():
 
     unrouted = emitted - routed
     assert not unrouted, f"screens emit prefixes nothing handles: {sorted(unrouted)}"
+
+
+# ------------------------------------------------------- category suggestions
+#
+# A category is typed on every single entry, so the ones this book already uses
+# are the highest-value buttons in the bot. They are offered by index, not by
+# name: a callback payload is sixty-four bytes and a Persian category does not
+# reliably fit — a button that overflows it fails silently.
+
+async def test_the_first_transaction_has_nothing_to_suggest(session):
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    convo = await conversation(session)
+
+    await convo.handle(press(f"tx:book:{book.id}"))
+    reply = await convo.handle(press("tx:flow:expense"))
+
+    assert "دسته" in reply.text
+    assert [b.text for row in reply.buttons for b in row] == ["↩️ انصراف"]
+
+
+async def test_categories_already_used_are_offered_as_buttons(session):
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    ledger = LedgerService(session)
+    for category in ("اجاره", "قبض برق", "حقوق"):
+        await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, category, 100)
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    reply = await convo.handle(press("tx:flow:expense"))
+
+    labels = [b.text for row in reply.buttons for b in row]
+    for category in ("اجاره", "قبض برق", "حقوق"):
+        assert category in labels
+
+
+async def test_income_categories_are_not_offered_for_an_expense(session):
+    """Suggesting "فروش" as an expense would be worse than suggesting nothing."""
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    ledger = LedgerService(session)
+    await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 100)
+    await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, "اجاره", 100)
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    reply = await convo.handle(press("tx:flow:expense"))
+
+    labels = [b.text for row in reply.buttons for b in row]
+    assert "اجاره" in labels
+    assert "فروش" not in labels
+
+
+async def test_pressing_a_suggestion_skips_straight_to_the_amount(session):
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, "اجاره", 100
+    )
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    await convo.handle(press("tx:flow:expense"))
+    reply = await convo.handle(press("tx:cat:0"))
+
+    assert "اجاره" in reply.text
+    assert "مبلغ" in reply.text
+
+
+async def test_a_suggested_category_records_the_transaction(session):
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    ledger = LedgerService(session)
+    await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, "اجاره", 100)
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    await convo.handle(press("tx:flow:expense"))
+    await convo.handle(press("tx:cat:0"))
+    await convo.handle(says("۲م"))
+
+    rows = await ledger.transactions(book.id, user.id)
+    assert len(rows) == 2
+    assert rows[-1].category == "اجاره"
+    assert rows[-1].converted_amount == Decimal("2000000")
+
+
+async def test_typing_a_new_category_still_works(session):
+    """The buttons are a shortcut, not a menu. Anything else is still accepted."""
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, "اجاره", 100
+    )
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    await convo.handle(press("tx:flow:expense"))
+    await convo.handle(says("چیز تازه"))
+    await convo.handle(says("۵۰۰ک"))
+
+    rows = await LedgerService(session).transactions(book.id, user.id)
+    assert rows[-1].category == "چیز تازه"
+
+
+async def test_a_stale_suggestion_index_asks_again_rather_than_crashing(session):
+    """The screen was drawn before; the list may have moved on since."""
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, "اجاره", 100
+    )
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    await convo.handle(press("tx:flow:expense"))
+    reply = await convo.handle(press("tx:cat:99"))
+
+    assert "دسته" in reply.text
+
+
+async def test_only_the_most_recent_handful_are_offered(session):
+    """Twenty buttons is not a shortcut, it is a wall."""
+    user = await linked_user(session)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    ledger = LedgerService(session)
+    for index in range(12):
+        await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, f"د{index}", 100)
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{book.id}"))
+    reply = await convo.handle(press("tx:flow:expense"))
+
+    suggestions = [
+        b for row in reply.buttons for b in row if (b.data or "").startswith("tx:cat:")
+    ]
+    assert len(suggestions) == 6
+
+
+async def test_another_books_categories_are_not_suggested(session):
+    user = await linked_user(session)
+    books = BookService(session)
+    shop = await books.create_book(user.id, "مغازه", BookType.BUSINESS)
+    home = await books.create_book(user.id, "خانه", BookType.PERSONAL)
+    await LedgerService(session).record(
+        shop.id, user.id, Flow.EXPENSE, Scope.WORK, "اجارهٔ مغازه", 100
+    )
+
+    convo = await conversation(session)
+    await convo.handle(press(f"tx:book:{home.id}"))
+    reply = await convo.handle(press("tx:flow:expense"))
+
+    labels = [b.text for row in reply.buttons for b in row]
+    assert "اجارهٔ مغازه" not in labels

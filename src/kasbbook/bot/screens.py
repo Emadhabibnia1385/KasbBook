@@ -145,11 +145,30 @@ def pick_flow(book: Book) -> Screen:
     ]
 
 
-def ask_category(flow: Flow) -> Screen:
+def ask_category(flow: Flow, recent: Sequence[str] = ()) -> Screen:
+    """Ask, but offer what this book already uses.
+
+    A category is typed on every single entry, so the recent ones are the
+    highest-value buttons in the whole bot. They are offered by *index* rather
+    than by name: a category is free text up to eighty characters, and Telegram
+    gives a callback payload sixty-four bytes — a Persian category would
+    overflow it and the button would silently fail to send.
+    """
     word = "درآمد" if flow is Flow.INCOME else "هزینه"
-    return rtl(f"دستهٔ این {word} چیست؟\n\nمثلاً: فروش، اجاره، حقوق"), [
-        [Button("↩️ انصراف", data="nav:home")]
-    ]
+    text = rtl(f"دستهٔ این {word} چیست؟\n\nمثلاً: فروش، اجاره، حقوق")
+
+    buttons: List[List[Button]] = []
+    row: List[Button] = []
+    for index, category in enumerate(recent[:6]):
+        row.append(Button(category[:18], data=f"tx:cat:{index}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    buttons.append([Button("↩️ انصراف", data="nav:home")])
+    return text, buttons
 
 
 def ask_amount(category: str) -> Screen:

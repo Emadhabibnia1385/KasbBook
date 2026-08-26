@@ -226,8 +226,13 @@ async def main() -> None:
         await database.dispose()
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """The console entry point. `python apps/bot/runner.py` takes the same path."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+
+
+if __name__ == "__main__":
+    run()

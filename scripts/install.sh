@@ -48,6 +48,10 @@ say "python environment"
 [ -d venv ] || python3 -m venv venv
 ./venv/bin/pip install --quiet --upgrade pip
 ./venv/bin/pip install --quiet -r requirements-v2.txt
+# Editable, so `kasbbook` is importable because it is installed rather than
+# because something arranged sys.path first. That arrangement has broken three
+# times, most recently under uvicorn.
+./venv/bin/pip install --quiet --no-deps -e .
 ok "dependencies installed"
 
 # ---------------------------------------------------------------- datastores
