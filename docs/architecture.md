@@ -54,8 +54,8 @@ dialect lives in `adapters/botapi.py` once.
 ### The conversation layer names no provider
 
 `bot/conversation.py` routes callbacks and `bot/screens.py` renders them.
-Screens are pure functions — data in, text and buttons out — so all 71 of them
-are tested without a token, a network, or a database.
+Screens are pure functions — data in, text and buttons out — so every one of
+them is tested without a token, a network, or a database.
 
 The provider arrives as a constructor argument, taken from `adapter.provider`.
 It used to be hardcoded to `Provider.TELEGRAM` in the runner, which meant a
