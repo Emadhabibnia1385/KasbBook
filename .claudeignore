@@ -1,4 +1,0 @@
-# The knowledge graph is queried through the `graphify` CLI, never read as a
-# file — graph.json alone is over a megabyte and would swamp the context it is
-# meant to save.
-graphify-out/
