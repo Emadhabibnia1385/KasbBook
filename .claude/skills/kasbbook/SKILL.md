@@ -74,9 +74,43 @@ Ranked. When two conflict, the earlier wins.
    from (callback, state, DB row, setting) and where does it go (DB write,
    journal entry, message)? Know both ends first.
 
+6. **Simplest correct thing, every time.** Fewer lines, fewer concepts, clearer
+   responsibilities. No abstraction, helper, wrapper or dependency that does
+   not solve a problem you actually have. Three boring explicit lines beat one
+   clever one, because the person debugging a wrong payslip at midnight is not
+   in the mood to be impressed.
+
+7. **Fix the shape, do not stack on it.** If the code you need to change is
+   structurally wrong, refactor what is necessary rather than adding another
+   layer on top. A workaround built over a workaround is how a codebase stops
+   being changeable. Refactor only what the change requires — do not rewrite
+   code that happens to be nearby.
+
 ---
 
-## 2. Hard rules — verified properties of this codebase
+## 2. Never implement an interface from memory
+
+Check the installed version, then read that version's documentation. This
+applies to a provider's bot API, a library, a database behaviour, or any
+pattern you have not personally verified in this codebase.
+
+```bash
+./venv/bin/pip show sqlalchemy fastapi httpx pyjwt   # what is actually installed
+```
+
+Where documentation and memory disagree, documentation wins. Where this
+project's code and the documentation disagree, **investigate before changing
+either** — the code may be working around something real, and the comment
+above it usually says what.
+
+This is not a general caution; it is specific to what this project already is.
+The Bale and Rubika adapters were written from published documentation and, in
+the roadmap's own words, "have not been tested against their live APIs".
+Anything you add there is a second guess stacked on a first one, so verify
+against the provider's documentation rather than against the adapter beside
+you, and say plainly which parts remain unverified.
+
+## 3. Hard rules — verified properties of this codebase
 
 Each of these is real, and most are enforced by a test that will fail if you
 break it.
@@ -125,7 +159,7 @@ break it.
 
 ---
 
-## 3. The guard tests, and what they refuse
+## 4. The guard tests, and what they refuse
 
 These exist to catch a *class* of mistake rather than an instance. If one
 fails, it is almost certainly right and you are almost certainly wrong.
@@ -149,7 +183,7 @@ guard will tell you if you did not.
 
 ---
 
-## 4. Landmines
+## 5. Landmines
 
 Short version. Full accounts with symptoms in `docs/troubleshooting.md` — read
 it before debugging anything odd, because the symptom rarely pointed at the
@@ -186,7 +220,7 @@ cause in any of these.
 
 ---
 
-## 5. Deployment — never improvise
+## 6. Deployment — never improvise
 
 ```bash
 ssh seamless                       # connects as `claude`, not root
@@ -211,7 +245,7 @@ Three things about the server that have each caused an incident:
 
 ---
 
-## 6. Adding a feature
+## 7. Adding a feature
 
 The full walkthrough with the reasoning behind each step is in
 `references/adding-a-feature.md`. Read it when you are about to add one — the
@@ -223,7 +257,7 @@ proving another account cannot reach it.
 
 ---
 
-## 7. Where to read what
+## 8. Where to read what
 
 | Question | File |
 |---|---|
@@ -244,8 +278,12 @@ purpose, with reasons. Check it before "fixing" an omission.
 
 ---
 
-## 8. Working style
+## 9. Working style
 
+- **Look at git before you touch anything.** `git branch --show-current` and
+  `git status`. Work happens on `v2`, which is expected to become `main`, so
+  its stability is not yours to spend. Never reset, discard, force-push or
+  otherwise destroy work you did not create, and never without being asked.
 - **Run the suite before and after.** `pytest tests/v2 -q`. If it was red
   before you started, say so rather than absorbing someone else's failure.
 - **Verify claims against the code, not memory.** This project's own docs
