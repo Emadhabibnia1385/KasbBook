@@ -419,7 +419,7 @@ CALLS = {
     "delete_message": lambda a: a.delete_message("1", "9"),
     "send_file": lambda a: a.send_file("1", b"data", "export.csv"),
     "send_plain": lambda a: a.send_plain("1", "خلاصهٔ امروز"),
-    "send_stored_file": lambda a: a.send_stored_file("1", "PHOTO-1"),
+    "send_stored_file": lambda a: a.send_stored_file("1", "PHOTO-1", "photo"),
     "answer_callback": lambda a: a.answer_callback("cb1"),
     "set_webhook": lambda a: a.set_webhook("https://example.test/hook"),
     "delete_webhook": lambda a: a.delete_webhook(),
@@ -450,6 +450,19 @@ async def test_a_receipt_is_forwarded_by_id_not_re_uploaded():
 
     assert fake.calls[0]["method"] == "sendPhoto"
     assert fake.calls[0]["body"] == {"chat_id": "555", "photo": "PHOTO-1"}
+
+
+async def test_a_known_document_goes_straight_to_senddocument():
+    """The reason the kind is recorded at all.
+
+    Without it every PDF invoice cost a rejected sendPhoto before reaching
+    sendDocument — a wasted round trip on every view, forever.
+    """
+    fake = FakeTelegram()
+    assert await fake.adapter().send_stored_file("555", "DOC-1", "document") == "42"
+
+    assert [c["method"] for c in fake.calls] == ["sendDocument"]
+    assert fake.calls[0]["body"] == {"chat_id": "555", "document": "DOC-1"}
 
 
 async def test_a_receipt_telegram_calls_a_document_still_arrives():

@@ -61,7 +61,6 @@ no inbound port, which is most of the boxes this will ever run on.
 
 | | |
 |---|---|
-| **Attachment metadata on receipts** | A document sent at the receipt prompt is already stored — `Conversation._attachment` never checks `kind`. What is discarded is its name, MIME type and kind, so nothing downstream can tell a PDF invoice from a photo, and `send_stored_file` burns a failed `sendPhoto` before finding out. |
 | **Budget periods other than monthly** | Both `kind` values are used, but the window is hardcoded to the Jalali month in `BudgetService.status`; there is no period column. |
 | **Exports beyond CSV** | A real accountant wants something their software imports. |
 

@@ -98,8 +98,12 @@ class OutgoingMessage:
     # something you scroll back to, so it must not be edited away later.
     document: Optional[OutgoingFile] = None
     # A file the provider is already storing, forwarded by its own id rather
-    # than downloaded and re-uploaded. Receipts work this way.
+    # than downloaded and re-uploaded. Receipts work this way. The kind travels
+    # with it so the adapter can pick the right method instead of trying one
+    # and wearing the rejection; None means it was attached before kinds were
+    # recorded, and the adapter falls back to guessing.
     forward_file_id: Optional[str] = None
+    forward_file_kind: Optional[str] = None
 
 
 @dataclass(frozen=True)

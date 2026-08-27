@@ -122,6 +122,12 @@ curl -X POST /api/v1/books/$BOOK/transactions \
   -d '{"flow":"income","category":"فروش","amount":"250000","occurred_on":"2026-08-25"}'
 ```
 
+A transaction carries `has_receipt`, `receipt_kind` and `receipt_file_name`.
+The file id itself is not returned: it is opaque and scoped to the messenger
+holding the file, so it would mean nothing here and handing it out only widens
+what a leak exposes. Attaching a receipt is a bot flow — there is no upload
+endpoint yet.
+
 `scope` is optional and defaults from the book type. `currency` defaults to the
 book's base currency; a different one captures a conversion rate at that moment
 and never re-applies it.

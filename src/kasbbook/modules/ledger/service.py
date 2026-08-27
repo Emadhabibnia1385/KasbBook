@@ -303,8 +303,16 @@ class LedgerService:
         transaction_id: uuid.UUID,
         file_id: Optional[str],
         provider: Optional[str],
+        kind: Optional[str] = None,
+        file_name: Optional[str] = None,
+        mime_type: Optional[str] = None,
     ) -> Transaction:
-        """Point a transaction at a receipt the messenger is already holding."""
+        """Point a transaction at a receipt the messenger is already holding.
+
+        Passing `file_id=None` detaches it. Every field goes with it — a name
+        left behind on a transaction with no receipt is a screen confidently
+        describing a file that is not there any more.
+        """
         await self.books.require(book_id, user_id, Permission.EDIT_TRANSACTION)
 
         transaction = await self.session.get(Transaction, transaction_id)
@@ -313,6 +321,9 @@ class LedgerService:
 
         transaction.receipt_file_id = file_id
         transaction.receipt_provider = provider if file_id else None
+        transaction.receipt_kind = kind if file_id else None
+        transaction.receipt_file_name = (file_name or None) if file_id else None
+        transaction.receipt_mime_type = (mime_type or None) if file_id else None
         await self.session.flush()
         return transaction
 

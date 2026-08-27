@@ -213,4 +213,7 @@ def _transaction(row) -> TransactionResponse:
         description=row.description,
         occurred_on=row.occurred_on,
         created_at=row.created_at,
+        has_receipt=row.receipt_file_id is not None,
+        receipt_kind=row.receipt_kind,
+        receipt_file_name=row.receipt_file_name,
     )

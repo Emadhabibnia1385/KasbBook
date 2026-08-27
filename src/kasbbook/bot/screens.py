@@ -643,6 +643,23 @@ def transaction_list(book: Book, rows, page: int, total: int, per_page: int = 8)
     return rtl("\n".join(lines)), buttons
 
 
+RECEIPT_KINDS = {
+    "photo": "عکس",
+    "document": "فایل",
+    "voice": "صدا",
+}
+
+
+def _receipt_line(tx) -> str:
+    """"دارد" is true but unhelpful once a receipt can be a PDF invoice."""
+    if not tx.receipt_file_id:
+        return "ندارد"
+
+    label = RECEIPT_KINDS.get(tx.receipt_kind or "", "دارد")
+    # The name is the useful part when there is one; a till-roll photo has none.
+    return f"{label} — {tx.receipt_file_name}" if tx.receipt_file_name else label
+
+
 def transaction_detail(book: Book, tx) -> Screen:
     from ..shared import jalali
 
@@ -660,7 +677,7 @@ def transaction_detail(book: Book, tx) -> Screen:
                      f" (نرخ {tx.conversion_rate})")
     if tx.description:
         lines.append(f"📝 {tx.description}")
-    lines.append("🧾 رسید: " + ("دارد" if tx.receipt_file_id else "ندارد"))
+    lines.append("🧾 رسید: " + _receipt_line(tx))
 
     buttons: List[List[Button]] = []
     if tx.receipt_file_id:

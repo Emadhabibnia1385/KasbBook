@@ -330,3 +330,46 @@ async def test_readyz_actually_queries(api):
     response = await api.get("/readyz")
     assert response.status_code == 200
     assert response.json()["database"] == "reachable"
+
+
+# ------------------------------------------------------------- receipts
+async def test_a_transaction_reports_whether_it_has_a_receipt(api, db):
+    """The bot can attach one; the API should at least be able to see it.
+
+    The file id itself is deliberately not returned — it is opaque and scoped
+    to the messenger holding the file, so it would mean nothing to an HTTP
+    client and handing it out only widens what a leak exposes.
+    """
+    tokens = await register(api)
+    book = (await api.post("/api/v1/books", headers=bearer(tokens),
+                           json={"name": "مغازه", "type": "business"})).json()
+    created = (await api.post(
+        f"/api/v1/books/{book['id']}/transactions", headers=bearer(tokens),
+        json={"flow": "expense", "category": "خرید", "amount": "500000"},
+    )).json()
+
+    assert created["has_receipt"] is False
+    assert created["receipt_kind"] is None
+
+    # Attach one the way the bot does, through the same service.
+    import uuid as _uuid
+
+    from kasbbook.modules.ledger.service import LedgerService
+
+    async for session in db.session():
+        me = (await api.get("/api/v1/auth/me", headers=bearer(tokens))).json()
+        await LedgerService(session).attach_receipt(
+            _uuid.UUID(book["id"]), _uuid.UUID(me["id"]), _uuid.UUID(created["id"]),
+            "DOC-1", "telegram", kind="document", file_name="invoice.pdf",
+        )
+        await session.commit()
+
+    fetched = (await api.get(
+        f"/api/v1/books/{book['id']}/transactions/{created['id']}",
+        headers=bearer(tokens),
+    )).json()
+
+    assert fetched["has_receipt"] is True
+    assert fetched["receipt_kind"] == "document"
+    assert fetched["receipt_file_name"] == "invoice.pdf"
+    assert "receipt_file_id" not in fetched

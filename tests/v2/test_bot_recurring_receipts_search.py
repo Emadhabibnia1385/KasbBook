@@ -135,7 +135,9 @@ async def test_a_photo_becomes_the_receipt_for_a_transaction(session):
     stored = await LedgerService(session).get_transaction(book.id, user.id, tx.id)
     assert stored.receipt_file_id == "PHOTO-XYZ"
     assert stored.receipt_provider == "telegram"
-    assert "دارد" in reply.text
+    assert stored.receipt_kind == "photo"
+    # The screen names what it is rather than only that it exists.
+    assert "عکس" in reply.text
 
 
 async def test_a_photo_sent_out_of_the_blue_is_not_a_receipt(session):
@@ -314,3 +316,121 @@ async def test_one_account_cannot_open_another_accounts_transaction(session):
 
     assert "پیدا نشد" in reply.text
     assert "خصوصی" not in reply.text
+
+
+# ------------------------------------------------- what a receipt actually is
+#
+# A provider's file id is opaque. Storing it alone meant a PDF invoice and a
+# photograph of a till roll were indistinguishable: the screen could only say
+# "دارد", and sending one back had to try sendPhoto and wear the rejection
+# before reaching sendDocument.
+
+def sends_document(file_id="DOC-1", name="invoice-1405-06.pdf",
+                   mime="application/pdf", external_id="555001"):
+    return IncomingEvent(
+        kind=EventKind.ATTACHMENT,
+        identity=ChannelIdentity(TG, external_id, "emad", "عماد"),
+        chat_id=external_id, message_id="11",
+        attachment=Attachment(kind="document", file_id=file_id,
+                              file_name=name, mime_type=mime),
+    )
+
+
+async def test_a_pdf_invoice_keeps_its_name_and_type(session):
+    user, book, convo = await setup(session)
+    tx = await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, "خرید", 500
+    )
+
+    await convo.handle(press(f"td:rcp:{tx.id}"))
+    reply = await convo.handle(sends_document())
+
+    stored = await LedgerService(session).get_transaction(book.id, user.id, tx.id)
+    assert stored.receipt_file_id == "DOC-1"
+    assert stored.receipt_kind == "document"
+    assert stored.receipt_file_name == "invoice-1405-06.pdf"
+    assert stored.receipt_mime_type == "application/pdf"
+
+    # And the screen names it rather than saying only that one exists.
+    assert "invoice-1405-06.pdf" in reply.text
+
+
+async def test_a_photo_has_no_name_and_the_screen_does_not_invent_one(session):
+    user, book, convo = await setup(session)
+    tx = await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, "اجاره", 500
+    )
+
+    await convo.handle(press(f"td:rcp:{tx.id}"))
+    reply = await convo.handle(sends_photo("PHOTO-9"))
+
+    assert "عکس" in reply.text
+    assert "—" not in reply.text.split("رسید:")[1]
+
+
+async def test_removing_a_receipt_takes_its_name_with_it(session):
+    """A name left behind describes a file that is not there any more."""
+    user, book, convo = await setup(session)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, "خرید", 500)
+
+    await convo.handle(press(f"td:rcp:{tx.id}"))
+    await convo.handle(sends_document())
+    reply = await convo.handle(press(f"td:rcpd:{tx.id}"))
+
+    stored = await ledger.get_transaction(book.id, user.id, tx.id)
+    assert stored.receipt_file_id is None
+    assert stored.receipt_kind is None
+    assert stored.receipt_file_name is None
+    assert stored.receipt_mime_type is None
+    assert "ندارد" in reply.text
+    assert "invoice" not in reply.text
+
+
+async def test_viewing_a_receipt_hands_the_adapter_its_kind(session):
+    """Without this the recorded kind is never used where it would save a call."""
+    user, book, convo = await setup(session)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, "خرید", 500)
+    await ledger.attach_receipt(book.id, user.id, tx.id, "DOC-2", "telegram",
+                                kind="document", file_name="f.pdf")
+
+    reply = await convo.handle(press(f"td:rcpv:{tx.id}"))
+    assert reply.forward_file_id == "DOC-2"
+    assert reply.forward_file_kind == "document"
+    assert reply.document is None      # still nothing downloaded or re-uploaded
+
+
+async def test_a_receipt_attached_before_kinds_existed_still_works(session):
+    """Every row already in production has these three columns empty."""
+    user, book, convo = await setup(session)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.EXPENSE, Scope.WORK, "خرید", 500)
+    await ledger.attach_receipt(book.id, user.id, tx.id, "OLD-1", "telegram")
+
+    reply = await convo.handle(press(f"td:rcpv:{tx.id}"))
+    assert reply.forward_file_id == "OLD-1"
+    assert reply.forward_file_kind is None
+
+    detail = await convo.handle(press(f"td:open:{tx.id}"))
+    assert "دارد" in detail.text
+
+
+async def test_one_account_cannot_attach_a_receipt_to_anothers_transaction(session):
+    owner, book, _ = await setup(session)
+    tx = await LedgerService(session).record(
+        book.id, owner.id, Flow.EXPENSE, Scope.WORK, "خصوصی", 500
+    )
+
+    identity = IdentityService(session)
+    stranger = await identity.create_user("غریبه")
+    issued = await identity.start_link_from_web(stranger.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "999")
+
+    other = Conversation(session, MemoryStateStore(), TG)
+    await other.handle(press(f"td:rcp:{tx.id}", external_id="999"))
+    await other.handle(sends_document(external_id="999"))
+
+    stored = await LedgerService(session).get_transaction(book.id, owner.id, tx.id)
+    assert stored.receipt_file_id is None
+    assert stored.receipt_file_name is None

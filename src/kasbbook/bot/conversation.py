@@ -81,6 +81,7 @@ class Conversation:
         self._pending_file: Optional[OutgoingFile] = None
         # A receipt the provider already holds: forwarded by id, never downloaded.
         self._forward_file_id: Optional[str] = None
+        self._forward_file_kind: Optional[str] = None
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
@@ -98,6 +99,7 @@ class Conversation:
             buttons=buttons,
             document=self._pending_file,
             forward_file_id=self._forward_file_id,
+            forward_file_kind=self._forward_file_kind,
             # Editing the screen in place is what keeps the chat a panel rather
             # than a transcript; the adapter falls back to a new message if the
             # anchor is gone.
@@ -360,6 +362,9 @@ class Conversation:
         await self.ledger.attach_receipt(
             book.id, user.id, uuid.UUID(draft["tx_id"]),
             event.attachment.file_id, self.provider.value,
+            kind=event.attachment.kind,
+            file_name=event.attachment.file_name,
+            mime_type=event.attachment.mime_type,
         )
         await self.state.clear(key)
 
@@ -415,6 +420,7 @@ class Conversation:
             # can forward it without us ever holding the bytes.
             self._pending_file = None
             self._forward_file_id = tx.receipt_file_id
+            self._forward_file_kind = tx.receipt_kind
             return screens.transaction_detail(book, tx)
 
         if action == "rcpd":

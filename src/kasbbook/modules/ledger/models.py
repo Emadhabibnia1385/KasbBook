@@ -123,6 +123,13 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
     # is opaque and provider-scoped, which is why the provider is stored too.
     receipt_file_id: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     receipt_provider: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # What the file is, kept because the id does not say. Without these a PDF
+    # invoice and a photo of a till roll are indistinguishable: the screen
+    # cannot name it and sending it back has to guess the method and wear a
+    # failed call when it guesses wrong.
+    receipt_kind: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    receipt_file_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    receipt_mime_type: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
     original_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
     original_currency: Mapped[str] = mapped_column(String(8), nullable=False)

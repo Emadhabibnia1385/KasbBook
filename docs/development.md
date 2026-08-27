@@ -15,7 +15,7 @@ The editable install is what makes `kasbbook` importable because it is
 installed, rather than because something arranged `sys.path` first. That
 arrangement has broken three times — see [troubleshooting.md](./troubleshooting.md).
 
-406 tests, about forty seconds, on SQLite. No network, no token, no database
+414 tests, about forty seconds, on SQLite. No network, no token, no database
 server.
 
 Six migration tests skip unless `KASBBOOK_TEST_POSTGRES_URL` is set — that is

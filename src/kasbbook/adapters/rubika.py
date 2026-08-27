@@ -330,7 +330,10 @@ class RubikaAdapter:
         result = await self._call("sendFile", **params)
         return str(result.get("message_id")) if result else None
 
-    async def send_stored_file(self, chat_id: str, file_id: str) -> Optional[str]:
+    async def send_stored_file(
+        self, chat_id: str, file_id: str, kind: Optional[str] = None
+    ) -> Optional[str]:
+        """Rubika has one method for every file, so the kind changes nothing."""
         result = await self._call("sendFile", chat_id=chat_id, file_id=file_id)
         return str(result.get("message_id")) if result else None
 

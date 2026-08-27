@@ -91,6 +91,14 @@ Receipts store the **provider's file id**, never the bytes. Showing one sends
 that id back. Nothing is downloaded, nothing is stored, and there is no bucket
 of other people's photographs to secure.
 
+Alongside the id sit `receipt_kind`, `receipt_file_name` and
+`receipt_mime_type`, because the id is opaque and says none of that. Without
+them a PDF invoice and a photograph of a till roll are the same row: the screen
+can only say "there is one", and sending it back has to try `sendPhoto` and
+wear the rejection before reaching `sendDocument`. All three are nullable —
+every receipt attached before they existed has them empty, and the code falls
+back to guessing for those.
+
 ## Planning
 
 | Model | What it holds |

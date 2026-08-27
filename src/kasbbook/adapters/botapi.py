@@ -284,16 +284,33 @@ class BotApiAdapter:
         body = response.json()
         return str(body["result"]["message_id"]) if body.get("ok") else None
 
-    async def send_stored_file(self, chat_id: str, file_id: str) -> Optional[str]:
+    # Which method sends each kind back. Anything not listed falls through to
+    # the order below, which is the behaviour from before kinds were recorded.
+    SEND_METHOD_FOR_KIND = {"photo": "sendPhoto", "document": "sendDocument",
+                            "voice": "sendVoice"}
+    SEND_FIELD = {"sendPhoto": "photo", "sendDocument": "document",
+                  "sendVoice": "voice"}
+
+    async def send_stored_file(
+        self, chat_id: str, file_id: str, kind: Optional[str] = None
+    ) -> Optional[str]:
         """Forward a file the provider already has, by its id.
 
         Sending the id back is what keeps a receipt out of our storage entirely.
-        A file id does not say whether it is a photo or a document, so the
-        second call covers the case the first rejects.
+        A file id does not say what it is, so without a recorded kind this tries
+        each method until one is accepted — which costs a rejected call every
+        time the first guess is wrong. `kind` skips the guessing; it is optional
+        because receipts attached before that column existed do not have one.
         """
-        for method in ("sendPhoto", "sendDocument"):
-            field = "photo" if method == "sendPhoto" else "document"
-            result = await self._call(method, **{"chat_id": chat_id, field: file_id})
+        first = self.SEND_METHOD_FOR_KIND.get(kind or "")
+        methods = ["sendPhoto", "sendDocument"]
+        if first:
+            methods = [first] + [m for m in methods if m != first]
+
+        for method in methods:
+            result = await self._call(
+                method, **{"chat_id": chat_id, self.SEND_FIELD[method]: file_id}
+            )
             if result is not None:
                 return str(result.get("message_id"))
         return None

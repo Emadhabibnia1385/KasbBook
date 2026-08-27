@@ -14,7 +14,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Tests](https://img.shields.io/badge/tests-406-success?style=flat-square)](./tests/v2)
+[![Tests](https://img.shields.io/badge/tests-414-success?style=flat-square)](./tests/v2)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 [English](./README.md) · **فارسی**
@@ -136,7 +136,7 @@ cd KasbBook && python3 -m venv venv
 ./venv/bin/python -m pytest tests/v2 -q
 ```
 
-کل تست‌ها روی SQLite اجرا می‌شوند، بدون شبکه و بدون توکن — ۴۰۶ تست در حدود
+کل تست‌ها روی SQLite اجرا می‌شوند، بدون شبکه و بدون توکن — ۴۱۴ تست در حدود
 چهل ثانیه. تست‌های مایگریشن اگر `KASBBOOK_TEST_POSTGRES_URL` تنظیم باشد روی
 پستگرس واقعی هم تمرین می‌کنند، و CI دقیقاً همین کار را می‌کند، چون خرابی‌های
 جالب همان‌جا زندگی می‌کنند.

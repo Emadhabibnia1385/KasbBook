@@ -163,6 +163,12 @@ class TransactionResponse(MoneyModel):
     description: Optional[str] = None
     occurred_on: date
     created_at: datetime
+    # Enough to know a receipt exists and what it is. The file itself stays on
+    # the messenger that received it — the id is opaque and provider-scoped, so
+    # it would mean nothing to an HTTP client and is deliberately not returned.
+    has_receipt: bool = False
+    receipt_kind: Optional[str] = None
+    receipt_file_name: Optional[str] = None
 
 
 class TransactionPage(Model):

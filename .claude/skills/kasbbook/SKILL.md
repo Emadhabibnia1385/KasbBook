@@ -22,7 +22,7 @@ pages); this is how to work without breaking them.
 
 If you have also worked in the sibling `Seamless_bot` repository, unlearn its
 rule: there, tests are forbidden because they mock the boundaries where the
-real bugs live. KasbBook is the opposite. It has 406 tests that run on SQLite
+real bugs live. KasbBook is the opposite. It has 414 tests that run on SQLite
 with no network and no token in about forty seconds, they test through the same
 seams a user crosses, and they have caught real production bugs repeatedly.
 
