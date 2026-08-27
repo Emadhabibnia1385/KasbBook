@@ -1,0 +1,162 @@
+[
+ {
+  "id": 1,
+  "should_trigger": true,
+  "query": "میخوام تو KasbBook یه ستون جدید به transactions اضافه کنم برای شماره فاکتور. با alembic چطوری این کارو بکنم که رو سرور هم مشکل نخوره؟"
+ },
+ {
+  "id": 2,
+  "should_trigger": true,
+  "query": "the payroll calculate endpoint keeps returning 422 saying no member has a share, but i definitely set shares for both people yesterday. where do i even start looking"
+ },
+ {
+  "id": 3,
+  "should_trigger": true,
+  "query": "ok so alembic autogenerate is spitting out like 30 ALTER COLUMN TYPE statements for money columns i never touched. amount, net_pay, debit, credit, all of them. is that normal"
+ },
+ {
+  "id": 4,
+  "should_trigger": true,
+  "query": "i want to add a button on the book workspace screen that shows the trial balance for that book. where does that code go and what do i need to be careful about"
+ },
+ {
+  "id": 5,
+  "should_trigger": true,
+  "query": "the bot stopped answering after i moved runner.py. journalctl says ModuleNotFoundError: No module named 'telegram' but we dropped python-telegram-bot ages ago"
+ },
+ {
+  "id": 6,
+  "should_trigger": true,
+  "query": "بودجه‌ها فقط ماهانه‌ان، میخوام هفتگی و سالانه هم بشه تعریف کرد. از کجا شروع کنم و چه چیزهایی رو نباید بشکنم؟"
+ },
+ {
+  "id": 7,
+  "should_trigger": true,
+  "query": "need to push the latest v2 branch to production. whats the right way, i dont want to break the bot for people mid-month"
+ },
+ {
+  "id": 8,
+  "should_trigger": true,
+  "query": "can you review the changes i made to src/kasbbook/modules/ledger/service.py? added a method to bulk-import transactions from a csv"
+ },
+ {
+  "id": 9,
+  "should_trigger": true,
+  "query": "adding an endpoint so an accountant can pull a whole year of transactions as json. what conventions do i need to follow for the amounts and the dates"
+ },
+ {
+  "id": 10,
+  "should_trigger": true,
+  "query": "how should i test the new debt settlement flow? there's a bot side and an api side and i'm not sure how much to cover"
+ },
+ {
+  "id": 11,
+  "should_trigger": false,
+  "query": "the seamless bot's callbacks.py dispatcher has a branch shadowing another one — wallet:charge never fires, it gets eaten by an earlier startswith. ~33k lines, where do i even look"
+ },
+ {
+  "id": 12,
+  "should_trigger": false,
+  "query": "add a new payment gateway to the reseller sub-bot. it posts a callback to /gateway/<bot_username>/verify and i need to check the signature before fulfilling"
+ },
+ {
+  "id": 13,
+  "should_trigger": false,
+  "query": "i have a fastapi service at work that needs refresh token rotation with theft detection. whats the standard pattern for that, is there a library"
+ },
+ {
+  "id": 14,
+  "should_trigger": false,
+  "query": "i've got a pandas dataframe with a column of gregorian dates and i need them as jalali strings for a report my manager wants. jdatetime is installed"
+ },
+ {
+  "id": 15,
+  "should_trigger": false,
+  "query": "can you explain double entry bookkeeping to me? my accountant sent a trial balance and i genuinely don't understand what i'm looking at"
+ },
+ {
+  "id": 16,
+  "should_trigger": false,
+  "query": "my alembic upgrade is failing on a unique constraint in the analytics service, postgres says duplicate key value violates uq_events_session_id. its a separate repo from the main app"
+ },
+ {
+  "id": 17,
+  "should_trigger": false,
+  "query": "write me a telegram bot in python that echoes whatever you send it, just to learn the api. i've got a token from botfather"
+ },
+ {
+  "id": 18,
+  "should_trigger": false,
+  "query": "sqlalchemy 2 async keeps throwing greenlet_spawn has not been called on a relationship access. its a side project, small flask-ish thing, one file"
+ },
+ {
+  "id": 19,
+  "should_trigger": false,
+  "query": "whats the better call for storing money in postgres — numeric with a scale, or bigint of cents? building a payments table from scratch and want to get it right"
+ },
+ {
+  "id": 20,
+  "should_trigger": false,
+  "query": "help me write a systemd unit for a node app. needs Restart=always and to read an env file, and it keeps dying silently on boot"
+ },
+ {
+  "id": 21,
+  "should_trigger": true,
+  "query": "دیروز خلاصهٔ روزانه برای یکی از کاربرها دوبار رفت. باید چک کنم چرا"
+ },
+ {
+  "id": 22,
+  "should_trigger": true,
+  "query": "someone attached a photo as a receipt and now the detail screen says ندارد. i can see the file_id in the db though"
+ },
+ {
+  "id": 23,
+  "should_trigger": true,
+  "query": "the csv export has the jalali date in the wrong column and the amounts lost their decimals. accountant is annoyed"
+ },
+ {
+  "id": 24,
+  "should_trigger": true,
+  "query": "how do i make sure a migration that adds a NOT NULL column won't blow up on a table that already has a few thousand rows in production"
+ },
+ {
+  "id": 25,
+  "should_trigger": true,
+  "query": "login is getting hammered from one ip. is there rate limiting on it already or do i need to add it"
+ },
+ {
+  "id": 26,
+  "should_trigger": true,
+  "query": "the search screen only totals the current page instead of all the matches i think. can you check"
+ },
+ {
+  "id": 27,
+  "should_trigger": true,
+  "query": "redis went down on the box overnight. what breaks and what just degrades"
+ },
+ {
+  "id": 28,
+  "should_trigger": false,
+  "query": "our seamless license center issues machine_id-bound licenses and the process manager on :7070 restarts the customer bots. i need to add a heartbeat endpoint"
+ },
+ {
+  "id": 29,
+  "should_trigger": false,
+  "query": "the mini app backend needs a refresh token endpoint, it's the /internal/v2/ surface behind the flask app in main.py"
+ },
+ {
+  "id": 30,
+  "should_trigger": false,
+  "query": "design a logo and a brand palette for a bookkeeping app called KasbBook, something that reads well in persian"
+ },
+ {
+  "id": 31,
+  "should_trigger": false,
+  "query": "postgres on the shared box is at 92% disk. which of the ~30 services is eating it and can i safely vacuum anything"
+ },
+ {
+  "id": 32,
+  "should_trigger": false,
+  "query": "im writing a blog post about why double entry beats a spreadsheet for small shops. can you draft an outline"
+ }
+]
