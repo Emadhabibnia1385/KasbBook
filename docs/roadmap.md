@@ -62,7 +62,7 @@ no inbound port, which is most of the boxes this will ever run on.
 | | |
 |---|---|
 | **Attachment types beyond photos** | Documents and voice parse already; only photos are wired to receipts. |
-| **Budget periods other than monthly** | The model has `kind`; only monthly is exercised. |
+| **Budget periods other than monthly** | Both `kind` values are used, but the window is hardcoded to the Jalali month in `BudgetService.status`; there is no period column. |
 | **Exports beyond CSV** | A real accountant wants something their software imports. |
 
 ## Not planned
