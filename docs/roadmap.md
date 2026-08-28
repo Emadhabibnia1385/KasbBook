@@ -26,27 +26,6 @@ surface is — which makes it a web project too.
 
 ## Worth building next
 
-### ~~Account deletion~~ — built
-
-Books nobody else is on are destroyed with everything in them. Books shared
-with other people are not one person's to destroy, so the whole operation
-refuses until they are handed over, naming them.
-
-What happens to the account row depends on what still points at it.
-`transactions.actor_user_id`, `adjustments.recorded_by` and
-`recurring_rules.created_by_user_id` are RESTRICT — the ledger saying a
-financial record must not lose its author. If records in other people's books
-name this person, the row survives with every personal detail stripped: no
-name, no email, no phone, no password, no identities, no way in. Otherwise the
-row goes.
-
-See [data-model.md](./data-model.md).
-
-### Two-factor authentication
-
-TOTP on the API. The token machinery is already in place, so this is a table, a
-verification step at login, and recovery codes.
-
 ### Password reset
 
 Not built, because there is no mail path. A reset flow without one is a support
@@ -75,6 +54,11 @@ no inbound port, which is most of the boxes this will ever run on.
 | **Exports beyond CSV** | A real accountant wants something their software imports. |
 
 ## Not planned
+
+**Two-factor authentication.** Declined by the owner. The token machinery
+would have made it cheap — a table, a step at login, recovery codes — so this
+is a product decision rather than a cost one, and it can be revisited without
+anything needing to be undone first.
 
 **Unofficial provider APIs.** No reverse-engineered web-client endpoints, no
 logging in as a human with an OTP. A bot posts as a bot. Anything else is one
