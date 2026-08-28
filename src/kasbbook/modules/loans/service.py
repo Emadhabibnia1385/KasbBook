@@ -179,16 +179,14 @@ class LoanService:
     async def delete(
         self, book_id: uuid.UUID, user_id: uuid.UUID, loan_id: uuid.UUID
     ) -> None:
-        """Forget the loan, keep its payments: that money really moved."""
+        """Forget the loan, keep its payments: that money really moved.
+
+        `loan_payments` links a loan to the transaction that paid an instalment.
+        The link goes with the loan — the foreign key is ON DELETE CASCADE, so
+        the database removes it — and the transaction stays, because it records
+        money that actually left the account.
+        """
         await self.books.require(book_id, user_id, Permission.DELETE_TRANSACTION)
 
-        loan = await self._owned(book_id, loan_id)
-        for payment in (
-            await self.session.execute(
-                select(LoanPayment).where(LoanPayment.loan_id == loan.id)
-            )
-        ).scalars().all():
-            await self.session.delete(payment)
-
-        await self.session.delete(loan)
+        await self.session.delete(await self._owned(book_id, loan_id))
         await self.session.flush()

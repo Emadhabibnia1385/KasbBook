@@ -15,6 +15,7 @@ from kasbbook.shared.errors import (
     AlreadyLinked,
     IdentityTakenError,
     InvalidLinkToken,
+    NotFound,
     ValidationError,
 )
 from kasbbook.shared.security import token_digest
@@ -435,3 +436,253 @@ async def test_an_unknown_timezone_is_refused(session):
 
     await identity.update_profile(user.id, timezone="Europe/Istanbul")
     assert user.timezone == "Europe/Istanbul"
+
+
+# ======================================================= closing an account
+#
+# The hard case in a bookkeeping system: a person may leave, and the ledger
+# must stay provable. Four foreign keys are RESTRICT — books.owner_user_id,
+# transactions.actor_user_id, adjustments.recorded_by and
+# recurring_rules.created_by_user_id — and each one is the database saying a
+# financial record must not lose its author.
+
+async def solo_book_with_money(session, user):
+    from kasbbook.modules.books.models import BookType
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 250_000
+    )
+    return book
+
+
+async def test_an_account_that_owes_nothing_to_anyone_is_removed_outright(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await solo_book_with_money(session, user)
+
+    removed = await identity.delete_account(user.id)
+
+    assert removed is True
+    with pytest.raises(NotFound):
+        await identity.get_user(user.id)
+
+
+async def test_the_books_go_with_it_and_so_does_the_journal(session):
+    from sqlalchemy import func, select
+
+    from kasbbook.modules.books.models import Book
+    from kasbbook.modules.ledger.models import JournalLine, Transaction
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await solo_book_with_money(session, user)
+
+    async def count(model):
+        return (await session.execute(select(func.count(model.id)))).scalar()
+
+    assert await count(Transaction) == 1
+    assert await count(JournalLine) == 2
+
+    await identity.delete_account(user.id)
+
+    assert await count(Book) == 0
+    assert await count(Transaction) == 0
+    assert await count(JournalLine) == 0
+
+
+async def test_a_shared_book_stops_the_whole_thing_and_names_it(session):
+    """A book other people are using is not one person's to throw away."""
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+
+    identity = IdentityService(session)
+    owner = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    colleague = await identity.create_user("سارا")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, colleague.id, Role.MEMBER)
+
+    with pytest.raises(ValidationError) as caught:
+        await identity.delete_account(owner.id)
+
+    assert "کارگاه" in str(caught.value)
+    # Nothing was half-done: the account and the book are both still there.
+    assert await identity.get_user(owner.id) is not None
+    assert len(await books.books_for_user(colleague.id)) == 1
+
+
+async def test_after_handing_the_book_over_the_account_can_close(session):
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+
+    identity = IdentityService(session)
+    owner = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    colleague = await identity.create_user("سارا")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, colleague.id, Role.MEMBER)
+    await books.transfer_ownership(owner.id, book.id, colleague.id)
+
+    await identity.delete_account(owner.id)
+
+    # The book survives, with its new owner.
+    assert len(await books.books_for_user(colleague.id)) == 1
+
+
+async def test_someone_who_recorded_in_anothers_book_is_anonymised_not_erased(session):
+    """The ledger keeps its author; the person keeps nothing."""
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+
+    identity = IdentityService(session)
+    owner = await identity.create_user("مالک")
+    leaver = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await identity.set_contact(leaver.id, email="leaving@example.com")
+    await identity.set_password(leaver.id, "a-good-password")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, leaver.id, Role.MEMBER)
+    transaction = await LedgerService(session).record(
+        book.id, leaver.id, Flow.EXPENSE, Scope.TEAM, "خرید", 500
+    )
+
+    removed = await identity.delete_account(leaver.id)
+
+    assert removed is False
+    survivor = await identity.get_user(leaver.id)
+    assert survivor.display_name == "حساب حذف‌شده"
+    assert survivor.email is None and survivor.phone is None
+    assert survivor.password_hash is None
+    assert survivor.is_active is False
+
+    # The transaction is intact and still names an author.
+    assert transaction.actor_user_id == leaver.id
+    assert len(await books.books_for_user(owner.id)) == 1
+
+
+async def test_a_closed_account_cannot_be_signed_in_to(session):
+    identity = IdentityService(session)
+    owner = await identity.create_user("مالک")
+    leaver = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await identity.set_contact(leaver.id, email="leaving@example.com")
+    await identity.set_password(leaver.id, "a-good-password")
+
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, leaver.id, Role.MEMBER)
+    await LedgerService(session).record(
+        book.id, leaver.id, Flow.EXPENSE, Scope.TEAM, "خرید", 500
+    )
+
+    await identity.delete_account(leaver.id)
+
+    assert await identity.authenticate("leaving@example.com", "a-good-password") is None
+
+
+async def test_the_messenger_is_freed_and_can_start_again(session):
+    """Somebody who closes an account and comes back is a new person, cleanly."""
+    identity = IdentityService(session)
+    first = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await identity.delete_account(first.id)
+
+    assert await identity.user_for_identity(Provider.TELEGRAM, "555001") is None
+
+    second = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    assert second.id != first.id
+
+
+async def test_closing_ends_membership_of_other_peoples_books(session):
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+
+    identity = IdentityService(session)
+    owner = await identity.create_user("مالک")
+    leaver = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, leaver.id, Role.MEMBER)
+
+    await identity.delete_account(leaver.id)
+
+    assert await books.membership(book.id, leaver.id) is None
+
+
+# ------------------------------------------------------------------ preview
+async def test_the_preview_says_what_would_go_and_what_blocks_it(session):
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    colleague = await identity.create_user("سارا")
+
+    books = BookService(session)
+    await books.create_book(user.id, "مغازه", BookType.BUSINESS)
+    shared = await books.create_book(user.id, "کارگاه", BookType.TEAM)
+    await books.add_member(user.id, shared.id, colleague.id, Role.MEMBER)
+
+    preview = await identity.deletion_preview(user.id)
+
+    assert preview.books_to_delete == ["مغازه"]
+    assert preview.books_to_hand_over == ["کارگاه"]
+    assert preview.blocked is True
+
+
+async def test_the_preview_of_a_clean_account_blocks_nothing(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await solo_book_with_money(session, user)
+
+    preview = await identity.deletion_preview(user.id)
+
+    assert preview.books_to_delete == ["مغازه"]
+    assert preview.books_to_hand_over == []
+    assert preview.blocked is False
+
+
+# -------------------------------------------------------------- book deletion
+async def test_a_book_with_other_members_cannot_be_deleted(session):
+    from kasbbook.modules.books.models import BookType, Role
+    from kasbbook.modules.books.service import BookService
+
+    identity = IdentityService(session)
+    owner = await identity.create_user("مالک")
+    colleague = await identity.create_user("سارا")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "کارگاه", BookType.TEAM)
+    await books.add_member(owner.id, book.id, colleague.id, Role.MEMBER)
+
+    with pytest.raises(ValidationError):
+        await books.delete_book(owner.id, book.id)
+
+
+async def test_only_the_owner_may_delete_a_book(session):
+    from kasbbook.modules.books.models import BookType
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.shared.errors import PermissionDenied
+
+    identity = IdentityService(session)
+    owner = await identity.create_user("مالک")
+    stranger = await identity.create_user("غریبه")
+
+    books = BookService(session)
+    book = await books.create_book(owner.id, "مغازه", BookType.BUSINESS)
+
+    with pytest.raises(PermissionDenied):
+        await books.delete_book(stranger.id, book.id)

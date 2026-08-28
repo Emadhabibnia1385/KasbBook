@@ -26,16 +26,21 @@ surface is — which makes it a web project too.
 
 ## Worth building next
 
-### Account deletion
+### ~~Account deletion~~ — built
 
-There is no way to delete an account, and the foreign keys would block one: a
-user owns books, books own accounts, and accounts are referenced by journal
-lines that must not vanish.
+Books nobody else is on are destroyed with everything in them. Books shared
+with other people are not one person's to destroy, so the whole operation
+refuses until they are handed over, naming them.
 
-That is the right default for a ledger — you should not be able to make a book
-unprovable with a `DELETE` — but "no path at all" is not the right answer
-either. It needs a design: transfer ownership, then anonymise the user row
-while the ledger keeps its shape.
+What happens to the account row depends on what still points at it.
+`transactions.actor_user_id`, `adjustments.recorded_by` and
+`recurring_rules.created_by_user_id` are RESTRICT — the ledger saying a
+financial record must not lose its author. If records in other people's books
+name this person, the row survives with every personal detail stripped: no
+name, no email, no phone, no password, no identities, no way in. Otherwise the
+row goes.
+
+See [data-model.md](./data-model.md).
 
 ### Two-factor authentication
 

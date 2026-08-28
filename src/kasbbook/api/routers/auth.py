@@ -13,13 +13,16 @@ from fastapi import APIRouter, Request, status
 
 from ...modules.identity.auth import AuthError
 from ...modules.identity.service import IdentityService
+from ...shared.security import verify_password
 from ...shared.errors import ValidationError
 from ..deps import AuthDep, CurrentUser, LimiterDep, SessionDep, client_fingerprint
 from ..schemas import (
     ApiKeyCreated,
     ContactRequest,
+    DeletionPreviewResponse,
     ApiKeyRequest,
     ApiKeyResponse,
+    CloseAccountRequest,
     LoginRequest,
     PasswordRequest,
     ProfileRequest,
@@ -173,6 +176,39 @@ async def set_password(
         user.id, body.new_password, current_password=body.current_password
     )
     await auth.revoke_all_for_user(user.id)
+
+
+@router.get("/me/deletion-preview", response_model=DeletionPreviewResponse)
+async def deletion_preview(
+    user: CurrentUser, session: SessionDep
+) -> DeletionPreviewResponse:
+    """What closing this account would destroy, and what would stop it."""
+    preview = await IdentityService(session).deletion_preview(user.id)
+    return DeletionPreviewResponse(
+        books_to_delete=preview.books_to_delete,
+        books_to_hand_over=preview.books_to_hand_over,
+        other_books_left=preview.other_books_left,
+        blocked=preview.blocked,
+    )
+
+
+@router.delete("/me", status_code=204)
+async def close_account(
+    body: CloseAccountRequest, user: CurrentUser, session: SessionDep
+) -> None:
+    """Close the account. There is no undo, and no grace period.
+
+    Books nobody else is on go with it. Books shared with other people are not
+    this account's to destroy, so the request is refused until they are handed
+    over — `GET /auth/me/deletion-preview` names them.
+    """
+    identity = IdentityService(session)
+
+    if user.password_hash:
+        if not body.password or not verify_password(body.password, user.password_hash):
+            raise AuthError("the password does not match")
+
+    await identity.delete_account(user.id)
 
 
 # ------------------------------------------------------------- api keys

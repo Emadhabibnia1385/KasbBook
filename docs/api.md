@@ -110,6 +110,15 @@ confirm the address is registered.
 
 | | |
 |---|---|
+| `GET /auth/me/deletion-preview` | what closing would destroy, and what would block it |
+| `DELETE /auth/me` | closes it — irreversible, no grace period |
+
+`DELETE /auth/me` needs the account's password when it has one; an account with
+none is proven by the bearer token alone. It returns 422 when a shared book
+blocks it. There is no id to pass: a token can only close its own account.
+
+| | |
+|---|---|
 | `POST /auth/logout` | ends this session |
 | `POST /auth/logout-everywhere` | ends all of them |
 | `GET /auth/sessions` | where this account is signed in |

@@ -353,21 +353,10 @@ class LedgerService:
         if transaction is None or transaction.book_id != book_id:
             raise NotFound("این تراکنش پیدا نشد")
 
-        entries = (
-            await self.session.execute(
-                select(JournalEntry).where(JournalEntry.transaction_id == transaction_id)
-            )
-        ).scalars().all()
-
-        for entry in entries:
-            for line in (
-                await self.session.execute(
-                    select(JournalLine).where(JournalLine.entry_id == entry.id)
-                )
-            ).scalars().all():
-                await self.session.delete(line)
-            await self.session.delete(entry)
-
+        # journal_entries → transactions and journal_lines → journal_entries are
+        # both ON DELETE CASCADE, so removing the transaction takes the whole
+        # entry with it. Walking the tree by hand did the same thing twice and
+        # warned that the second pass matched nothing.
         await self.session.delete(transaction)
         await self.session.flush()
 

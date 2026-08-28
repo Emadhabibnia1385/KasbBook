@@ -531,3 +531,78 @@ async def test_an_api_key_is_unaffected_by_a_password_change(api):
 
     assert (await api.get("/api/v1/auth/me",
                           headers={"X-API-Key": key})).status_code == 200
+
+
+# ------------------------------------------------------- closing an account
+async def test_the_preview_says_what_would_go(api):
+    tokens = await register(api)
+    await api.post("/api/v1/books", headers=bearer(tokens),
+                   json={"name": "مغازه", "type": "business"})
+
+    preview = (await api.get("/api/v1/auth/me/deletion-preview",
+                             headers=bearer(tokens))).json()
+
+    assert preview["books_to_delete"] == ["مغازه"]
+    assert preview["blocked"] is False
+
+
+async def test_closing_needs_the_password(api):
+    tokens = await register(api)
+
+    without = await api.request("DELETE", "/api/v1/auth/me",
+                                headers=bearer(tokens), json={})
+    assert without.status_code == 401
+
+    wrong = await api.request("DELETE", "/api/v1/auth/me", headers=bearer(tokens),
+                              json={"password": "not-it"})
+    assert wrong.status_code == 401
+
+    # Still there.
+    assert (await api.get("/api/v1/auth/me", headers=bearer(tokens))).status_code == 200
+
+
+async def test_closing_with_the_password_removes_the_account(api):
+    tokens = await register(api)
+    await api.post("/api/v1/books", headers=bearer(tokens),
+                   json={"name": "مغازه", "type": "business"})
+
+    closed = await api.request("DELETE", "/api/v1/auth/me", headers=bearer(tokens),
+                               json={"password": "a-good-password"})
+    assert closed.status_code == 204
+
+    assert (await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-good-password",
+    })).status_code == 401
+
+
+async def test_a_shared_book_refuses_the_whole_thing(api):
+    owner = await register(api, "owner@example.com")
+    await register(api, "colleague@example.com")
+    book = (await api.post("/api/v1/books", headers=bearer(owner),
+                           json={"name": "کارگاه", "type": "team"})).json()
+    await api.post(f"/api/v1/books/{book['id']}/members", headers=bearer(owner),
+                   json={"identifier": "colleague@example.com", "role": "member"})
+
+    preview = (await api.get("/api/v1/auth/me/deletion-preview",
+                             headers=bearer(owner))).json()
+    assert preview["blocked"] is True
+    assert preview["books_to_hand_over"] == ["کارگاه"]
+
+    refused = await api.request("DELETE", "/api/v1/auth/me", headers=bearer(owner),
+                                json={"password": "a-good-password"})
+    assert refused.status_code == 422
+    assert (await api.get("/api/v1/auth/me", headers=bearer(owner))).status_code == 200
+
+
+async def test_one_account_cannot_close_another(api):
+    await register(api, "victim@example.com")
+    attacker = await register(api, "attacker@example.com")
+
+    # The only account a token can close is its own; there is no id to pass.
+    closed = await api.request("DELETE", "/api/v1/auth/me", headers=bearer(attacker),
+                               json={"password": "a-good-password"})
+    assert closed.status_code == 204
+
+    assert (await api.post("/api/v1/auth/login", json={
+        "identifier": "victim@example.com", "password": "a-good-password",
+    })).status_code == 200

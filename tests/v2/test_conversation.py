@@ -707,3 +707,87 @@ async def test_one_account_cannot_see_anothers_account_panel(session):
     assert "غریبه" in reply.text
     assert "عماد" not in reply.text
     assert "emad@example.com" not in reply.text
+
+
+# --------------------------------------------------------- closing an account
+async def test_the_confirmation_names_what_will_be_destroyed(session):
+    """"Are you sure" is useless when you cannot see what you are agreeing to."""
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:close"))
+
+    assert "مغازه" in reply.text
+    assert "برگشت ندارد" in reply.text
+
+
+async def test_a_shared_book_blocks_it_and_the_screen_says_which(session):
+    from kasbbook.modules.books.models import Role
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    colleague = await identity.create_user("سارا")
+
+    books = BookService(session)
+    book = await books.create_book(user.id, "کارگاه", BookType.TEAM)
+    await books.add_member(user.id, book.id, colleague.id, Role.MEMBER)
+
+    convo = await conversation(session)
+    reply = await convo.handle(press("acc:close"))
+
+    assert "کارگاه" in reply.text
+    assert "واگذار" in reply.text
+    # No way forward from here, only back.
+    assert not any("حذف کن" in b.text for row in reply.buttons for b in row)
+
+
+async def test_closing_needs_the_word_typed(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:close"))
+    asked = await convo.handle(press("acc:closeok"))
+    assert "حذف" in asked.text
+
+    # Anything else cancels, and nothing is touched.
+    reply = await convo.handle(says("بله"))
+    assert await identity.get_user(user.id) is not None
+    assert len(await BookService(session).books_for_user(user.id)) == 1
+    assert "حساب" in reply.text
+
+
+async def test_typing_the_word_closes_it(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    user_id = user.id
+    await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:close"))
+    await convo.handle(press("acc:closeok"))
+    reply = await convo.handle(says("حذف"))
+
+    from kasbbook.shared.errors import NotFound
+    with pytest.raises(NotFound):
+        await identity.get_user(user_id)
+    assert "پاک شد" in reply.text
+
+
+async def test_the_messenger_is_free_to_start_again_right_away(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:close"))
+    await convo.handle(press("acc:closeok"))
+    await convo.handle(says("حذف"))
+
+    # The same Telegram account, straight back in as somebody new.
+    reply = await convo.handle(press("acc:create"))
+    fresh = await identity.user_for_identity(TG, "555001")
+    assert fresh is not None and fresh.id != user.id
+    assert "از دست بدهی" in reply.text

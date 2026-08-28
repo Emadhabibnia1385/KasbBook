@@ -747,6 +747,21 @@ class Conversation:
                 else screens.ask_new_password(changing=False)
             )
 
+        if action == "close":
+            await self.state.clear(key)
+            return screens.confirm_close(
+                await self.identity.deletion_preview(user.id)
+            )
+
+        if action == "closeok":
+            preview = await self.identity.deletion_preview(user.id)
+            if preview.blocked:
+                # It could have become blocked between the two screens.
+                return screens.confirm_close(preview)
+
+            await self.state.set(key, {"flow": "account", "field": "close"})
+            return screens.ask_close_word()
+
         if action == "sessions":
             return screens.session_list(await self._auth().sessions(user.id))
 
@@ -783,6 +798,16 @@ class Conversation:
                 draft["field"] = "password_new"
                 await self.state.set(key, draft)
                 return screens.ask_new_password(changing=True)
+            elif field == "close":
+                if text.strip() != screens.CLOSE_WORD:
+                    await self.state.clear(key)
+                    return await self._account_panel(user)
+
+                removed = await self.identity.delete_account(user.id)
+                await self.state.clear(key)
+                # Nothing below may touch `user` again: the row is either gone
+                # or stripped of everything that identified it.
+                return screens.account_closed(removed)
             elif field == "password_new":
                 await self.identity.set_password(
                     user.id, text, current_password=draft.get("current")

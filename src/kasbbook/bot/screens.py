@@ -278,6 +278,7 @@ def account_panel(user, identities: Iterable[Identity], current: Provider) -> Sc
         [Button("🔑 " + ("تغییر رمز" if user.password_hash else "تعیین رمز"),
                 data="acc:pw")],
         [Button("🖥 نشست‌های فعال", data="acc:sessions")],
+        [Button("🗑 حذف حساب", data="acc:close")],
         [Button("⬅️ بازگشت", data="nav:home")],
     ]
 
@@ -355,6 +356,73 @@ def session_list(sessions) -> Screen:
         [Button("🚪 خروج از همهٔ نشست‌ها", data="acc:signout")],
         [Button("⬅️ بازگشت", data="acc:panel")],
     ]
+
+
+CLOSE_WORD = "حذف"
+
+
+def confirm_close(preview) -> Screen:
+    """Say exactly what will be destroyed before asking anyone to agree to it.
+
+    "Are you sure?" is a useless question when the person cannot see what they
+    are agreeing to.
+    """
+    if preview.blocked:
+        return rtl(
+            "🚫 هنوز نمی‌شود\n\n"
+            "این دفترها عضو دیگری دارند و مال تو تنها نیستند:\n"
+            + "\n".join(f"  • {name}" for name in preview.books_to_hand_over)
+            + "\n\nاول هرکدام را به یکی از اعضایش واگذار کن، بعد دوباره بیا."
+        ), [[Button("⬅️ بازگشت", data="acc:panel")]]
+
+    lines = ["⚠️ حذف حساب", ""]
+    if preview.books_to_delete:
+        lines.append("این دفترها با همهٔ تراکنش‌هایشان پاک می‌شوند:")
+        lines += [f"  • {name}" for name in preview.books_to_delete]
+        lines.append("")
+    if preview.other_books_left:
+        lines.append(
+            f"از {preview.other_books_left} دفتر دیگر بیرون می‌آیی، ولی آن دفترها "
+            "می‌مانند."
+        )
+        lines.append("")
+    lines += [
+        "ایمیل، شماره، رمز و پیام‌رسان‌های متصلت پاک می‌شوند و دیگر نمی‌توانی "
+        "وارد شوی.",
+        "",
+        "اگر در دفتر کسِ دیگری تراکنشی ثبت کرده باشی، آن تراکنش می‌ماند — "
+        "چون پول واقعاً جابه‌جا شده — ولی دیگر نام تو را ندارد.",
+        "",
+        "این کار برگشت ندارد.",
+    ]
+    return rtl("\n".join(lines)), [
+        [Button("🗑 می‌دانم، حذف کن", data="acc:closeok")],
+        [Button("⬅️ منصرف شدم", data="acc:panel")],
+    ]
+
+
+def ask_close_word() -> Screen:
+    return rtl(
+        f"برای تأیید نهایی کلمهٔ «{CLOSE_WORD}» را بنویس.\n\n"
+        "هر چیز دیگری بنویسی، لغو می‌شود."
+    ), [[Button("⬅️ منصرف شدم", data="acc:panel")]]
+
+
+def account_closed(removed: bool) -> Screen:
+    """The last screen this account ever sees."""
+    if removed:
+        text = (
+            "حسابت پاک شد.\n\n"
+            "چیزی از تو نمانده. اگر روزی برگردی، از صفر شروع می‌کنی."
+        )
+    else:
+        text = (
+            "حسابت بسته شد.\n\n"
+            "همهٔ اطلاعات شخصی‌ات پاک شد. تراکنش‌هایی که در دفتر دیگران ثبت "
+            "کرده بودی مانده‌اند، چون آن پول واقعاً جابه‌جا شده — ولی دیگر به "
+            "تو وصل نیستند."
+        )
+    return rtl("👋 " + text), [[Button("شروع دوباره", data="acc:create")]]
 
 
 def identity_list(identities: Iterable[Identity], current: Provider) -> Screen:

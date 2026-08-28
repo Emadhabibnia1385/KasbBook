@@ -162,7 +162,14 @@ class JournalEntry(UUIDPrimaryKey, Timestamped, Base):
     memo: Mapped[Optional[str]] = mapped_column(Text)
 
     lines: Mapped[list["JournalLine"]] = relationship(
-        back_populates="entry", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        # The foreign key is ON DELETE CASCADE, so the database removes the
+        # lines itself. Without this the ORM issues its own DELETE afterwards
+        # and warns that it matched nothing — noise that trains people to stop
+        # reading warnings, which is how a real one gets missed.
+        passive_deletes=True,
     )
 
     @property

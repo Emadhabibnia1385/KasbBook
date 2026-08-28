@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from typing import Optional, Sequence
 
 from email_validator import EmailNotValidError, validate_email
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import (
@@ -43,6 +43,22 @@ LINK_TTL_MINUTES = 15
 # Matches the API's own floor, so a password accepted in one client is accepted
 # in the other.
 MIN_PASSWORD_LENGTH = 8
+
+# What a closed account is called once its records have to keep an author.
+ANONYMISED_NAME = "حساب حذف‌شده"
+
+
+@dataclass(frozen=True)
+class DeletionPreview:
+    """What closing an account would cost, before it is agreed to."""
+
+    books_to_delete: list
+    books_to_hand_over: list
+    other_books_left: int
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.books_to_hand_over)
 
 
 @dataclass(frozen=True)
@@ -261,6 +277,126 @@ class IdentityService:
         if user is None:
             raise NotFound(f"user {user_id}")
         return user
+
+    # -------------------------------------------------------------- closing
+    async def deletion_preview(self, user_id: uuid.UUID) -> "DeletionPreview":
+        """What closing this account would destroy, and what would stop it.
+
+        Shown before the confirmation, because "are you sure" is a useless
+        question when the person cannot see what they are agreeing to.
+        """
+        from ..books.models import Book, Membership
+        from ..books.service import BookService
+
+        books = BookService(self.session)
+        owned = (
+            await self.session.execute(select(Book).where(Book.owner_user_id == user_id))
+        ).scalars().all()
+
+        solo, shared = [], []
+        for book in owned:
+            others = [m for m in await books.members(book.id) if m.user_id != user_id]
+            (shared if others else solo).append(book)
+
+        member_of = (
+            await self.session.execute(
+                select(func.count(Membership.id)).where(
+                    Membership.user_id == user_id,
+                    Membership.is_active.is_(True),
+                    Membership.book_id.notin_([b.id for b in owned]) if owned else True,
+                )
+            )
+        ).scalar() or 0
+
+        return DeletionPreview(
+            books_to_delete=[b.name for b in solo],
+            books_to_hand_over=[b.name for b in shared],
+            other_books_left=int(member_of),
+        )
+
+    async def delete_account(self, user_id: uuid.UUID) -> bool:
+        """Close an account. Returns True if the row went, False if it stayed.
+
+        Books nobody else is on are destroyed with everything in them. Books
+        shared with other people are not this person's to destroy, so the whole
+        operation refuses until they are handed over — `deletion_preview` names
+        them.
+
+        What happens to the row itself depends on whether anything still points
+        at it. `transactions.actor_user_id`, `adjustments.recorded_by` and
+        `recurring_rules.created_by_user_id` are RESTRICT, which is the ledger
+        saying a financial record must not lose its author. If records in other
+        people's books name this person, the row survives with every personal
+        detail stripped: no name, no email, no phone, no password, no way in.
+        The books keep an author reference that no longer identifies anyone.
+
+        If nothing points at it, there is nothing to preserve and the row goes.
+        """
+        from ..books.models import Book, Membership
+        from ..books.service import BookService
+        from ..ledger.models import Transaction
+        from ..payroll.models import Adjustment
+        from ..recurring.models import RecurringRule
+
+        user = await self.get_user(user_id)
+        preview = await self.deletion_preview(user_id)
+
+        if preview.books_to_hand_over:
+            raise ValidationError(
+                "اول این دفترها را به کسی واگذار کن: "
+                + "، ".join(preview.books_to_hand_over)
+            )
+
+        books = BookService(self.session)
+        for book in (
+            await self.session.execute(
+                select(Book).where(Book.owner_user_id == user_id)
+            )
+        ).scalars().all():
+            await books.delete_book(user_id, book.id)
+
+        # Access to everyone else's books ends here, whether or not the row does.
+        await self.session.execute(
+            delete(Membership).where(Membership.user_id == user_id)
+        )
+        await self.session.execute(delete(Identity).where(Identity.user_id == user_id))
+        await self.session.execute(delete(LinkToken).where(LinkToken.user_id == user_id))
+        await self.session.flush()
+
+        authored = 0
+        for model, column in (
+            (Transaction, Transaction.actor_user_id),
+            (Adjustment, Adjustment.recorded_by),
+            (RecurringRule, RecurringRule.created_by_user_id),
+        ):
+            authored += (
+                await self.session.execute(
+                    select(func.count(model.id)).where(column == user_id)
+                )
+            ).scalar() or 0
+
+        self.session.add(
+            AuditEvent(
+                user_id=None,
+                action="user.deleted",
+                detail="anonymised" if authored else "removed",
+            )
+        )
+
+        if authored:
+            user.display_name = ANONYMISED_NAME
+            user.email = None
+            user.phone = None
+            user.password_hash = None
+            user.is_active = False
+            # Any token still in flight stops working immediately.
+            user.token_generation += 1
+            await self.session.flush()
+            return False
+
+        await self.session.delete(user)
+        await self.session.flush()
+        return True
 
     # ----------------------------------------------------------- identities
     async def find_identity(self, provider: Provider, external_id: str) -> Optional[Identity]:

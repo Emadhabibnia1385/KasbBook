@@ -166,12 +166,29 @@ accounts created, identities linked and unlinked, members added and removed,
 periods advanced, API keys issued and revoked, refresh tokens detected as
 reused.
 
-## A note on deletion
+## Deletion
 
-There is no "delete my account" flow, and the foreign keys would currently
-block one: a user owns books, books own accounts, and accounts are referenced
-by journal lines that must not disappear.
+Closing an account is two different operations depending on what depends on it.
 
-That is the correct default for a ledger — you should not be able to make a
-book unprovable by deleting a row — but it means account deletion needs a
-deliberate design rather than a `DELETE`. It is on the [roadmap](./roadmap.md).
+**Books nobody else is on** are destroyed entirely — transactions, journal,
+budgets, debts, loans, payroll, treasury. Every foreign key to `books` is
+`ON DELETE CASCADE`, so the database does almost all of it; two RESTRICT edges
+(`journal_lines → accounts`, `treasury_allocations → treasury_funds`) are
+cleared first by `BookService.delete_book`, because the database does not
+promise to process a cascade in an order that satisfies them.
+
+**Books shared with other people** stop the whole thing. They are not one
+person's to destroy, so the operation refuses and names them; hand them over
+first with `transfer_ownership`.
+
+**The account row itself** survives only if it has to. Three foreign keys are
+RESTRICT — `transactions.actor_user_id`, `adjustments.recorded_by`,
+`recurring_rules.created_by_user_id` — and each one is the ledger saying a
+financial record must not lose its author. When records in *other people's*
+books name this person, the row is anonymised rather than deleted: no name, no
+email, no phone, no password, no identities, `is_active` false, and
+`token_generation` bumped so nothing in flight still works. When nothing points
+at it, the row is deleted outright.
+
+Both paths free the messenger, so somebody who closes an account and comes back
+starts genuinely fresh.

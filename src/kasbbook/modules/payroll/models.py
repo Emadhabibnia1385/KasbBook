@@ -228,7 +228,12 @@ class Payslip(UUIDPrimaryKey, Timestamped, Base):
     currency: Mapped[str] = mapped_column(String(8), nullable=False)
 
     payments: Mapped[list["Payment"]] = relationship(
-        back_populates="payslip", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="payslip",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        # The database cascades these itself; without this the ORM deletes them
+        # a second time and warns that it matched nothing.
+        passive_deletes=True,
     )
 
     @property

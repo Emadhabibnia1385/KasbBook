@@ -19,6 +19,17 @@ if str(SRC) not in sys.path:
 
 from kasbbook.shared.database import Database  # noqa: E402
 
+# The whole registry, so `create_all` builds every table no matter which test
+# file is running. Without it a single-file run only creates the tables that
+# file happened to import, and the same test passes in a full run and fails on
+# its own — which is the confusing direction for that to break in.
+from kasbbook.models import Base  # noqa: E402
+
+# Imported for the side effect, and named here so the linter reads the intent
+# rather than a comment it ignores. Same reason src/kasbbook/models.py
+# declares one.
+__all__ = ["Base"]
+
 
 @pytest.fixture(scope="session")
 def event_loop():

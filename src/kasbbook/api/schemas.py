@@ -81,6 +81,19 @@ class PasswordRequest(Model):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class CloseAccountRequest(Model):
+    # Proof it is really them, when there is a password to prove it with. An
+    # account that has none is proven by the bearer token alone.
+    password: Optional[str] = Field(default=None, max_length=200)
+
+
+class DeletionPreviewResponse(Model):
+    books_to_delete: List[str]
+    books_to_hand_over: List[str]
+    other_books_left: int
+    blocked: bool
+
+
 class SessionResponse(Model):
     id: uuid.UUID
     created_at: datetime

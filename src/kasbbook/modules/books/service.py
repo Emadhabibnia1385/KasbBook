@@ -9,12 +9,14 @@ from __future__ import annotations
 import uuid
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.security import utcnow
 from ..identity.models import AuditEvent
+from ..ledger.models import JournalEntry, JournalLine
+from ..treasury.models import TreasuryAllocation
 from .models import Book, BookType, Membership, Permission, Role
 
 
@@ -172,6 +174,58 @@ class BookService:
                 user_id=actor_user_id, action="member.deactivated", subject=str(user_id)
             )
         )
+        await self.session.flush()
+
+    async def delete_book(self, actor_user_id: uuid.UUID, book_id: uuid.UUID) -> None:
+        """Destroy a book and everything recorded in it. There is no undo.
+
+        Only the owner, and only when nobody else is left on it: a book other
+        people are still using is not one person's to throw away. They must be
+        removed, or the book handed over, first.
+
+        Every foreign key pointing at `books` is ON DELETE CASCADE, so deleting
+        the row takes the transactions, journal, budgets, debts, loans, payroll
+        and treasury with it. Two edges are RESTRICT and have to be cleared by
+        hand first, because the database does not promise to process the
+        cascade in an order that satisfies them:
+
+          journal_lines → accounts
+          treasury_allocations → treasury_funds
+
+        Both are RESTRICT on purpose — an account with journal lines against it
+        must not vanish under normal circumstances. This is the one place that
+        is allowed to say the circumstances are not normal.
+        """
+        book = await self.get_book(book_id)
+        if book.owner_user_id != actor_user_id:
+            raise PermissionDenied("only the owner may delete a book")
+
+        others = [
+            m for m in await self.members(book_id) if m.user_id != actor_user_id
+        ]
+        if others:
+            raise ValidationError(
+                f"این دفتر {len(others)} عضو دیگر دارد. اول آن‌ها را حذف کن "
+                "یا دفتر را به یکی‌شان واگذار کن."
+            )
+
+        await self.session.execute(
+            delete(JournalLine).where(
+                JournalLine.entry_id.in_(
+                    select(JournalEntry.id).where(JournalEntry.book_id == book_id)
+                )
+            )
+        )
+        await self.session.execute(
+            delete(TreasuryAllocation).where(TreasuryAllocation.book_id == book_id)
+        )
+
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id, action="book.deleted", subject=book.name
+            )
+        )
+        await self.session.delete(book)
         await self.session.flush()
 
     async def transfer_ownership(

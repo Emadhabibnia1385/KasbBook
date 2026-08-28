@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import AsyncIterator, Optional
 
-from sqlalchemy import DateTime, MetaData, Uuid, func
+from sqlalchemy import DateTime, MetaData, Uuid, event, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -62,6 +62,20 @@ class Database:
 
     def __init__(self, url: str, echo: bool = False) -> None:
         self._engine = create_async_engine(url, echo=echo, future=True)
+
+        if url.startswith("sqlite"):
+            # SQLite ships with foreign keys switched OFF, per connection.
+            # Without this the test suite enforces none of them: a CASCADE
+            # never fires, a RESTRICT never refuses, and orphaned rows are
+            # left behind silently. PostgreSQL enforces all of it, so the
+            # tests would be describing a database that is not the one in
+            # production — which is exactly how the NOT NULL migration bug
+            # reached it.
+            @event.listens_for(self._engine.sync_engine, "connect")
+            def _enforce_foreign_keys(connection, record):  # pragma: no cover
+                cursor = connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
         self._sessionmaker = async_sessionmaker(
             self._engine, expire_on_commit=False, class_=AsyncSession
         )
