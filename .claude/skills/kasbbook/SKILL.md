@@ -35,14 +35,21 @@ reach the end of a change with nothing to run:
 ```bash
 python3 -m venv venv
 ./venv/bin/pip install -q -r requirements-dev.txt
-./venv/bin/pip install -q --no-deps -e .
+./venv/bin/pip install -q --no-deps -e .   # needs Python 3.11+; see below
 ./venv/bin/python -m pytest tests/v2 -q
 ```
 
-The editable install matters: it is what makes `kasbbook` importable because it
-is installed rather than because something arranged `sys.path`. Six migration
-tests skip without `KASBBOOK_TEST_POSTGRES_URL`, and two packaging tests skip
-below Python 3.11 — both are expected locally and both run in CI.
+The editable install is what makes `kasbbook` importable because it is
+installed rather than because something arranged `sys.path` — which is how the
+API runs in production. It refuses below Python 3.11, the floor declared in
+`pyproject.toml`, with a message about the wrong Python rather than about what
+to do. **Skip it on an older interpreter**: the tests do not need it, because
+`tests/v2/conftest.py` puts `src/` on the path itself. Everything still runs;
+only `pip install -e .` is unavailable.
+
+Six migration tests skip without `KASBBOOK_TEST_POSTGRES_URL`, and two
+packaging tests skip below 3.11. Both are expected locally and both run in CI,
+which is on 3.12.
 
 ---
 
