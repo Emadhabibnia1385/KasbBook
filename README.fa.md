@@ -10,10 +10,11 @@
 و یک API هم دارد. پول دقیق است، تقویم جلالی است، و پشت هر تراکنش یک سند
 دوطرفهٔ تراز نشسته است.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Emadhabibnia1385/KasbBook/v2.yml?branch=v2&style=flat-square&label=CI)](https://github.com/Emadhabibnia1385/KasbBook/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/Emadhabibnia1385/KasbBook/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Emadhabibnia1385/KasbBook/actions)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Release](https://img.shields.io/badge/release-1.0.0--beta.1-orange?style=flat-square)](https://github.com/Emadhabibnia1385/KasbBook/releases)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 [English](./README.md) · **فارسی**
@@ -33,12 +34,17 @@
 پایه‌اش هم API است. ربات یکی از مشتری‌های همان سرویس‌هایی است که API بیرون
 می‌دهد — و به همین دلیل نمی‌شود قاعده‌ای را یک‌جا رعایت کرد و جای دیگر یادش رفت.
 
+> **این نسخه بتاست.** برای نویسنده‌اش در تولید اجرا می‌شود و تست‌هایش کامل‌اند،
+> ولی هنوز دست آدم‌های زیاد و دفترهای زیاد نبوده. پشتیبان بگیر —
+> `scripts/backup.sh` این کار را برایت می‌کند — و
+> [docs/roadmap.md](./docs/roadmap.md) را بخوان تا بدانی چه چیزی عمداً ساخته نشده.
+
 ## نصب
 
 روی یک سرور تازهٔ دبیان یا اوبونتو، یک دستور:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/v2/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scripts/install.sh | sudo bash
 ```
 
 نسخهٔ پایتون را بررسی می‌کند، کد را می‌آورد، پستگرس و ردیس را در کانتینر بالا
@@ -85,7 +91,11 @@ curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/v2/script
 | **حقوق و سهم** | دوره، سهم اعضا، کسر و اضافه، فیش، پرداخت مرحله‌ای |
 | **خزانه** | صندوق‌هایی که با قاعده تغذیه می‌شوند، پیش از تقسیم سود |
 | **یادآور** | خلاصهٔ روزانه در ساعتی که خودت انتخاب می‌کنی، به وقت خودت |
-| **رسید** | عکس پیوست تراکنش، با ارجاع ذخیره می‌شود نه با آپلود دوباره |
+| **رسید** | عکس یا PDF، با ارجاع روی خودِ پیام‌رسان ذخیره می‌شود نه با آپلود دوباره |
+| **جست‌وجو** | در دسته و توضیح، با مجموع همهٔ نتیجه‌ها |
+| **حساب کاربری** | ایمیل، شماره، رمز، نشست‌ها — و حذفی که دفتر کل را قابل‌اثبات نگه می‌دارد |
+| **اشتراک** | دعوت همکار با ایمیل یا شماره، با نقش و دسترسی جداگانه برای هر کار |
+| **API** | همان سرویس‌هایی که ربات صدا می‌زند، با توکن چرخشی و کلید API |
 
 ## معماری
 
@@ -129,7 +139,7 @@ curl -X POST http://127.0.0.1:8210/api/v1/auth/login \
 ## توسعه
 
 ```bash
-git clone -b v2 https://github.com/Emadhabibnia1385/KasbBook.git
+git clone https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook && python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
 ./venv/bin/python -m pytest tests/v2 -q

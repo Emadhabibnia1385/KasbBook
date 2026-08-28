@@ -10,10 +10,11 @@ Type `فروش ۲۵۰ک` and it is recorded. The same account works from Telegra
 and Rubika, and over an HTTP API. Money is exact, the calendar is Jalali, and
 every transaction has a balanced journal entry behind it.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Emadhabibnia1385/KasbBook/v2.yml?branch=v2&style=flat-square&label=CI)](https://github.com/Emadhabibnia1385/KasbBook/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/Emadhabibnia1385/KasbBook/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Emadhabibnia1385/KasbBook/actions)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Release](https://img.shields.io/badge/release-1.0.0--beta.1-orange?style=flat-square)](https://github.com/Emadhabibnia1385/KasbBook/releases)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 **English** · [فارسی](./README.fa.md)
@@ -34,12 +35,17 @@ It is also an API-first application. The bot is one client of the same
 services the HTTP API exposes, which is why a permission cannot be enforced in
 one place and forgotten in the other.
 
+> **This is a beta.** It runs in production for its author and its tests are
+> thorough, but it has not been run by many people on many books yet. Take
+> backups — `scripts/backup.sh` does it for you — and read
+> [docs/roadmap.md](./docs/roadmap.md) for what is deliberately not built.
+
 ## Install
 
 One command on a fresh Debian or Ubuntu box:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/v2/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scripts/install.sh | sudo bash
 ```
 
 It checks the Python version, clones the code, starts PostgreSQL and Redis in
@@ -86,7 +92,11 @@ separator. Anything it cannot read, it asks about rather than guessing.
 | **Payroll** | periods, member shares, bonuses and deductions, payslips, staged payment |
 | **Treasury** | funds fed by rules, taken before profit is shared |
 | **Reminders** | a daily digest at an hour you choose, in your own timezone |
-| **Receipts** | a photo attached to a transaction, stored by reference, never re-uploaded |
+| **Receipts** | a photo or a PDF, stored by reference on the messenger, never re-uploaded |
+| **Search** | across categories and descriptions, with the total of every match |
+| **Accounts** | email, phone, password, sessions — and deletion that keeps the ledger provable |
+| **Sharing** | invite colleagues by email or phone, with roles and per-action permissions |
+| **API** | the same services the bot uses, with rotating tokens and API keys |
 
 ## Architecture
 
@@ -131,7 +141,7 @@ See [docs/api.md](./docs/api.md).
 ## Development
 
 ```bash
-git clone -b v2 https://github.com/Emadhabibnia1385/KasbBook.git
+git clone https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook && python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
 ./venv/bin/python -m pytest tests/v2 -q

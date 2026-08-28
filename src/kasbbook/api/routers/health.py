@@ -16,7 +16,7 @@ from ..schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
 
-VERSION = "2.0.0"
+VERSION = "1.0.0-beta.1"
 
 
 @router.get("/healthz", response_model=HealthResponse)

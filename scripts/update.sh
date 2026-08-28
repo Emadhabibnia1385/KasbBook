@@ -69,7 +69,7 @@ install_units() {
 }
 
 say "updating to origin/$KASBBOOK_BRANCH"
-git reset --quiet --hard "origin/$KASBBOOK_BRANCH"
+git checkout --quiet -B "$KASBBOOK_BRANCH" "origin/$KASBBOOK_BRANCH"
 git log --oneline -1
 
 say "dependencies"

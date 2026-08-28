@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kasbbook"
-version = "2.0.0"
+version = "1.0.0b1"
 description = "Bookkeeping for a small business, wherever that business already talks"
 readme = "README.md"
 license = { file = "LICENSE" }

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 KASBBOOK_HOME="${KASBBOOK_HOME:-/opt/kasbbook-v2}"
-KASBBOOK_BRANCH="${KASBBOOK_BRANCH:-v2}"
+KASBBOOK_BRANCH="${KASBBOOK_BRANCH:-main}"
 KASBBOOK_REPO="${KASBBOOK_REPO:-https://github.com/Emadhabibnia1385/KasbBook.git}"
 BACKUP_DIR="${KASBBOOK_BACKUP_DIR:-/var/backups/kasbbook}"
 UNITS=(kasbbook-bot kasbbook-api)

@@ -10,7 +10,7 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh" 2>/dev/null || {
     # Bootstrapping from a bare curl, before the repo exists.
     set -euo pipefail
     KASBBOOK_HOME="${KASBBOOK_HOME:-/opt/kasbbook-v2}"
-    KASBBOOK_BRANCH="${KASBBOOK_BRANCH:-v2}"
+    KASBBOOK_BRANCH="${KASBBOOK_BRANCH:-main}"
     KASBBOOK_REPO="${KASBBOOK_REPO:-https://github.com/Emadhabibnia1385/KasbBook.git}"
     R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
     say()  { echo "${C}==>${N} $*"; }
@@ -36,7 +36,13 @@ say "fetching the code into $KASBBOOK_HOME"
 if [ -d "$KASBBOOK_HOME/.git" ]; then
     git config --global --add safe.directory "$KASBBOOK_HOME" 2>/dev/null || true
     git -C "$KASBBOOK_HOME" fetch --quiet origin "$KASBBOOK_BRANCH"
-    git -C "$KASBBOOK_HOME" reset --quiet --hard "origin/$KASBBOOK_BRANCH"
+    # Move the local branch too, not just its contents. Resetting alone leaves
+    # HEAD on whatever branch it was on — an install from before the release
+    # sits on `v2`, and would keep reporting that name while holding main's
+    # code. `git status` lying about which branch you are on is a bad way to
+    # start debugging anything.
+    git -C "$KASBBOOK_HOME" checkout --quiet -B "$KASBBOOK_BRANCH" \
+        "origin/$KASBBOOK_BRANCH"
 else
     git clone --quiet --branch "$KASBBOOK_BRANCH" "$KASBBOOK_REPO" "$KASBBOOK_HOME"
     git config --global --add safe.directory "$KASBBOOK_HOME" 2>/dev/null || true
