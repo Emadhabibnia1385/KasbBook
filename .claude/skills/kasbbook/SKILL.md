@@ -22,9 +22,9 @@ pages); this is how to work without breaking them.
 
 If you have also worked in the sibling `Seamless_bot` repository, unlearn its
 rule: there, tests are forbidden because they mock the boundaries where the
-real bugs live. KasbBook is the opposite. It has 414 tests that run on SQLite
-with no network and no token in about forty seconds, they test through the same
-seams a user crosses, and they have caught real production bugs repeatedly.
+real bugs live. KasbBook is the opposite. Its tests run on SQLite with no network
+and no token in about forty seconds, they test through the same seams a user
+crosses, and they have caught real production bugs repeatedly.
 
 Do not ship a change without running the suite. Do not add a feature without a
 test for the happy path, a refusal, and an isolation case.
@@ -224,6 +224,17 @@ cause in any of these.
 - **Coverage gaps cluster.** Two adapter methods raised `TypeError` on their
   first line and shipped, because they were the only two nothing exercised.
   Ask which methods have no test before asking which look wrong.
+
+- **An unasserted `str.replace()` is a silent no-op.** When a scripted edit's
+  anchor does not match, `replace` changes nothing and reports nothing. The
+  test-count badge in the README sat four commits out of date because of
+  exactly this, and no run ever failed. Every scripted edit in this repo
+  asserts `s.count(old) == 1` first; the ones that skipped it are the ones that
+  quietly did nothing.
+
+- **Do not write a number into prose that changes every week.** A test count in
+  a README is a promise to update it forever, and it will be broken. State what
+  does not rot — CI says the suite passes, and that stays true.
 
 - **A method with no caller is the same bug wearing a different hat.**
   `delete_message` existed on all three adapters, was tested, and nothing ever
