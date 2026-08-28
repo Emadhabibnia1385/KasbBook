@@ -94,11 +94,38 @@ class AuthService:
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(minutes=self.access_minutes)).timestamp()),
             "typ": "access",
+            # Which generation this was minted under. See User.token_generation.
+            "gen": user.token_generation,
         }
         return jwt.encode(payload, self.secret_key, algorithm=ALGORITHM)
 
-    def read_access_token(self, token: str) -> uuid.UUID:
-        """The user id inside a valid token, or an error naming the reason."""
+    async def user_for_access_token(self, token: str) -> User:
+        """The account behind a bearer token, or an error saying why not.
+
+        Everything an access token has to satisfy is here rather than at the
+        edge, so the answer cannot differ between callers: valid signature, not
+        expired, the right type, an active account, and issued after that
+        account's cutoff.
+        """
+        payload = self._decode(token)
+        try:
+            user_id = uuid.UUID(payload["sub"])
+        except (KeyError, ValueError):
+            raise AuthError("invalid token") from None
+
+        user = await self.session.get(User, user_id)
+        if user is None or not user.is_active:
+            raise AuthError("this account is not active")
+
+        # A token from before the last "sign out everywhere" carries an older
+        # generation. Tokens minted before this column existed carry none, and
+        # default to 0 — the same value every untouched account has.
+        if payload.get("gen", 0) != user.token_generation:
+            raise AuthError("this session has ended; sign in again")
+
+        return user
+
+    def _decode(self, token: str) -> dict:
         try:
             payload = jwt.decode(token, self.secret_key, algorithms=[ALGORITHM])
         except jwt.ExpiredSignatureError:
@@ -109,8 +136,12 @@ class AuthService:
         # A refresh token is also a string; it must not be usable as a bearer.
         if payload.get("typ") != "access":
             raise AuthError("invalid token")
+        return payload
+
+    def read_access_token(self, token: str) -> uuid.UUID:
+        """The user id inside a valid token, without loading the account."""
         try:
-            return uuid.UUID(payload["sub"])
+            return uuid.UUID(self._decode(token)["sub"])
         except (KeyError, ValueError):
             raise AuthError("invalid token") from None
 
@@ -219,13 +250,24 @@ class AuthService:
         return len(records)
 
     async def revoke_all_for_user(self, user_id: uuid.UUID) -> int:
-        """Sign out everywhere. What a password change should do."""
+        """Sign out everywhere, and mean it now rather than in half an hour.
+
+        Revoking the refresh tokens alone leaves every already-issued access
+        token working until it expires. Somebody signing out because they think
+        a credential leaked is not asking for a thirty-minute grace period for
+        whoever took it, so the cutoff moves too.
+        """
         stmt = select(RefreshToken).where(
             RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None)
         )
         records = (await self.session.execute(stmt)).scalars().all()
         for record in records:
             record.revoked_at = utcnow()
+
+        user = await self.session.get(User, user_id)
+        if user is not None:
+            user.token_generation += 1
+
         await self.session.flush()
         await self._audit(user_id, "auth.signed_out_everywhere")
         return len(records)

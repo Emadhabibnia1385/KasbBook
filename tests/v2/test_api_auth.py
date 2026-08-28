@@ -464,3 +464,70 @@ async def test_an_anonymous_caller_cannot_touch_an_account(api):
     ):
         response = await getattr(api, method)(path, json=body)
         assert response.status_code == 401, path
+
+
+# ------------------------------------------------- the access-token window
+#
+# Revoking refresh tokens leaves every already-issued access token working
+# until it expires. A live smoke test found it: after a password change the old
+# bearer still answered 200, for up to thirty minutes. Nothing in the suite
+# noticed, because every test until now asserted on refresh tokens.
+
+async def test_the_old_bearer_dies_with_the_password(api):
+    tokens = await register(api)
+    assert (await api.get("/api/v1/auth/me", headers=bearer(tokens))).status_code == 200
+
+    await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                  json={"current_password": "a-good-password",
+                        "new_password": "a-different-password"})
+
+    # Same token, one moment later. It was valid; it is not any more.
+    assert (await api.get("/api/v1/auth/me", headers=bearer(tokens))).status_code == 401
+
+
+async def test_signing_out_everywhere_ends_access_too(api):
+    tokens = await register(api)
+    other = (await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-good-password",
+    })).json()
+
+    await api.post("/api/v1/auth/logout-everywhere", headers=bearer(tokens))
+
+    for pair in (tokens, other):
+        assert (await api.get("/api/v1/auth/me", headers=bearer(pair))).status_code == 401
+
+
+async def test_a_token_issued_after_the_cutoff_still_works(api):
+    """The cutoff must end the old sessions without breaking the new one."""
+    tokens = await register(api)
+    await api.post("/api/v1/auth/logout-everywhere", headers=bearer(tokens))
+
+    fresh = (await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-good-password",
+    })).json()
+
+    assert (await api.get("/api/v1/auth/me", headers=bearer(fresh))).status_code == 200
+
+
+async def test_one_accounts_cutoff_does_not_touch_another(api):
+    mine = await register(api, "mine@example.com")
+    theirs = await register(api, "theirs@example.com")
+
+    await api.post("/api/v1/auth/logout-everywhere", headers=bearer(mine))
+
+    assert (await api.get("/api/v1/auth/me", headers=bearer(mine))).status_code == 401
+    assert (await api.get("/api/v1/auth/me", headers=bearer(theirs))).status_code == 200
+
+
+async def test_an_api_key_is_unaffected_by_a_password_change(api):
+    """A key belongs to a program; a nightly job should not stop at 3am."""
+    tokens = await register(api)
+    key = (await api.post("/api/v1/auth/api-keys", json={"name": "nightly"},
+                          headers=bearer(tokens))).json()["key"]
+
+    await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                  json={"current_password": "a-good-password",
+                        "new_password": "a-different-password"})
+
+    assert (await api.get("/api/v1/auth/me",
+                          headers={"X-API-Key": key})).status_code == 200

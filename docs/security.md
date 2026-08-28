@@ -24,8 +24,20 @@ They are deliberately different, and the differences are the design.
 
 ### Access token — a signed JWT
 
-Nothing looks it up. It is checked by verifying a signature, which is cheap and
-means it **cannot be revoked**. So it is short-lived: 30 minutes by default.
+Nothing looks it up by id. It is checked by verifying a signature, which is
+cheap, and it is short-lived: 30 minutes by default.
+
+It *can* be ended early, by exactly one lever. Every token carries the
+`token_generation` its account had when the token was minted, and
+`revoke_all_for_user` bumps that counter — so a password change or a "sign out
+everywhere" invalidates issued tokens immediately rather than leaving them
+working for their remaining lifetime. The check costs nothing: the account row
+is already loaded to see whether it is active.
+
+A counter rather than a timestamp, because `iat` has one-second granularity. A
+token minted and a cutoff set in the same second compare equal, and the old
+token slips through — which is exactly what a live smoke test caught before
+this shipped.
 
 `typ: "access"` is in the payload and checked on the way in, so a refresh token
 cannot be presented as a bearer.
@@ -135,7 +147,8 @@ it looks; what it does buy is that a stolen phone cannot quietly take the web
 side too. Setting a *first* password does not ask, because there is nothing to
 ask for.
 
-Either way, every session is revoked afterwards.
+Either way, every session is revoked afterwards — refresh tokens *and*
+already-issued access tokens.
 
 ## Secrets in logs
 

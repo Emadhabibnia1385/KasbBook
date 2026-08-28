@@ -62,6 +62,21 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Tehran")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Access tokens are signed JWTs that nothing looks up, which is what makes
+    # them cheap and also what makes them unrevokable. This counter is the one
+    # lever: every token carries the generation it was minted under, and a
+    # token whose generation is stale is refused. Bumped when the password
+    # changes, so "sign me out everywhere" means now rather than within the
+    # token's remaining lifetime.
+    #
+    # A counter rather than a timestamp, because `iat` has one-second
+    # granularity: a token minted and a cutoff set in the same second are
+    # indistinguishable, and the comparison silently lets the old one through.
+    # Equality on an integer has no such edge.
+    token_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+
     # Notification preferences. On by default: a bookkeeping tool that never
     # speaks first is one people forget to open. The hour is local to the
     # user's own timezone, not the server's.

@@ -97,9 +97,13 @@ that is theft detection working, not a bug. See [security.md](./security.md).
 | `PUT /auth/me/contact` | the email or phone this account is reached and recovered by |
 | `PUT /auth/me/password` | set or change it — **ends every session, including yours** |
 
-Changing a password signs everything out. Somebody doing it because they fear a
-leak expects exactly that, and leaving the sessions alive would defeat the
-point. Sign in again afterwards.
+Changing a password signs everything out — refresh tokens and already-issued
+access tokens alike, so the bearer you used to make the request stops working
+too. Somebody doing it because they fear a leak expects exactly that. Sign in
+again afterwards.
+
+An API key is unaffected: it belongs to a program, and a nightly job should not
+stop at 3am because a person changed their password.
 
 An address another account already holds is refused with a 422 that does not
 confirm the address is registered.

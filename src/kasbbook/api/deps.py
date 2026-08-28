@@ -7,7 +7,6 @@ so there is exactly one place that decides whether a request is authenticated.
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated, Optional
 
 from fastapi import Depends, Header, Request
@@ -67,7 +66,6 @@ AuthDep = Annotated[AuthService, Depends(get_auth)]
 
 
 async def current_user(
-    session: SessionDep,
     auth: AuthDep,
     authorization: Annotated[Optional[str], Header()] = None,
     x_api_key: Annotated[Optional[str], Header()] = None,
@@ -86,11 +84,7 @@ async def current_user(
     if not authorization or not authorization.lower().startswith("bearer "):
         raise AuthError("sign in first")
 
-    user_id: uuid.UUID = auth.read_access_token(authorization.split(" ", 1)[1].strip())
-    user = await session.get(User, user_id)
-    if user is None or not user.is_active:
-        raise AuthError("this account is not active")
-    return user
+    return await auth.user_for_access_token(authorization.split(" ", 1)[1].strip())
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
