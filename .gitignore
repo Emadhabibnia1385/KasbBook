@@ -35,3 +35,7 @@ Thumbs.db
 
 # --- deploy secrets ---
 deploy/.env
+
+# A status snapshot written for an outside review. It duplicates
+# docs/roadmap.md and goes stale within a day, so it stays out of the repo.
+KASBBOOK_STATUS.md
