@@ -17,9 +17,12 @@ from ...shared.errors import ValidationError
 from ..deps import AuthDep, CurrentUser, LimiterDep, SessionDep, client_fingerprint
 from ..schemas import (
     ApiKeyCreated,
+    ContactRequest,
     ApiKeyRequest,
     ApiKeyResponse,
     LoginRequest,
+    PasswordRequest,
+    ProfileRequest,
     RefreshRequest,
     RegisterRequest,
     SessionResponse,
@@ -132,6 +135,44 @@ async def me(user: CurrentUser) -> UserResponse:
 async def sessions(user: CurrentUser, auth: AuthDep) -> List[SessionResponse]:
     """Where this account is currently signed in."""
     return [SessionResponse.model_validate(row) for row in await auth.sessions(user.id)]
+
+
+# -------------------------------------------------------------- account
+@router.patch("/me", response_model=UserResponse)
+async def update_profile(
+    body: ProfileRequest, user: CurrentUser, session: SessionDep
+) -> UserResponse:
+    updated = await IdentityService(session).update_profile(
+        user.id, display_name=body.display_name,
+        timezone=body.timezone, locale=body.locale,
+    )
+    return UserResponse.model_validate(updated)
+
+
+@router.put("/me/contact", response_model=UserResponse)
+async def set_contact(
+    body: ContactRequest, user: CurrentUser, session: SessionDep
+) -> UserResponse:
+    """The address or number this account can be reached and recovered by."""
+    updated = await IdentityService(session).set_contact(
+        user.id, email=body.email, phone=body.phone
+    )
+    return UserResponse.model_validate(updated)
+
+
+@router.put("/me/password", status_code=204)
+async def set_password(
+    body: PasswordRequest, user: CurrentUser, session: SessionDep, auth: AuthDep
+) -> None:
+    """Set or change the password, and end every session including this one.
+
+    Somebody changing a password because they fear it leaked expects the
+    sessions to go with it; leaving them alive would defeat the point.
+    """
+    await IdentityService(session).set_password(
+        user.id, body.new_password, current_password=body.current_password
+    )
+    await auth.revoke_all_for_user(user.id)
 
 
 # ------------------------------------------------------------- api keys

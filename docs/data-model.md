@@ -144,6 +144,19 @@ See [payroll.md](./payroll.md).
 The prefix is kept in the clear so a key can be named in a list and revoked
 without its owner having to produce it.
 
+### An account can start with none of them
+
+`create_account_from_messenger` makes an account with no email, no phone and no
+password — because someone pressing "make me an account" in Telegram has given
+us nothing else. That account works, but it is a dead end: it cannot sign in to
+the API, a colleague cannot find it to add to a book, and losing the messenger
+loses the books, which is the exact failure the identity model exists to
+prevent.
+
+So the bot says so on the screen that announces the account, and the account
+panel keeps saying so until an email or phone is set. `set_contact` and
+`set_password` are the way out, and both are reachable from the bot and the API.
+
 See [security.md](./security.md).
 
 ## Audit

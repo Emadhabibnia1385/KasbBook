@@ -29,7 +29,7 @@ if str(ROOT) not in sys.path:
 import httpx  # noqa: E402
 
 from kasbbook.adapters.bale import BaleAdapter  # noqa: E402
-from kasbbook.adapters.base import MessagingAdapter  # noqa: E402
+from kasbbook.adapters.base import EventKind, MessagingAdapter  # noqa: E402
 from kasbbook.adapters.rubika import RubikaAdapter  # noqa: E402
 from kasbbook.adapters.telegram import TelegramAdapter  # noqa: E402
 from kasbbook.bot.conversation import Conversation  # noqa: E402
@@ -130,6 +130,21 @@ class BotRunner:
                 await session.rollback()
                 logger.exception("update failed; the loop continues")
                 return
+
+        # The line the person typed has served its purpose, and leaving it makes
+        # the chat a transcript of half-finished commands. Removing it is also
+        # what lets the bot ask for a password at all: an undeleted one sits in
+        # the chat, on the device and in every backup of both.
+        #
+        # A button press has nothing to remove — its message is the bot's own
+        # screen, which is edited in place rather than replaced.
+        if event.kind is not EventKind.CALLBACK and event.message_id:
+            try:
+                await self.adapter.delete_message(event.chat_id, event.message_id)
+            except Exception:
+                # Older than the provider's window, or no permission in a group.
+                # Neither is worth failing an update that already succeeded.
+                logger.debug("could not remove the incoming message", exc_info=True)
 
         if reply.edit_message_id:
             await self.adapter.edit_message(reply)

@@ -79,7 +79,7 @@ def main_menu() -> List[List[Button]]:
         [Button("📊 گزارش‌ها", data="rep:menu")],
         [Button("📚 دفترهای من", data="book:list")],
         [Button("🔔 یادآورها", data="rm:panel")],
-        [Button("🔗 حساب‌های متصل", data="acc:list")],
+        [Button("👤 حساب من", data="acc:panel")],
     ]
 
 
@@ -227,6 +227,136 @@ def book_report(book: Book, totals: dict) -> Screen:
 
 
 # -------------------------------------------------------- linked identities
+def account_created(display_name: str) -> Screen:
+    """A brand-new account is reachable from this messenger and nowhere else.
+
+    Saying so now is much cheaper than explaining it to someone who has lost
+    their Telegram account and their books with it.
+    """
+    return rtl(
+        f"✅ حسابت ساخته شد، {display_name}.\n\n"
+        "فعلاً فقط از همین پیام‌رسان به آن می‌رسی. اگر این حساب را از دست بدهی، "
+        "دفترهایت هم می‌روند.\n\n"
+        "یک ایمیل یا شماره اضافه کن تا حسابت راه برگشت داشته باشد."
+    ), [
+        [Button("📧 افزودن ایمیل یا شماره", data="acc:contact")],
+        [Button("بعداً", data="nav:home")],
+    ]
+
+
+def account_panel(user, identities: Iterable[Identity], current: Provider) -> Screen:
+    """Everything about the account itself, rather than about its books."""
+    rows = list(identities)
+    lines = [f"👤 {user.display_name}", ""]
+
+    lines.append(f"📧 ایمیل: {user.email or 'ندارد'}")
+    lines.append(f"📱 شماره: {user.phone or 'ندارد'}")
+    lines.append(f"🔑 رمز: {'دارد' if user.password_hash else 'ندارد'}")
+    lines.append(f"🕐 منطقهٔ زمانی: {user.timezone}")
+
+    lines += ["", "🔗 پیام‌رسان‌های متصل:"]
+    for identity in rows:
+        label = PROVIDER_LABELS.get(identity.provider, identity.provider.value)
+        who = identity.external_username or identity.external_id
+        here = " ← همین‌جا" if identity.provider is current else ""
+        lines.append(f"  • {label}: {who}{here}")
+
+    if not user.email and not user.phone:
+        lines += [
+            "",
+            "⚠️ این حساب راه برگشت ندارد. اگر پیام‌رسانت را از دست بدهی، "
+            "دفترهایت هم می‌روند.",
+        ]
+    elif not user.password_hash:
+        lines += ["", "برای ورود از وب یا API، یک رمز تعیین کن."]
+
+    return rtl("\n".join(lines)), [
+        [Button("✏️ نام", data="acc:name"),
+         Button("🕐 منطقهٔ زمانی", data="acc:tz")],
+        [Button("📧 ایمیل", data="acc:email"),
+         Button("📱 شماره", data="acc:phone")],
+        [Button("🔑 " + ("تغییر رمز" if user.password_hash else "تعیین رمز"),
+                data="acc:pw")],
+        [Button("🖥 نشست‌های فعال", data="acc:sessions")],
+        [Button("⬅️ بازگشت", data="nav:home")],
+    ]
+
+
+def ask_email() -> Screen:
+    return rtl(
+        "📧 ایمیلت را بنویس.\n\n"
+        "با همین می‌توانی از وب وارد شوی، و اگر پیام‌رسانت را از دست دادی "
+        "حسابت را برگردانی."
+    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+
+
+def ask_phone() -> Screen:
+    return rtl(
+        "📱 شماره‌ات را بنویس.\n\nمثلاً: ۰۹۱۲۱۲۳۴۵۶۷"
+    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+
+
+def ask_current_password() -> Screen:
+    return rtl(
+        "🔑 اول رمز فعلی را بنویس.\n\n"
+        "پیامت بلافاصله پاک می‌شود."
+    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+
+
+def ask_new_password(changing: bool) -> Screen:
+    what = "رمز تازه" if changing else "رمزی که می‌خواهی"
+    return rtl(
+        f"🔑 {what} را بنویس.\n\n"
+        "دست‌کم ۸ نویسه.\n"
+        "پیامت بلافاصله پاک می‌شود، ولی جای امنی نگهش دار."
+    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+
+
+def ask_display_name(current: str) -> Screen:
+    return rtl(f"✏️ نام تازه چه باشد؟\n\nالان: {current}"), [
+        [Button("⬅️ انصراف", data="acc:panel")]
+    ]
+
+
+def ask_timezone(current: str) -> Screen:
+    return rtl(
+        f"🕐 منطقهٔ زمانی\n\nالان: {current}\n\n"
+        "این ساعتی را تعیین می‌کند که خلاصهٔ روزانه به دستت می‌رسد."
+    ), [
+        [Button("تهران", data="acc:tzset:Asia/Tehran")],
+        [Button("دبی", data="acc:tzset:Asia/Dubai"),
+         Button("استانبول", data="acc:tzset:Europe/Istanbul")],
+        [Button("لندن", data="acc:tzset:Europe/London"),
+         Button("برلین", data="acc:tzset:Europe/Berlin")],
+        [Button("تورنتو", data="acc:tzset:America/Toronto")],
+        [Button("⬅️ بازگشت", data="acc:panel")],
+    ]
+
+
+def session_list(sessions) -> Screen:
+    """Where this account is signed in, so a surprise can be noticed."""
+    from ..shared import jalali
+
+    rows = list(sessions)
+    if not rows:
+        return rtl(
+            "🖥 هیچ نشست فعالی نداری.\n\n"
+            "نشست وقتی ساخته می‌شود که از وب یا API وارد شوی."
+        ), [[Button("⬅️ بازگشت", data="acc:panel")]]
+
+    lines = ["🖥 نشست‌های فعال:", ""]
+    for row in rows[:10]:
+        where = row.ip_address or "نامشخص"
+        agent = (row.user_agent or "")[:40] or "نامشخص"
+        lines.append(f"• {jalali.to_text(row.created_at.date())} — {where}\n  {agent}")
+
+    lines += ["", "اگر چیزی این‌جا را نمی‌شناسی، همه را خارج کن و رمزت را عوض کن."]
+    return rtl("\n".join(lines)), [
+        [Button("🚪 خروج از همهٔ نشست‌ها", data="acc:signout")],
+        [Button("⬅️ بازگشت", data="acc:panel")],
+    ]
+
+
 def identity_list(identities: Iterable[Identity], current: Provider) -> Screen:
     rows = list(identities)
     lines = ["🔗 حساب‌های متصل:", ""]

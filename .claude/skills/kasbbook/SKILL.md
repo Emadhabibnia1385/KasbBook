@@ -218,6 +218,13 @@ cause in any of these.
   first line and shipped, because they were the only two nothing exercised.
   Ask which methods have no test before asking which look wrong.
 
+- **A method with no caller is the same bug wearing a different hat.**
+  `delete_message` existed on all three adapters, was tested, and nothing ever
+  called it — so the single-screen UX was half-built for months and the bot
+  could not safely ask for a password. `ShareRule` and `send_stored_file` were
+  the same shape. When something looks finished, check who calls it, not just
+  whether it works.
+
 ---
 
 ## 6. Deployment — never improvise

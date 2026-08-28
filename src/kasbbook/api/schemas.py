@@ -63,6 +63,24 @@ class UserResponse(Model):
     reminder_days: int
 
 
+class ProfileRequest(Model):
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    timezone: Optional[str] = Field(default=None, max_length=64)
+    locale: Optional[str] = Field(default=None, max_length=8)
+
+
+class ContactRequest(Model):
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, max_length=32)
+
+
+class PasswordRequest(Model):
+    # Required once one is set; the service decides, not the schema, so the bot
+    # and the API cannot disagree about when it is needed.
+    current_password: Optional[str] = Field(default=None, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
 class SessionResponse(Model):
     id: uuid.UUID
     created_at: datetime

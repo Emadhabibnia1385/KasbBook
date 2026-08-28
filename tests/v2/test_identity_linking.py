@@ -11,7 +11,12 @@ import pytest
 
 from kasbbook.modules.identity.models import LinkDirection, Provider
 from kasbbook.modules.identity.service import IdentityService
-from kasbbook.shared.errors import AlreadyLinked, IdentityTakenError, InvalidLinkToken
+from kasbbook.shared.errors import (
+    AlreadyLinked,
+    IdentityTakenError,
+    InvalidLinkToken,
+    ValidationError,
+)
 from kasbbook.shared.security import token_digest
 
 pytestmark = pytest.mark.asyncio
@@ -252,3 +257,181 @@ async def test_linking_is_audited(session):
     assert "user.created" in actions
     assert "link.started" in actions
     assert "identity.linked" in actions
+
+
+# ==================================================== the account itself
+#
+# An account created from a messenger starts with no email, no phone and no
+# password. That is survivable but not good: it cannot sign in to the API, a
+# colleague cannot find it to add to a book, and losing the messenger loses the
+# books — which is the exact thing the identity model exists to prevent.
+# These cover the path out of that.
+
+async def test_an_account_made_from_a_messenger_is_linked_in_one_go(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(
+        Provider.TELEGRAM, "555001", display_name="عماد", external_username="emad"
+    )
+
+    assert user.display_name == "عماد"
+    assert await identity.user_for_identity(Provider.TELEGRAM, "555001") is not None
+
+
+async def test_a_messenger_that_already_belongs_somewhere_cannot_make_a_second(session):
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    with pytest.raises(AlreadyLinked):
+        await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+
+async def test_a_new_account_starts_unreachable_and_that_is_the_point(session):
+    """Stated as a test so the day it changes, somebody notices."""
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    assert user.email is None and user.phone is None
+    assert user.password_hash is None
+    assert await identity.authenticate("anything", "anything") is None
+
+
+# ------------------------------------------------------------------ contact
+async def test_adding_an_email_makes_the_account_findable(session):
+    """Which is what lets a colleague add them to a book."""
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    await identity.set_contact(user.id, email="Emad@Example.COM")
+
+    assert user.email == "emad@example.com"          # normalised
+    found = await identity.find_by_identifier("emad@example.com")
+    assert found is not None and found.id == user.id
+
+
+async def test_a_phone_number_is_normalised_from_persian_digits(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    await identity.set_contact(user.id, phone="۰۹۱۲۱۲۳۴۵۶۷")
+    assert user.phone == "09121234567"
+
+
+async def test_an_address_someone_else_holds_is_refused_without_saying_whose(session):
+    identity = IdentityService(session)
+    first = await identity.create_user("اول", email="taken@example.com")
+    second = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    with pytest.raises(ValidationError) as caught:
+        await identity.set_contact(second.id, email="taken@example.com")
+
+    # Confirming which addresses are registered would make this an account finder.
+    assert "taken@example.com" not in str(caught.value)
+    assert second.email is None
+    assert first.email == "taken@example.com"
+
+
+async def test_setting_the_address_you_already_have_is_not_a_conflict(session):
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد", email="me@example.com")
+
+    await identity.set_contact(user.id, email="me@example.com")
+    assert user.email == "me@example.com"
+
+
+async def test_nonsense_contact_details_are_refused(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    for bad in ("not-an-email", "@example.com", "emad@localhost"):
+        with pytest.raises(ValidationError):
+            await identity.set_contact(user.id, email=bad)
+
+    for bad in ("12345", "not digits", "1" * 20):
+        with pytest.raises(ValidationError):
+            await identity.set_contact(user.id, phone=bad)
+
+    assert user.email is None and user.phone is None
+
+
+async def test_setting_neither_is_a_mistake_worth_naming(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    with pytest.raises(ValidationError):
+        await identity.set_contact(user.id)
+
+
+# ----------------------------------------------------------------- password
+async def test_a_first_password_needs_no_current_one(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await identity.set_contact(user.id, email="emad@example.com")
+
+    await identity.set_password(user.id, "a-good-password")
+
+    assert await identity.authenticate("emad@example.com", "a-good-password") is not None
+
+
+async def test_changing_a_password_requires_the_current_one(session):
+    """A stolen phone should not be able to take the web side quietly too."""
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد", email="emad@example.com",
+                                      password="the-old-password")
+
+    with pytest.raises(ValidationError):
+        await identity.set_password(user.id, "a-new-password")
+
+    with pytest.raises(ValidationError):
+        await identity.set_password(user.id, "a-new-password",
+                                    current_password="wrong")
+
+    # The old one still works, so nothing was half-changed.
+    assert await identity.authenticate("emad@example.com", "the-old-password") is not None
+
+    await identity.set_password(user.id, "a-new-password",
+                                current_password="the-old-password")
+    assert await identity.authenticate("emad@example.com", "a-new-password") is not None
+    assert await identity.authenticate("emad@example.com", "the-old-password") is None
+
+
+async def test_a_short_password_is_refused_before_it_is_hashed(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    with pytest.raises(ValidationError):
+        await identity.set_password(user.id, "1234")
+    assert user.password_hash is None
+
+
+async def test_the_password_is_never_stored_in_the_clear(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+    await identity.set_password(user.id, "a-good-password")
+
+    assert "a-good-password" not in (user.password_hash or "")
+    assert user.password_hash.startswith("$argon2")
+
+
+# ------------------------------------------------------------------ profile
+async def test_a_display_name_can_be_changed(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    await identity.update_profile(user.id, display_name="عماد حبیب‌نیا")
+    assert user.display_name == "عماد حبیب‌نیا"
+
+    with pytest.raises(ValidationError):
+        await identity.update_profile(user.id, display_name="   ")
+
+
+async def test_an_unknown_timezone_is_refused(session):
+    """A bad zone sends the digest at the wrong hour and nobody connects the two."""
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "555001")
+
+    with pytest.raises(ValidationError):
+        await identity.update_profile(user.id, timezone="Mars/Olympus")
+    assert user.timezone == "Asia/Tehran"
+
+    await identity.update_profile(user.id, timezone="Europe/Istanbul")
+    assert user.timezone == "Europe/Istanbul"

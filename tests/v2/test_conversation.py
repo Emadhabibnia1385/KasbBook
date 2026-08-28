@@ -94,9 +94,13 @@ async def test_creating_an_account_from_the_bot_links_it_immediately(session):
     await convo.handle(command("start"))
     reply = await convo.handle(press("acc:create"))
 
-    assert "KasbBook" in reply.text
     owner = await IdentityService(session).user_for_identity(TG, "555001")
     assert owner is not None
+
+    # A brand-new account is reachable from this messenger and nowhere else,
+    # and it says so rather than dropping the person into a generic welcome.
+    assert "از دست بدهی" in reply.text
+    assert any("ایمیل" in b.text for row in reply.buttons for b in row)
 
 
 async def test_a_bad_link_token_does_not_crash_the_bot(session):
@@ -529,3 +533,177 @@ async def test_another_books_categories_are_not_suggested(session):
 
     labels = [b.text for row in reply.buttons for b in row]
     assert "اجارهٔ مغازه" not in labels
+
+
+# ================================================== the account panel
+#
+# An account made from a messenger has no email, no phone and no password, so
+# it cannot sign in to the API, a colleague cannot find it, and losing the
+# messenger loses the books. This is the way out of that, from the bot.
+
+async def test_the_panel_says_plainly_when_an_account_has_no_way_back(session):
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001", display_name="عماد")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:panel"))
+
+    assert "عماد" in reply.text
+    assert "ندارد" in reply.text
+    assert "راه برگشت ندارد" in reply.text
+
+
+async def test_an_email_can_be_added_from_the_bot(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:email"))
+    reply = await convo.handle(says("emad@example.com"))
+
+    assert user.email == "emad@example.com"
+    assert "emad@example.com" in reply.text
+    # The warning is gone, and the next thing to do is offered instead.
+    assert "راه برگشت ندارد" not in reply.text
+    assert "رمز" in reply.text
+
+
+async def test_a_bad_email_says_so_without_leaving_the_flow(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:email"))
+    reply = await convo.handle(says("@example.com"))
+
+    assert user.email is None
+    assert "⚠️" in reply.text
+
+
+async def test_a_first_password_is_set_in_one_step(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    await identity.set_contact(user.id, email="emad@example.com")
+    convo = await conversation(session)
+
+    # No current password exists, so it does not ask for one.
+    asked = await convo.handle(press("acc:pw"))
+    assert "فعلی" not in asked.text
+
+    await convo.handle(says("a-good-password"))
+
+    assert await identity.authenticate("emad@example.com", "a-good-password") is not None
+
+
+async def test_changing_a_password_asks_for_the_current_one_first(session):
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد", email="emad@example.com",
+                                      password="the-old-password")
+    issued = await identity.start_link_from_web(user.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "555001")
+    convo = await conversation(session)
+
+    asked = await convo.handle(press("acc:pw"))
+    assert "فعلی" in asked.text
+
+    await convo.handle(says("the-old-password"))
+    await convo.handle(says("a-new-password"))
+
+    assert await identity.authenticate("emad@example.com", "a-new-password") is not None
+    assert await identity.authenticate("emad@example.com", "the-old-password") is None
+
+
+async def test_a_wrong_current_password_changes_nothing(session):
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد", email="emad@example.com",
+                                      password="the-old-password")
+    issued = await identity.start_link_from_web(user.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "555001")
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:pw"))
+    await convo.handle(says("not-the-old-password"))
+    reply = await convo.handle(says("a-new-password"))
+
+    assert "⚠️" in reply.text
+    assert await identity.authenticate("emad@example.com", "the-old-password") is not None
+
+
+async def test_changing_the_password_signs_every_other_session_out(session):
+    """Somebody changing it because they fear a leak expects exactly that."""
+    from kasbbook.modules.identity.auth import AuthService
+
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد", email="emad@example.com",
+                                      password="the-old-password")
+    issued = await identity.start_link_from_web(user.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "555001")
+
+    auth = AuthService(session, "a-signing-key-long-enough-for-a-test")
+    await auth.issue_pair(user)
+    await auth.issue_pair(user)
+    assert len(await auth.sessions(user.id)) == 2
+
+    convo = await conversation(session)
+    await convo.handle(press("acc:pw"))
+    await convo.handle(says("the-old-password"))
+    await convo.handle(says("a-new-password"))
+
+    assert await auth.sessions(user.id) == []
+
+
+async def test_the_timezone_survives_the_slash_in_its_name(session):
+    """The callback splitter treats ":" as a separator; "Asia/Tehran" has none,
+    but "acc:tzset:Europe/Istanbul" still has to arrive whole."""
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:tzset:Europe/Istanbul"))
+
+    assert user.timezone == "Europe/Istanbul"
+    assert "Europe/Istanbul" in reply.text
+
+
+async def test_the_display_name_can_be_changed(session):
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001", display_name="عماد")
+    convo = await conversation(session)
+
+    await convo.handle(press("acc:name"))
+    reply = await convo.handle(says("عماد حبیب‌نیا"))
+
+    assert user.display_name == "عماد حبیب‌نیا"
+    assert "عماد حبیب‌نیا" in reply.text
+
+
+async def test_sessions_can_be_seen_and_ended_from_the_bot(session):
+    from kasbbook.modules.identity.auth import AuthService
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    auth = AuthService(session, "a-signing-key-long-enough-for-a-test")
+    await auth.issue_pair(user, user_agent="Firefox on Linux", ip_address="10.0.0.9")
+
+    convo = await conversation(session)
+    listed = await convo.handle(press("acc:sessions"))
+    assert "Firefox on Linux" in listed.text
+    assert "10.0.0.9" in listed.text
+
+    await convo.handle(press("acc:signout"))
+    assert await auth.sessions(user.id) == []
+
+
+async def test_one_account_cannot_see_anothers_account_panel(session):
+    identity = IdentityService(session)
+    first = await identity.create_account_from_messenger(TG, "555001",
+                                                         display_name="عماد")
+    await identity.set_contact(first.id, email="emad@example.com")
+    await identity.create_account_from_messenger(TG, "999", display_name="غریبه")
+
+    convo = await conversation(session)
+    reply = await convo.handle(press("acc:panel", external_id="999"))
+
+    assert "غریبه" in reply.text
+    assert "عماد" not in reply.text
+    assert "emad@example.com" not in reply.text

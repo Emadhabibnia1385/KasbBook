@@ -373,3 +373,94 @@ async def test_a_transaction_reports_whether_it_has_a_receipt(api, db):
     assert fetched["receipt_kind"] == "document"
     assert fetched["receipt_file_name"] == "invoice.pdf"
     assert "receipt_file_id" not in fetched
+
+
+# ------------------------------------------------------------- account
+async def test_the_profile_can_be_changed(api):
+    tokens = await register(api)
+    response = await api.patch("/api/v1/auth/me", headers=bearer(tokens),
+                               json={"display_name": "عماد حبیب‌نیا",
+                                     "timezone": "Europe/Istanbul"})
+
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "عماد حبیب‌نیا"
+    assert response.json()["timezone"] == "Europe/Istanbul"
+
+
+async def test_an_unknown_timezone_is_refused(api):
+    tokens = await register(api)
+    response = await api.patch("/api/v1/auth/me", headers=bearer(tokens),
+                               json={"timezone": "Mars/Olympus"})
+    assert response.status_code == 422
+
+
+async def test_contact_details_can_be_changed(api):
+    tokens = await register(api)
+    response = await api.put("/api/v1/auth/me/contact", headers=bearer(tokens),
+                             json={"phone": "09121234567"})
+
+    assert response.status_code == 200
+    assert response.json()["phone"] == "09121234567"
+
+
+async def test_an_address_another_account_holds_is_refused(api):
+    await register(api, "first@example.com")
+    second = await register(api, "second@example.com")
+
+    response = await api.put("/api/v1/auth/me/contact", headers=bearer(second),
+                             json={"email": "first@example.com"})
+
+    assert response.status_code == 422
+    # And it does not confirm that the address is registered.
+    assert "first@example.com" not in response.text
+
+
+async def test_changing_the_password_requires_the_current_one(api):
+    tokens = await register(api)
+
+    without = await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                            json={"new_password": "a-different-password"})
+    assert without.status_code == 422
+
+    wrong = await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                          json={"current_password": "nope",
+                                "new_password": "a-different-password"})
+    assert wrong.status_code == 422
+
+    # The old one still works, so nothing was half-changed.
+    assert (await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-good-password",
+    })).status_code == 200
+
+
+async def test_changing_the_password_ends_every_session(api):
+    """Including the one that asked, which is the point of doing it."""
+    tokens = await register(api)
+    other = (await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-good-password",
+    })).json()
+
+    changed = await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                            json={"current_password": "a-good-password",
+                                  "new_password": "a-different-password"})
+    assert changed.status_code == 204
+
+    for pair in (tokens, other):
+        assert (await api.post("/api/v1/auth/refresh",
+                               json={"refresh_token": pair["refresh_token"]})
+                ).status_code == 401
+
+    assert (await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-different-password",
+    })).status_code == 200
+
+
+async def test_an_anonymous_caller_cannot_touch_an_account(api):
+    await register(api)
+    for method, path, body in (
+        ("patch", "/api/v1/auth/me", {"display_name": "x"}),
+        ("put", "/api/v1/auth/me/contact", {"phone": "09121234567"}),
+        ("put", "/api/v1/auth/me/password", {"new_password": "a-good-password"}),
+    ):
+        response = await getattr(api, method)(path, json=body)
+        assert response.status_code == 401, path

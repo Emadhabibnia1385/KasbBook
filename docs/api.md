@@ -89,6 +89,21 @@ curl -X POST /api/v1/auth/refresh -d '{"refresh_token":"xK9..."}'
 Presenting a spent token revokes the entire family and signs the session out —
 that is theft detection working, not a bug. See [security.md](./security.md).
 
+### The account itself
+
+| | |
+|---|---|
+| `PATCH /auth/me` | display name, timezone, locale |
+| `PUT /auth/me/contact` | the email or phone this account is reached and recovered by |
+| `PUT /auth/me/password` | set or change it — **ends every session, including yours** |
+
+Changing a password signs everything out. Somebody doing it because they fear a
+leak expects exactly that, and leaving the sessions alive would defeat the
+point. Sign in again afterwards.
+
+An address another account already holds is refused with a 422 that does not
+confirm the address is registered.
+
 | | |
 |---|---|
 | `POST /auth/logout` | ends this session |

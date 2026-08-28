@@ -443,3 +443,87 @@ async def test_the_console_entry_point_exists():
     module_path, _, attribute = scripts["kasbbook-bot"].partition(":")
     module = __import__(module_path, fromlist=[attribute])
     assert callable(getattr(module, attribute))
+
+
+# ------------------------------------------------- the incoming message goes
+#
+# `delete_message` existed on every adapter and was tested, and nothing ever
+# called it. Wiring it is what the single-screen UX was missing, and it is also
+# the precondition for the bot asking for a password at all: an undeleted one
+# sits in the chat, on the device, and in every backup of both.
+
+async def test_a_typed_message_is_removed_after_it_is_handled(db, session):
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد")
+    issued = await identity.start_link_from_web(user.id, Provider.TELEGRAM)
+    await identity.complete_link_from_messenger(issued.token, Provider.TELEGRAM, "555001")
+    await session.commit()
+
+    server, runner = await build(db, [update(1, text="سلام", message_id=77)])
+    await runner.poll_once()
+
+    deleted = [c for c in server.sent if c["method"] == "deleteMessage"]
+    assert len(deleted) == 1
+    assert deleted[0]["body"]["message_id"] == 77
+
+
+async def test_a_password_never_stays_in_the_chat(db, session):
+    """The one that matters. Nothing else here would notice if this regressed."""
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد", email="emad@example.com")
+    issued = await identity.start_link_from_web(user.id, Provider.TELEGRAM)
+    await identity.complete_link_from_messenger(issued.token, Provider.TELEGRAM, "555001")
+    await session.commit()
+
+    server, runner = await build(db, [
+        update(1, data="acc:pw"),
+        update(2, text="a-good-password", message_id=91),
+    ])
+    await runner.poll_once()
+
+    assert any(
+        c["method"] == "deleteMessage" and c["body"]["message_id"] == 91
+        for c in server.sent
+    )
+
+
+async def test_a_button_press_has_nothing_to_remove(db, session):
+    """Its message is the bot's own screen, which is edited rather than replaced."""
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد")
+    issued = await identity.start_link_from_web(user.id, Provider.TELEGRAM)
+    await identity.complete_link_from_messenger(issued.token, Provider.TELEGRAM, "555001")
+    await session.commit()
+
+    server, runner = await build(db, [update(1, data="nav:home")])
+    await runner.poll_once()
+
+    assert not any(c["method"] == "deleteMessage" for c in server.sent)
+
+
+async def test_a_message_that_cannot_be_removed_does_not_fail_the_update(db, session):
+    """Older than the provider's window, or no permission in a group."""
+    identity = IdentityService(session)
+    user = await identity.create_user("عماد")
+    issued = await identity.start_link_from_web(user.id, Provider.TELEGRAM)
+    await identity.complete_link_from_messenger(issued.token, Provider.TELEGRAM, "555001")
+    await session.commit()
+
+    server = FakeTelegramServer([update(1, text="/start")])
+    original = server.transport()
+
+    def refuse_deletes(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("deleteMessage"):
+            return httpx.Response(200, json={"ok": False, "description": "too old"})
+        return original.handler(request)
+
+    adapter = TelegramAdapter(
+        token="test",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(refuse_deletes)),
+    )
+    runner = BotRunner(
+        Settings(database_url="sqlite+aiosqlite://"), db, adapter, MemoryStateStore()
+    )
+
+    assert await runner.poll_once() == 1
+    assert any("KasbBook" in text for text in server.texts())

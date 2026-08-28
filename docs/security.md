@@ -117,6 +117,26 @@ That is weaker than a signature. It is what the providers make possible.
 
 **Polling avoids the question entirely**, and is the default.
 
+## Passwords typed into a chat
+
+The bot can set a password, which means someone types one into Telegram. That
+is only acceptable because the message is deleted the moment it is handled —
+`apps/bot/runner.py` removes every incoming message, and a test asserts the
+password case specifically. Without that the password would sit in the chat, on
+the device, and in every backup of both.
+
+A delete that fails — too old, or no permission in a group — is logged and
+ignored rather than failing an update that already succeeded. It is worth
+knowing that this makes the guarantee best-effort rather than absolute.
+
+Changing an existing password requires the current one. Whoever holds the
+linked messenger can already read and change the books, so this buys less than
+it looks; what it does buy is that a stolen phone cannot quietly take the web
+side too. Setting a *first* password does not ask, because there is nothing to
+ask for.
+
+Either way, every session is revoked afterwards.
+
 ## Secrets in logs
 
 `httpx` logs full request URLs at `INFO`, and every one of these bot APIs puts

@@ -148,17 +148,13 @@ class Conversation:
             return screens.welcome(user.display_name)
 
         if event.kind is EventKind.CALLBACK and event.callback_data == "acc:create":
-            user = await self.identity.create_user(
-                event.identity.display_name or "کاربر تازه"
-            )
-            await self.identity._attach(
-                user_id=user.id,
-                provider=self.provider,
-                external_id=event.identity.external_id,
-                external_username=event.identity.username,
+            user = await self.identity.create_account_from_messenger(
+                self.provider,
+                event.identity.external_id,
                 display_name=event.identity.display_name,
+                external_username=event.identity.username,
             )
-            return screens.welcome(user.display_name)
+            return screens.account_created(user.display_name)
 
         issued = await self.identity.start_link_from_messenger(
             self.provider,
@@ -240,13 +236,7 @@ class Conversation:
             return screens.welcome(user.display_name)
 
         if area == "acc":
-            if action == "newcode":
-                issued = await self.identity.start_link_from_messenger(
-                    self.provider, event.identity.external_id
-                )
-                return screens.not_linked(issued.token)
-            identities = await self.identity.list_identities(user.id)
-            return screens.identity_list(identities, self.provider)
+            return await self._account_callback(action, argument, user, key, event)
 
         return screens.welcome(user.display_name)
 
@@ -701,6 +691,118 @@ class Conversation:
         )
         await self.state.clear(key)
         return await self._loan_screen(book, user)
+
+    # ------------------------------------------------------------- account
+    async def _account_panel(self, user):
+        return screens.account_panel(
+            user, await self.identity.list_identities(user.id), self.provider
+        )
+
+    async def _account_callback(self, action: str, argument: str, user, key: str, event):
+        if action == "newcode":
+            issued = await self.identity.start_link_from_messenger(
+                self.provider, event.identity.external_id
+            )
+            return screens.not_linked(issued.token)
+
+        if action == "list":
+            await self.state.clear(key)
+            return screens.identity_list(
+                await self.identity.list_identities(user.id), self.provider
+            )
+
+        if action in ("panel", "contact"):
+            await self.state.clear(key)
+            return await self._account_panel(user)
+
+        if action == "name":
+            await self.state.set(key, {"flow": "account", "field": "name"})
+            return screens.ask_display_name(user.display_name)
+
+        if action == "email":
+            await self.state.set(key, {"flow": "account", "field": "email"})
+            return screens.ask_email()
+
+        if action == "phone":
+            await self.state.set(key, {"flow": "account", "field": "phone"})
+            return screens.ask_phone()
+
+        if action == "tz":
+            return screens.ask_timezone(user.timezone)
+
+        if action == "tzset":
+            # The zone name contains a slash, which the splitter took for a
+            # separator; rebuild it from what is left of the callback.
+            zone = ":".join((event.callback_data or "").split(":")[2:])
+            await self.identity.update_profile(user.id, timezone=zone)
+            return await self._account_panel(user)
+
+        if action == "pw":
+            # Asking for the current one first only makes sense when there is
+            # one; a new account is setting its first password.
+            field = "password_current" if user.password_hash else "password_new"
+            await self.state.set(key, {"flow": "account", "field": field})
+            return (
+                screens.ask_current_password() if user.password_hash
+                else screens.ask_new_password(changing=False)
+            )
+
+        if action == "sessions":
+            return screens.session_list(await self._auth().sessions(user.id))
+
+        if action == "signout":
+            await self._auth().revoke_all_for_user(user.id)
+            return screens.session_list([])
+
+        return await self._account_panel(user)
+
+    def _auth(self):
+        """Sessions live behind AuthService, which needs the signing key.
+
+        The bot never mints a token, so any key satisfies the constructor —
+        but passing a real one keeps this honest if that ever changes.
+        """
+        from ..modules.identity.auth import AuthService
+        from ..shared.settings import Settings
+
+        return AuthService(self.session, Settings.from_env().api_secret_key or "bot")
+
+    async def _account_text(self, text: str, draft: dict, user, key: str):
+        field = draft.get("field")
+
+        try:
+            if field == "name":
+                await self.identity.update_profile(user.id, display_name=text)
+            elif field == "email":
+                await self.identity.set_contact(user.id, email=text)
+            elif field == "phone":
+                await self.identity.set_contact(user.id, phone=text)
+            elif field == "password_current":
+                # Held only long enough to prove the next one is allowed.
+                draft["current"] = text
+                draft["field"] = "password_new"
+                await self.state.set(key, draft)
+                return screens.ask_new_password(changing=True)
+            elif field == "password_new":
+                await self.identity.set_password(
+                    user.id, text, current_password=draft.get("current")
+                )
+                # A password change signs every other session out. Someone who
+                # changes it because they fear it leaked expects exactly that.
+                await self._auth().revoke_all_for_user(user.id)
+            else:
+                await self.state.clear(key)
+                return await self._account_panel(user)
+        except KasbBookError as exc:
+            # Stay in the flow so the answer can be corrected without starting
+            # again, except for a wrong current password, which starts over.
+            if field == "password_new" and draft.get("current"):
+                await self.state.clear(key)
+                return screens.error(str(exc))
+            return screens.error(str(exc))
+
+        await self.state.clear(key)
+        return await self._account_panel(user)
 
     # ---------------------------------------------------------- treasury
     async def _fund_screen(self, book, user):
@@ -1232,6 +1334,9 @@ class Conversation:
 
         if draft.get("flow") == "reminder":
             return await self._reminder_text(text, draft, user, key)
+
+        if draft.get("flow") == "account":
+            return await self._account_text(text, draft, user, key)
 
         if draft.get("flow") == "fund":
             return await self._fund_text(text, draft, user, key)

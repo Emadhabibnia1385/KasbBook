@@ -48,6 +48,11 @@ Not built, because there is no mail path. A reset flow without one is a support
 ticket pretending to be a feature. It needs SMTP configuration first, and then
 it is straightforward.
 
+Note that an account with a linked messenger is not locked out by a forgotten
+password: it can set a new one from the bot. Reset matters for the account that
+has drifted away from its messenger, which is precisely the one a mail path
+would serve.
+
 ### Webhooks in production
 
 The route exists and is tested; polling is what actually runs. Switching over
