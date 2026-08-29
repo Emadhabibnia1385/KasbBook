@@ -3,6 +3,11 @@
 # Bound to loopback on purpose. Anything public goes through the reverse proxy
 # already on this box, which is where TLS and rate limiting at the edge belong —
 # not in the application process.
+#
+# Access logging is off because nginx already does it, and uvicorn's version
+# writes the full request path — which for a webhook contains the secret that
+# guards it. One access log is enough, and it should be the one that knows to
+# leave that path out.
 
 [Unit]
 Description=KasbBook API
@@ -19,7 +24,8 @@ ExecStart=/opt/kasbbook/venv/bin/uvicorn \
     --port 8210 \
     --workers 2 \
     --proxy-headers \
-    --no-server-header
+    --no-server-header \
+    --no-access-log
 Restart=always
 RestartSec=5
 

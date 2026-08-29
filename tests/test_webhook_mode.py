@@ -219,3 +219,19 @@ async def test_an_update_nobody_acts_on_is_acknowledged_cheaply(served):
                                  json={"update_id": 1, "channel_post": {"message_id": 3}})
     assert response.status_code == 200
     assert fake.calls == []
+
+
+# --------------------------------------------------------------- the unit
+async def test_the_api_unit_does_not_log_request_paths():
+    """A webhook path contains the secret that guards it.
+
+    nginx is the access log and knows to skip that path; uvicorn's version does
+    not, and would write the credential to the journal on every update. This is
+    asserted against the unit file because the leak is a deployment property,
+    not something any request-level test would see.
+    """
+    from pathlib import Path
+
+    unit = (Path(__file__).resolve().parents[1]
+            / "deploy" / "kasbbook-api.service").read_text(encoding="utf-8")
+    assert "--no-access-log" in unit
