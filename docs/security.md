@@ -181,7 +181,7 @@ Both systemd units run with the privileges they actually need, which is none:
 
 ```
 NoNewPrivileges  PrivateTmp  ProtectSystem=strict  ProtectHome
-ReadWritePaths=/opt/kasbbook-v2  ProtectKernelTunables  ProtectControlGroups
+ReadWritePaths=/opt/kasbbook  ProtectKernelTunables  ProtectControlGroups
 ```
 
 The bot makes outbound HTTPS calls and talks to loopback. Everything else is

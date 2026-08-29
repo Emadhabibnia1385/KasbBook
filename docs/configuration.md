@@ -1,7 +1,7 @@
 # Configuration
 
 Everything is read from the environment, once, at startup, by
-`shared/settings.py`. On a server that file is `/opt/kasbbook-v2/.env`, mode
+`shared/settings.py`. On a server that file is `/opt/kasbbook/.env`, mode
 `600`, written by the installer.
 
 Every value has a safe default except the two that cannot have one: a bot token
@@ -43,7 +43,7 @@ for what is done instead.
 
 ```bash
 sudo cp /etc/systemd/system/kasbbook-bot.service /etc/systemd/system/kasbbook-bale.service
-# point EnvironmentFile at /opt/kasbbook-v2/.env.bale
+# point EnvironmentFile at /opt/kasbbook/.env.bale
 # in that file: KASBBOOK_PROVIDER=bale and BALE_BOT_TOKEN=...
 ```
 
@@ -92,7 +92,7 @@ Read by the scripts, not by the application.
 
 | Variable | Default |
 |---|---|
-| `KASBBOOK_HOME` | `/opt/kasbbook-v2` |
+| `KASBBOOK_HOME` | `/opt/kasbbook` |
 | `KASBBOOK_BRANCH` | `v2` |
 | `KASBBOOK_BACKUP_DIR` | `/var/backups/kasbbook` |
 | `KASBBOOK_BACKUP_KEEP` | `14` |
@@ -101,7 +101,7 @@ Read by the scripts, not by the application.
 
 | Variable | Effect |
 |---|---|
-| `KASBBOOK_TEST_POSTGRES_URL` | Enables `tests/v2/test_migrations_postgres.py`. Without it those six tests skip, which is why a laptop without PostgreSQL still runs the rest of the suite. |
+| `KASBBOOK_TEST_POSTGRES_URL` | Enables `tests/test_migrations_postgres.py`. Without it those six tests skip, which is why a laptop without PostgreSQL still runs the rest of the suite. |
 
 ## A complete production file
 

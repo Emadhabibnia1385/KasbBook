@@ -2,7 +2,7 @@
 
 ## The scripts
 
-All under `/opt/kasbbook-v2/scripts/`, all needing `sudo`, all sourcing
+All under `/opt/kasbbook/scripts/`, all needing `sudo`, all sourcing
 `lib.sh`.
 
 | | |
@@ -16,7 +16,7 @@ All under `/opt/kasbbook-v2/scripts/`, all needing `sudo`, all sourcing
 ## Updating
 
 ```bash
-sudo /opt/kasbbook-v2/scripts/update.sh
+sudo /opt/kasbbook/scripts/update.sh
 ```
 
 In order:
@@ -47,7 +47,7 @@ failed update and a bot that is still running.
 ## Backups
 
 ```bash
-sudo /opt/kasbbook-v2/scripts/backup.sh
+sudo /opt/kasbbook/scripts/backup.sh
 ```
 
 `pg_dump | gzip` into `/var/backups/kasbbook/`, mode 600, directory 700 —
@@ -67,7 +67,7 @@ only ever inside its own directory.
 
 ```bash
 sudo crontab -e
-0 3 * * * /opt/kasbbook-v2/scripts/backup.sh --quiet
+0 3 * * * /opt/kasbbook/scripts/backup.sh --quiet
 ```
 
 ### Off the box
@@ -82,7 +82,7 @@ rsync -az /var/backups/kasbbook/ elsewhere:/backups/kasbbook/
 ## Restoring
 
 ```bash
-sudo /opt/kasbbook-v2/scripts/restore.sh /var/backups/kasbbook/kasbbook-20260825-030000.sql.gz
+sudo /opt/kasbbook/scripts/restore.sh /var/backups/kasbbook/kasbbook-20260825-030000.sql.gz
 ```
 
 Destroys data by design, so it says exactly what it is about to replace, shows
@@ -99,10 +99,10 @@ Running it with no argument lists what is available.
 `update.sh` does this automatically on failure. To do it deliberately:
 
 ```bash
-cd /opt/kasbbook-v2
+cd /opt/kasbbook
 sudo git log --oneline -10
 sudo git reset --hard <commit>
-sudo ./venv/bin/pip install -q -r requirements-v2.txt
+sudo ./venv/bin/pip install -q -r requirements.txt
 sudo install -m 644 deploy/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl restart kasbbook-bot kasbbook-api
@@ -124,7 +124,7 @@ all the way back to base — on SQLite and on PostgreSQL.
 ```bash
 systemctl status kasbbook-bot kasbbook-api
 curl -s http://127.0.0.1:8210/readyz
-cd /opt/kasbbook-v2 && sudo ./venv/bin/alembic current
+cd /opt/kasbbook && sudo ./venv/bin/alembic current
 ```
 
 `systemctl is-active` says `active` even for a service crash-looping under
@@ -135,7 +135,7 @@ service means something is wrong.
 ## Datastores
 
 ```bash
-cd /opt/kasbbook-v2/deploy
+cd /opt/kasbbook/deploy
 docker compose ps
 docker compose logs postgres --tail 50
 docker compose restart redis
@@ -150,7 +150,7 @@ Losing PostgreSQL is not; that is what the backups are for.
 ```bash
 sudo cp /etc/systemd/system/kasbbook-bot.service \
         /etc/systemd/system/kasbbook-bale.service
-# edit: EnvironmentFile=/opt/kasbbook-v2/.env.bale
+# edit: EnvironmentFile=/opt/kasbbook/.env.bale
 sudo systemctl daemon-reload && sudo systemctl enable --now kasbbook-bale
 ```
 
@@ -178,7 +178,7 @@ Two jobs on every push, both on Python 3.12:
 
 | Job | What it runs |
 |---|---|
-| `tests` | pyflakes over `src/`, `apps/`, `tests/v2`, then the whole suite |
+| `tests` | pyflakes over `src/`, `apps/`, `tests`, then the whole suite |
 | `postgres` | the migration rehearsal against a real `postgres:16-alpine` |
 
 The second exists because `ADD COLUMN NOT NULL` against a populated table is

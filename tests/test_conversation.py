@@ -322,7 +322,7 @@ async def test_no_two_features_share_a_callback_prefix():
     import ast
     import pathlib
 
-    source = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/bot/conversation.py"
+    source = pathlib.Path(__file__).resolve().parents[1] / "src/kasbbook/bot/conversation.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
 
     routed: list = []
@@ -355,7 +355,7 @@ async def test_every_button_prefix_the_screens_emit_is_routed():
     import pathlib
     import re
 
-    root = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/bot"
+    root = pathlib.Path(__file__).resolve().parents[1] / "src/kasbbook/bot"
 
     emitted = set()
     for line in (root / "screens.py").read_text(encoding="utf-8").splitlines():

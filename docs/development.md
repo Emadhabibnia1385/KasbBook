@@ -8,7 +8,7 @@ cd KasbBook
 python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
 ./venv/bin/pip install --no-deps -e .
-./venv/bin/python -m pytest tests/v2 -q
+./venv/bin/python -m pytest tests -q
 ```
 
 The editable install is what makes `kasbbook` importable because it is
@@ -23,13 +23,13 @@ what lets a laptop without PostgreSQL still run everything else.
 
 ```bash
 export KASBBOOK_TEST_POSTGRES_URL=postgresql+asyncpg://kasbbook:pw@127.0.0.1:5435/kasbbook_test
-./venv/bin/python -m pytest tests/v2/test_migrations_postgres.py -q
+./venv/bin/python -m pytest tests/test_migrations_postgres.py -q
 ```
 
 ## Lint
 
 ```bash
-./venv/bin/python -m pyflakes src/kasbbook apps tests/v2 migrations/comparators.py
+./venv/bin/python -m pyflakes src/kasbbook apps tests migrations/comparators.py
 ```
 
 pyflakes only — no formatter, no import sorter. It catches the things that are
@@ -138,7 +138,7 @@ apps/bot/         the runnable entry point and the reminder loop
 migrations/       alembic env, comparators, versions
 deploy/           compose file and the two systemd units
 scripts/          install, update, backup, restore, uninstall
-tests/v2/         everything
+tests/         everything
 docs/             these files
 ```
 

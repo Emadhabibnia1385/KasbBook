@@ -17,7 +17,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements-v2.txt
+            requirements.txt
             requirements-dev.txt
 
       - name: Install
@@ -26,10 +26,10 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint
-        run: python -m pyflakes src/kasbbook apps tests/v2
+        run: python -m pyflakes src/kasbbook apps tests
 
       - name: Tests
-        run: python -m pytest tests/v2 -q
+        run: python -m pytest tests -q
 
   postgres:
     name: migrations on postgres
@@ -59,7 +59,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements-v2.txt
+            requirements.txt
             requirements-dev.txt
 
       - name: Install
@@ -70,7 +70,7 @@ jobs:
       - name: Rehearse every migration against populated tables
         env:
           KASBBOOK_TEST_POSTGRES_URL: postgresql+asyncpg://kasbbook:kasbbook@localhost:5432/kasbbook_test
-        run: python -m pytest tests/v2/test_migrations_postgres.py -q
+        run: python -m pytest tests/test_migrations_postgres.py -q
 
   scripts:
     name: shell scripts

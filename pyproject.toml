@@ -15,7 +15,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
 
-# Kept in step with requirements-v2.txt by a test in tests/v2/test_runner.py —
+# Kept in step with requirements.txt by a test in tests/test_runner.py —
 # two dependency lists that drift are worse than one long one.
 dependencies = [
     "fastapi>=0.115",

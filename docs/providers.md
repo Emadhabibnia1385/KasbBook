@@ -82,7 +82,7 @@ in the UI rather than attempted and failed.
 
 ## The conformance suite
 
-`tests/v2/test_adapters_bale_rubika.py` ends with the same assertions run
+`tests/test_adapters_bale_rubika.py` ends with the same assertions run
 against **all three** adapters:
 
 - declares a `Provider` and `Capabilities`

@@ -54,10 +54,10 @@ curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scri
 
 | | |
 |---|---|
-| به‌روزرسانی | `sudo /opt/kasbbook-v2/scripts/update.sh` |
-| پشتیبان | `sudo /opt/kasbbook-v2/scripts/backup.sh` |
-| بازگردانی | `sudo /opt/kasbbook-v2/scripts/restore.sh <file>` |
-| حذف | `sudo /opt/kasbbook-v2/scripts/uninstall.sh` |
+| به‌روزرسانی | `sudo /opt/kasbbook/scripts/update.sh` |
+| پشتیبان | `sudo /opt/kasbbook/scripts/backup.sh` |
+| بازگردانی | `sudo /opt/kasbbook/scripts/restore.sh <file>` |
+| حذف | `sudo /opt/kasbbook/scripts/uninstall.sh` |
 
 اسکریپت به‌روزرسانی اول پشتیبان می‌گیرد، تست می‌گیرد، مایگریت می‌کند، ری‌استارت
 می‌کند و اگر نسخهٔ تازه تمیز بالا نیامد **خودش برمی‌گرداند**. توضیح کامل در
@@ -142,7 +142,7 @@ curl -X POST http://127.0.0.1:8210/api/v1/auth/login \
 git clone https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook && python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
-./venv/bin/python -m pytest tests/v2 -q
+./venv/bin/python -m pytest tests -q
 ```
 
 کل تست‌ها روی SQLite اجرا می‌شوند، بدون شبکه و بدون توکن، در حدود چهل ثانیه. تست‌های مایگریشن اگر `KASBBOOK_TEST_POSTGRES_URL` تنظیم باشد روی

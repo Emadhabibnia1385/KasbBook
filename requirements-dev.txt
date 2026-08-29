@@ -1,5 +1,5 @@
 # Development / CI only. The bot itself needs nothing from this file.
--r requirements-v2.txt
+-r requirements.txt
 
 pyflakes==3.2.0
 pytest>=8.3

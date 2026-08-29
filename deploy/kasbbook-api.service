@@ -11,9 +11,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/kasbbook-v2
-EnvironmentFile=/opt/kasbbook-v2/.env
-ExecStart=/opt/kasbbook-v2/venv/bin/uvicorn \
+WorkingDirectory=/opt/kasbbook
+EnvironmentFile=/opt/kasbbook/.env
+ExecStart=/opt/kasbbook/venv/bin/uvicorn \
     --factory kasbbook.api.app:create_app \
     --host 127.0.0.1 \
     --port 8210 \
@@ -27,7 +27,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/kasbbook-v2
+ReadWritePaths=/opt/kasbbook
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

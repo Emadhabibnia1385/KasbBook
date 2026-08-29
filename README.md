@@ -55,10 +55,10 @@ came up. Running it twice is safe.
 
 | | |
 |---|---|
-| Update | `sudo /opt/kasbbook-v2/scripts/update.sh` |
-| Back up | `sudo /opt/kasbbook-v2/scripts/backup.sh` |
-| Restore | `sudo /opt/kasbbook-v2/scripts/restore.sh <file>` |
-| Remove | `sudo /opt/kasbbook-v2/scripts/uninstall.sh` |
+| Update | `sudo /opt/kasbbook/scripts/update.sh` |
+| Back up | `sudo /opt/kasbbook/scripts/backup.sh` |
+| Restore | `sudo /opt/kasbbook/scripts/restore.sh <file>` |
+| Remove | `sudo /opt/kasbbook/scripts/uninstall.sh` |
 
 The update script takes a backup, runs the tests, migrates, restarts, and
 **rolls itself back** if the new version does not come up clean. See
@@ -144,7 +144,7 @@ See [docs/api.md](./docs/api.md).
 git clone https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook && python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
-./venv/bin/python -m pytest tests/v2 -q
+./venv/bin/python -m pytest tests -q
 ```
 
 The suite runs on SQLite with no network and no token, in about forty

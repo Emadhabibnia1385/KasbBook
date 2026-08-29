@@ -19,7 +19,7 @@ on `sys.path` won, silently. The old one imports `python-telegram-bot`, which
 this project no longer depends on, so the error named a module that had nothing
 to do with what was being started.
 
-The uvicorn case was the subtlest: `PYTHONPATH=/opt/kasbbook-v2/src` was set
+The uvicorn case was the subtlest: `PYTHONPATH=/opt/kasbbook/src` was set
 correctly, but `WorkingDirectory` puts the repo root ahead of `PYTHONPATH`, so
 the root package still won.
 
@@ -48,7 +48,7 @@ It stayed invisible because the deploy script piped alembic through
 **Fix:** three things.
 1. `server_default` on the column, in both the migration and the model.
 2. The deploy script no longer filters output. That is the first comment in it.
-3. `tests/v2/test_migrations_postgres.py` walks the revisions one at a time and
+3. `tests/test_migrations_postgres.py` walks the revisions one at a time and
    seeds a row after each, which is the shape production actually has when the
    next migration arrives.
 
@@ -212,10 +212,10 @@ journalctl -u kasbbook-bot -n 50 --no-pager
 curl -s http://127.0.0.1:8210/readyz
 
 # is the schema where the code expects it?
-cd /opt/kasbbook-v2 && ./venv/bin/alembic current
+cd /opt/kasbbook && ./venv/bin/alembic current
 
 # what did the last update do?
-git -C /opt/kasbbook-v2 log --oneline -5
+git -C /opt/kasbbook log --oneline -5
 ```
 
 A restart count above zero on a service that has not been touched means it is

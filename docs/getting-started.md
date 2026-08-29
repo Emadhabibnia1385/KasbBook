@@ -36,7 +36,7 @@ git clone -b v2 https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook
 python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
-./venv/bin/python -m pytest tests/v2 -q
+./venv/bin/python -m pytest tests -q
 ```
 
 To actually run the bot, you need a token and a database. SQLite is the
@@ -95,8 +95,8 @@ database never sees a Jalali value and you never see a Gregorian one.
 ## Where things live on a server
 
 ```
-/opt/kasbbook-v2/          the checkout, the venv, .env
-/opt/kasbbook-v2/deploy/   docker-compose.yml, deploy/.env
+/opt/kasbbook/          the checkout, the venv, .env
+/opt/kasbbook/deploy/   docker-compose.yml, deploy/.env
 /var/backups/kasbbook/     the last 14 dumps
 /etc/systemd/system/       kasbbook-bot.service, kasbbook-api.service
 ```
@@ -104,5 +104,5 @@ database never sees a Jalali value and you never see a Gregorian one.
 ```bash
 journalctl -u kasbbook-bot -f      # what the bot is doing
 journalctl -u kasbbook-api -f      # what the API is doing
-sudo /opt/kasbbook-v2/scripts/update.sh
+sudo /opt/kasbbook/scripts/update.sh
 ```

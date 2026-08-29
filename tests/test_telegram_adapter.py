@@ -378,7 +378,7 @@ async def test_the_adapter_never_reaches_the_database():
     import ast
     import pathlib
 
-    folder = pathlib.Path(__file__).resolve().parents[2] / "src/kasbbook/adapters"
+    folder = pathlib.Path(__file__).resolve().parents[1] / "src/kasbbook/adapters"
     modules = sorted(p for p in folder.glob("*.py") if p.name != "__init__.py")
     assert len(modules) >= 4, "every adapter module has to be checked, not just one"
 

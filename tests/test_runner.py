@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 import httpx
 import pytest
 
-APPS = Path(__file__).resolve().parents[2]
+APPS = Path(__file__).resolve().parents[1]
 if str(APPS) not in sys.path:
     sys.path.insert(0, str(APPS))
 
@@ -233,7 +233,7 @@ async def test_the_runner_loads_when_executed_as_a_script():
     import sys as _sys
     from pathlib import Path as _Path
 
-    repo = _Path(__file__).resolve().parents[2]
+    repo = _Path(__file__).resolve().parents[1]
     import os as _os
 
     env = dict(_os.environ)
@@ -396,7 +396,7 @@ needs_tomllib = pytest.mark.skipif(
 
 @needs_tomllib
 async def test_the_two_dependency_lists_agree():
-    """pyproject.toml and requirements-v2.txt both name the runtime dependencies.
+    """pyproject.toml and requirements.txt both name the runtime dependencies.
 
     Two lists is one more than ideal, but pip wants a requirements file and the
     package metadata wants its own. What is not acceptable is them disagreeing:
@@ -406,7 +406,7 @@ async def test_the_two_dependency_lists_agree():
     import re
     import tomllib
 
-    repo = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parents[1]
 
     def name_of(spec: str) -> str:
         # "uvicorn[standard]>=0.32" and "uvicorn>=0.30" are the same package.
@@ -420,7 +420,7 @@ async def test_the_two_dependency_lists_agree():
     }
     required = {
         name_of(line)
-        for line in (repo / "requirements-v2.txt").read_text(encoding="utf-8").splitlines()
+        for line in (repo / "requirements.txt").read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith(("#", "-"))
     }
 
@@ -435,7 +435,7 @@ async def test_the_console_entry_point_exists():
     """pyproject names `apps.bot.runner:run`; a typo there fails at install time."""
     import tomllib
 
-    repo = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parents[1]
     scripts = tomllib.loads(
         (repo / "pyproject.toml").read_text(encoding="utf-8")
     )["project"]["scripts"]

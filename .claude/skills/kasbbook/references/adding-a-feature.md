@@ -126,8 +126,8 @@ Then:
 ## 8. Before you call it done
 
 ```bash
-./venv/bin/python -m pyflakes src/kasbbook apps tests/v2 migrations/comparators.py
-./venv/bin/python -m pytest tests/v2 -q
+./venv/bin/python -m pyflakes src/kasbbook apps tests migrations/comparators.py
+./venv/bin/python -m pytest tests -q
 ```
 
 Then update what the change made stale:

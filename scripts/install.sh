@@ -9,7 +9,7 @@
 source "$(dirname "$(readlink -f "$0")")/lib.sh" 2>/dev/null || {
     # Bootstrapping from a bare curl, before the repo exists.
     set -euo pipefail
-    KASBBOOK_HOME="${KASBBOOK_HOME:-/opt/kasbbook-v2}"
+    KASBBOOK_HOME="${KASBBOOK_HOME:-/opt/kasbbook}"
     KASBBOOK_BRANCH="${KASBBOOK_BRANCH:-main}"
     KASBBOOK_REPO="${KASBBOOK_REPO:-https://github.com/Emadhabibnia1385/KasbBook.git}"
     R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
@@ -53,7 +53,7 @@ ok "$(git log --oneline -1)"
 say "python environment"
 [ -d venv ] || python3 -m venv venv
 ./venv/bin/pip install --quiet --upgrade pip
-./venv/bin/pip install --quiet -r requirements-v2.txt
+./venv/bin/pip install --quiet -r requirements.txt
 # Editable, so `kasbbook` is importable because it is installed rather than
 # because something arranged sys.path first. That arrangement has broken three
 # times, most recently under uvicorn.

@@ -1,6 +1,6 @@
 ---
 name: kasbbook
-description: Engineering constitution and safe-work protocol for KasbBook — the Persian/Jalali small-business bookkeeping bot and API (FastAPI, SQLAlchemy 2 async, PostgreSQL, Alembic, Redis, Telegram/Bale/Rubika adapters, double-entry ledger). Read it BEFORE changing anything here, and before debugging anything odd here, because failures in this project tend to be silent. Use it when the task touches src/kasbbook/, apps/bot/runner.py, migrations/, deploy/, scripts/ or tests/v2/, or the subject is this product's behaviour — books, transactions, the ledger and trial balance, categories, search, reports and CSV export, receipts, budgets, debts, loans, recurring rules, the daily digest and reminders, payroll, treasury, member shares, identities and messenger linking, auth tokens and API keys, rate limiting, webhooks, or deploying to the server. Applies even when the change looks small or the repo is unnamed. Not the separate Seamless/ConfigFlow VPN-reseller bot, which has its own skill.
+description: Engineering constitution and safe-work protocol for KasbBook — the Persian/Jalali small-business bookkeeping bot and API (FastAPI, SQLAlchemy 2 async, PostgreSQL, Alembic, Redis, Telegram/Bale/Rubika adapters, double-entry ledger). Read it BEFORE changing anything here, and before debugging anything odd here, because failures in this project tend to be silent. Use it when the task touches src/kasbbook/, apps/bot/runner.py, migrations/, deploy/, scripts/ or tests/, or the subject is this product's behaviour — books, transactions, the ledger and trial balance, categories, search, reports and CSV export, receipts, budgets, debts, loans, recurring rules, the daily digest and reminders, payroll, treasury, member shares, identities and messenger linking, auth tokens and API keys, rate limiting, webhooks, or deploying to the server. Applies even when the change looks small or the repo is unnamed. Not the separate Seamless/ConfigFlow VPN-reseller bot, which has its own skill.
 ---
 
 # KasbBook — Engineering Constitution
@@ -36,7 +36,7 @@ reach the end of a change with nothing to run:
 python3 -m venv venv
 ./venv/bin/pip install -q -r requirements-dev.txt
 ./venv/bin/pip install -q --no-deps -e .   # needs Python 3.11+; see below
-./venv/bin/python -m pytest tests/v2 -q
+./venv/bin/python -m pytest tests -q
 ```
 
 The editable install is what makes `kasbbook` importable because it is
@@ -44,7 +44,7 @@ installed rather than because something arranged `sys.path` — which is how the
 API runs in production. It refuses below Python 3.11, the floor declared in
 `pyproject.toml`, with a message about the wrong Python rather than about what
 to do. **Skip it on an older interpreter**: the tests do not need it, because
-`tests/v2/conftest.py` puts `src/` on the path itself. Everything still runs;
+`tests/conftest.py` puts `src/` on the path itself. Everything still runs;
 only `pip install -e .` is unavailable.
 
 Six migration tests skip without `KASBBOOK_TEST_POSTGRES_URL`, and two
@@ -249,7 +249,7 @@ cause in any of these.
 
 ```bash
 ssh seamless                       # connects as `claude`, not root
-sudo bash /opt/kasbbook-v2/scripts/update.sh
+sudo bash /opt/kasbbook/scripts/update.sh
 ```
 
 That script is the only supported path. It backs up, runs the tests, migrates,
@@ -309,7 +309,7 @@ purpose, with reasons. Check it before "fixing" an omission.
   `git status`. Work happens on `v2`, which is expected to become `main`, so
   its stability is not yours to spend. Never reset, discard, force-push or
   otherwise destroy work you did not create, and never without being asked.
-- **Run the suite before and after.** `pytest tests/v2 -q`. If it was red
+- **Run the suite before and after.** `pytest tests -q`. If it was red
   before you started, say so rather than absorbing someone else's failure.
 - **Verify claims against the code, not memory.** This project's own docs
   carried a wrong line about budgets until it was checked.
