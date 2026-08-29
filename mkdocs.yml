@@ -1,0 +1,88 @@
+# The documentation site, built from the same markdown the repository shows on
+# GitHub. One source: a page cannot be right in one place and stale in the
+# other, which is the failure mode of every docs site kept beside a codebase.
+
+site_name: KasbBook
+site_description: Bookkeeping for a small business, wherever that business already talks
+site_url: https://emadhabibnia1385.github.io/KasbBook/
+repo_url: https://github.com/Emadhabibnia1385/KasbBook
+repo_name: Emadhabibnia1385/KasbBook
+edit_uri: edit/main/docs/
+copyright: MIT
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    # The reader's own preference first, then a switch either way.
+    - media: "(prefers-color-scheme)"
+      toggle: { icon: material/brightness-auto, name: Follow the system }
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle: { icon: material/brightness-7, name: Switch to dark }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle: { icon: material/brightness-4, name: Switch to light }
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Understanding it:
+      - Architecture: architecture.md
+      - Data model: data-model.md
+      - Double-entry: double-entry.md
+      - Payroll & treasury: payroll.md
+      - Providers: providers.md
+  - Using it:
+      - The API: api.md
+      - Configuration: configuration.md
+  - Running it:
+      - Operations: operations.md
+      - Security: security.md
+      - Troubleshooting: troubleshooting.md
+  - Contributing:
+      - Development: development.md
+      - Roadmap: roadmap.md
+
+markdown_extensions:
+  - def_list
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed: { alternate_style: true }
+  - pymdownx.highlight: { anchor_linenums: true }
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Emadhabibnia1385/KasbBook
+    - icon: fontawesome/solid/book
+      link: https://kasbbook.seamlesss.ir/docs
+      name: Live API reference
+
+# A broken link in the docs should fail the build, not wait to be found by a
+# reader. The nav is the only thing allowed to reference a file that moved.
+strict: true

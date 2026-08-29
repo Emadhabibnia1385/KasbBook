@@ -7,3 +7,8 @@ pytest-asyncio>=0.24
 
 # Alembic's command API is synchronous; the async driver cannot serve it.
 psycopg[binary]>=3.2
+
+# The documentation site. Pinned below 2.0: the Material maintainers have said
+# MkDocs 2.0 removes the plugin system with no migration path, so an unpinned
+# major would break the build on somebody else's schedule.
+mkdocs-material>=9.5,<10

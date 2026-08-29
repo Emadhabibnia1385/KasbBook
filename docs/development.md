@@ -142,6 +142,22 @@ tests/         everything
 docs/             these files
 ```
 
+## The documentation site
+
+`docs/` is both what GitHub shows and what the published site is built from, so
+there is one copy and it cannot be right in one place and stale in the other.
+
+```bash
+./venv/bin/pip install "mkdocs-material>=9.5,<10"
+./venv/bin/mkdocs serve      # http://127.0.0.1:8000, reloads as you edit
+./venv/bin/mkdocs build --strict
+```
+
+`--strict` is what CI runs: a broken internal link fails the build instead of
+waiting for a reader to find it. Adding a page means adding it to `nav` in
+`mkdocs.yml` — a file that is not in the nav still builds, but nothing links to
+it.
+
 ## Commits
 
 English subjects, in the imperative, saying what changed for a user or
