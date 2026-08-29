@@ -138,7 +138,10 @@ wrong secret return the same 404, so a prober cannot tell which they got wrong.
 
 That is weaker than a signature. It is what the providers make possible.
 
-**Polling avoids the question entirely**, and is the default.
+**Polling avoids the question entirely**, and is the default. If you switch —
+`KASBBOOK_UPDATE_MODE=webhook` — the path secret becomes load-bearing for Bale
+and Rubika, and nginx must not log it. See
+[operations.md](./operations.md).
 
 ## Passwords typed into a chat
 
