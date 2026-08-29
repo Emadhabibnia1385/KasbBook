@@ -132,6 +132,13 @@ cd /opt/kasbbook && sudo ./venv/bin/alembic current
 instead of trusting that word, and why a non-zero `NRestarts` on an untouched
 service means something is wrong.
 
+## The first generation
+
+`/opt/kasbbook-first-generation` is the original bot, disabled, kept for its
+SQLite database rather than its code. Nothing runs from it and nothing reads
+it. It is safe to delete once you are sure you will never want those old rows —
+which is a decision worth making deliberately rather than during a cleanup.
+
 ## Datastores
 
 ```bash

@@ -37,10 +37,9 @@ if [ -d "$KASBBOOK_HOME/.git" ]; then
     git config --global --add safe.directory "$KASBBOOK_HOME" 2>/dev/null || true
     git -C "$KASBBOOK_HOME" fetch --quiet origin "$KASBBOOK_BRANCH"
     # Move the local branch too, not just its contents. Resetting alone leaves
-    # HEAD on whatever branch it was on — an install from before the release
-    # sits on `v2`, and would keep reporting that name while holding main's
-    # code. `git status` lying about which branch you are on is a bad way to
-    # start debugging anything.
+    # HEAD on whatever branch it was on, so an older install keeps reporting a
+    # branch name while holding a different branch's code — and `git status`
+    # lying about where you are is a bad way to start debugging anything.
     git -C "$KASBBOOK_HOME" checkout --quiet -B "$KASBBOOK_BRANCH" \
         "origin/$KASBBOOK_BRANCH"
 else
@@ -133,18 +132,6 @@ say "creating the schema"
 set -a; . ./.env; set +a
 ./venv/bin/alembic upgrade head
 ok "schema at $(./venv/bin/alembic current 2>/dev/null | tail -1)"
-
-# The first deployment ran under a single unit called kasbbook-v2, whose
-# ExecStart pointed at apps/telegram_bot/runner.py. That path no longer exists
-# and there are now two units, so the old one is retired here rather than left
-# to fail quietly beside the new ones.
-if [ -f /etc/systemd/system/kasbbook-v2.service ]; then
-    say "retiring the old kasbbook-v2 unit"
-    systemctl disable --quiet --now kasbbook-v2 2>/dev/null || true
-    rm -f /etc/systemd/system/kasbbook-v2.service
-    systemctl daemon-reload
-    ok "replaced by kasbbook-bot and kasbbook-api"
-fi
 
 say "installing services"
 for unit in "${UNITS[@]}"; do
