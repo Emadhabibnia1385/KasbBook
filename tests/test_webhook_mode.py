@@ -235,3 +235,46 @@ async def test_the_api_unit_does_not_log_request_paths():
     unit = (Path(__file__).resolve().parents[1]
             / "deploy" / "kasbbook-api.service").read_text(encoding="utf-8")
     assert "--no-access-log" in unit
+
+
+async def test_an_update_is_logged_without_its_secret(served, session):
+    """Turning the access log off left no way to see updates arriving at all.
+
+    This is the replacement, and the second assertion is the one that matters:
+    the path segment is the credential, and it must not come back in through
+    the door the access log was pushed out of.
+
+    A handler is attached to the logger directly rather than using `caplog`,
+    because caplog depends on propagation reaching the root — and in a full
+    suite run something else has already changed that. A test of logging should
+    not be at the mercy of global logging state.
+    """
+    import logging
+
+    client, _ = served
+    await linked(session)
+
+    records: list = []
+
+    class Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("kasbbook.api.webhooks")
+    handler = Collect()
+    previous = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        response = await client.post(f"/api/v1/webhooks/telegram/{PATH}",
+                                     json=update(1, text="/start"))
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+
+    assert response.status_code == 200, response.text
+    logged = " ".join(records)
+    assert "telegram" in logged
+    assert "command" in logged        # /start is a command, not a plain message
+    assert "555001" in logged         # who it came from
+    assert PATH not in logged

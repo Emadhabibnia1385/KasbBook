@@ -54,7 +54,16 @@ async def receive(
     payload = await request.json()
     event = adapter.parse_event(payload)
     if event is None:
+        logger.info("%s: an update this bot does not act on", provider)
         return Response(status_code=status.HTTP_200_OK)
+
+    # The access log is off for this route because the URL carries the secret
+    # that guards it, which left no way to see that updates were arriving at
+    # all. This is that visibility, without the path: what came in, from which
+    # provider, and from whom.
+    logger.info(
+        "%s: %s from %s", provider, event.kind.value, event.identity.external_id
+    )
 
     from ...bot.conversation import Conversation
 
@@ -95,4 +104,5 @@ async def receive(
             reply.document.filename, reply.document.caption,
         )
 
+    logger.info("%s: replied", provider)
     return Response(status_code=status.HTTP_200_OK)

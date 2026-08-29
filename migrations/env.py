@@ -31,7 +31,12 @@ from migrations.comparators import compare_type  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers` defaults to True, which switches off every
+    # logger that already exists. That is invisible when alembic runs as its
+    # own process, and silently fatal when something runs it in-process: the
+    # application stops logging entirely and nothing says why. A test that
+    # asserted a webhook was logged is what found this.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 url = os.environ.get("KASBBOOK_DATABASE_URL")
 if url:

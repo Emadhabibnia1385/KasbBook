@@ -198,3 +198,21 @@ def test_alembic_runs_from_a_clean_process():
     combined = result.stdout + result.stderr
     assert "ModuleNotFoundError" not in combined, combined[-800:]
     assert result.returncode == 0, combined[-800:]
+
+
+def test_running_alembic_does_not_silence_the_application():
+    """`fileConfig` disables every existing logger unless told not to.
+
+    That is invisible when alembic runs as its own process, and silently fatal
+    when something runs it in-process — the application stops logging and
+    nothing says why. This asserts the one argument that prevents it, because
+    the symptom is an absence and absences do not fail tests on their own.
+    """
+    import logging
+    from logging.config import fileConfig
+
+    canary = logging.getLogger("kasbbook.test.canary")
+    assert canary.disabled is False
+
+    fileConfig(str(REPO / "alembic.ini"), disable_existing_loggers=False)
+    assert canary.disabled is False, "alembic's logging config silenced the app"
