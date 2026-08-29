@@ -278,3 +278,29 @@ async def test_an_update_is_logged_without_its_secret(served, session):
     assert "command" in logged        # /start is a command, not a plain message
     assert "555001" in logged         # who it came from
     assert PATH not in logged
+
+
+async def test_the_api_actually_emits_its_own_logs(db):
+    """uvicorn leaves the root logger alone, so an app logger inherits WARNING.
+
+    Every logger.info in the API was discarded because of that — errors got
+    through only because they clear WARNING on their own. The startup now
+    configures logging, and this asserts the level rather than the output,
+    because the failure is that nothing appears and nothing appearing is not
+    an error.
+    """
+    import logging
+
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    root.handlers.clear()
+    try:
+        app = create_app(settings=Settings(database_url="sqlite+aiosqlite://",
+                                           api_secret_key=SECRET),
+                         database=db, limiter=MemoryRateLimiter())
+        async with app.router.lifespan_context(app):
+            assert logging.getLogger("kasbbook.api.webhooks").isEnabledFor(logging.INFO)
+            # And the two that would print a bot token stay quiet.
+            assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+    finally:
+        root.handlers[:] = saved

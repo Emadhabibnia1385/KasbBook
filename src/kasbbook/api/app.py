@@ -74,6 +74,22 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # uvicorn configures its own loggers and leaves the root alone, so an
+        # application logger inherits WARNING and every logger.info in this
+        # package is discarded. That was true from the first day the API ran:
+        # errors appeared because they clear WARNING, and nothing else did.
+        #
+        # Only when nothing has configured logging already, so a host that has
+        # its own arrangement keeps it.
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=getattr(logging, resolved.log_level.upper(), logging.INFO),
+                format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+            )
+        # These log full URLs at INFO, and a bot API URL contains the token.
+        for noisy in ("httpx", "httpcore"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+
         app.state.settings = resolved
         app.state.database = database or Database(resolved.database_url)
         app.state.limiter = limiter or await build_limiter(resolved)
