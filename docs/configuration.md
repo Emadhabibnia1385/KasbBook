@@ -60,6 +60,7 @@ both messengers is one set of books.
 | `KASBBOOK_CORS_ORIGINS` | *(unset)* | Comma-separated. Never `*`: these endpoints carry credentials. |
 | `KASBBOOK_TRUSTED_PROXY` | *(unset)* | Set only when a proxy you run is in front. It makes `X-Forwarded-For` trusted for rate limiting — without a real proxy, anyone can set that header and rate limiting becomes decorative. |
 | `KASBBOOK_WEB_URL` | *(unset)* | Base URL used in links the bot sends. |
+| `KASBBOOK_API_URL` | *(unset)* | Where the API is published, e.g. `https://kasbbook.example.com`. The bot links to `<url>/docs` from its API screen; unset means no link rather than a dead one. |
 
 To generate a key:
 

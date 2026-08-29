@@ -78,6 +78,7 @@ in the UI rather than attempted and failed.
 | Edit a message | ✓ | ✓ | ✓ (text and keypad separately) |
 | Answer a callback | ✓ | ✓ | — (nothing to answer) |
 | Webhook signature | ✓ | — | — |
+| Conceal text (spoiler) | ✓ | — | — |
 | Long polling | ✓ | ✓ | — (cursor paging) |
 
 ## The conformance suite

@@ -104,6 +104,12 @@ class OutgoingMessage:
     # recorded, and the adapter falls back to guessing.
     forward_file_id: Optional[str] = None
     forward_file_kind: Optional[str] = None
+    # Something the reader should have to reveal deliberately — an API key on a
+    # screen somebody may be showing to a colleague. Providers that cannot
+    # conceal text still have to show it, so this degrades to a plain line
+    # rather than being dropped: a key nobody can see is worse than one that is
+    # merely not hidden.
+    hidden: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +128,8 @@ class Capabilities:
     deep_link: bool = True
     webhook: bool = True
     polling: bool = True
+    # Whether the provider can conceal a run of text behind a tap.
+    spoiler: bool = False
 
 
 class MessagingAdapter(Protocol):

@@ -82,6 +82,8 @@ class Conversation:
         # A receipt the provider already holds: forwarded by id, never downloaded.
         self._forward_file_id: Optional[str] = None
         self._forward_file_kind: Optional[str] = None
+        # Text a screen wants concealed until the reader taps it.
+        self._hidden: Optional[str] = None
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
@@ -100,6 +102,7 @@ class Conversation:
             document=self._pending_file,
             forward_file_id=self._forward_file_id,
             forward_file_kind=self._forward_file_kind,
+            hidden=self._hidden,
             # Editing the screen in place is what keeps the chat a panel rather
             # than a transcript; the adapter falls back to a new message if the
             # anchor is gone.
@@ -762,6 +765,26 @@ class Conversation:
             await self.state.set(key, {"flow": "account", "field": "close"})
             return screens.ask_close_word()
 
+        if action == "api":
+            await self.state.clear(key)
+            return screens.api_panel(
+                await self._auth().list_api_keys(user.id), self._docs_url()
+            )
+
+        if action == "apinew":
+            auth = self._auth()
+            existing = await auth.list_api_keys(user.id)
+            # One key per person: a second one nobody remembers issuing is a
+            # credential nobody will think to revoke.
+            for old in existing:
+                await auth.revoke_api_key(user.id, old.id)
+
+            issued = await auth.issue_api_key(user.id, "bot")
+            self._hidden = issued.key
+            return screens.api_key_created(
+                issued.key, replaced=bool(existing), docs_url=self._docs_url()
+            )
+
         if action == "sessions":
             return screens.session_list(await self._auth().sessions(user.id))
 
@@ -770,6 +793,12 @@ class Conversation:
             return screens.session_list([])
 
         return await self._account_panel(user)
+
+    def _docs_url(self) -> str:
+        """Where the published API documentation lives, if it is published."""
+        from ..shared.settings import Settings
+
+        return Settings.from_env().api_base_url
 
     def _auth(self):
         """Sessions live behind AuthService, which needs the signing key.

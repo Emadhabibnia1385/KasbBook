@@ -32,4 +32,4 @@ class TelegramAdapter(BotApiAdapter):
     api_root = API_ROOT
     deep_link_template = "https://t.me/{username}?start={payload}"
     secret_header = "X-Telegram-Bot-Api-Secret-Token"
-    capabilities = Capabilities()
+    capabilities = Capabilities(spoiler=True)

@@ -791,3 +791,127 @@ async def test_the_messenger_is_free_to_start_again_right_away(session):
     fresh = await identity.user_for_identity(TG, "555001")
     assert fresh is not None and fresh.id != user.id
     assert "از دست بدهی" in reply.text
+
+
+# ============================================================ API access
+#
+# A key is issued once and stored as a SHA-256 digest, so no screen can ever
+# show an existing one. That is what makes a leaked database worthless, and it
+# is the constraint the whole section is designed around.
+
+async def test_the_api_section_is_reachable_from_the_account_panel(session):
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001", display_name="عماد")
+    convo = await conversation(session)
+
+    panel = await convo.handle(press("acc:panel"))
+    assert any("API" in b.text for row in panel.buttons for b in row)
+
+
+async def test_with_no_key_it_explains_what_one_is_for(session):
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:api"))
+    assert "کلید هنوز نساخته‌ای" in reply.text
+    assert any("ساخت کلید" in b.text for row in reply.buttons for b in row)
+
+
+async def test_creating_a_key_conceals_it_rather_than_printing_it(session):
+    """The key goes in `hidden`, so a provider that can conceal text does."""
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:apinew"))
+
+    assert reply.hidden, "the key was not marked for concealment"
+    assert reply.hidden.startswith("kb_")
+    # And it is not sitting in the visible body as well, which would defeat it.
+    assert reply.hidden not in reply.text
+    assert "تنها باری" in reply.text
+
+
+async def test_the_key_actually_works_afterwards(session):
+    from kasbbook.modules.identity.auth import AuthService
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:apinew"))
+    found = await AuthService(session, "a-signing-key-long-enough").user_for_api_key(
+        reply.hidden
+    )
+    assert found is not None and found.id == user.id
+
+
+async def test_the_panel_afterwards_shows_only_the_prefix(session):
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    created = await convo.handle(press("acc:apinew"))
+    key = created.hidden
+
+    panel = await convo.handle(press("acc:api"))
+    assert key not in panel.text
+    assert key[:8] in panel.text
+    assert "ذخیره نمی‌شود" in panel.text
+
+
+async def test_a_new_key_kills_the_previous_one(session):
+    """Otherwise a key nobody remembers issuing stays valid forever."""
+    from kasbbook.modules.identity.auth import AuthService
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+    auth = AuthService(session, "a-signing-key-long-enough")
+
+    first = (await convo.handle(press("acc:apinew"))).hidden
+    second = (await convo.handle(press("acc:apinew"))).hidden
+
+    assert first != second
+    assert await auth.user_for_api_key(first) is None
+    assert await auth.user_for_api_key(second) is not None
+    assert len(await auth.list_api_keys(user.id)) == 1
+
+
+async def test_the_documentation_button_is_a_link_not_a_callback(session, monkeypatch):
+    monkeypatch.setenv("KASBBOOK_API_URL", "https://kasbbook.example.com")
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:api"))
+    docs = [b for row in reply.buttons for b in row if b.url]
+
+    assert docs, "no link button"
+    assert docs[0].url == "https://kasbbook.example.com/docs"
+
+
+async def test_without_a_published_url_there_is_no_dead_link(session, monkeypatch):
+    monkeypatch.delenv("KASBBOOK_API_URL", raising=False)
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001")
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:api"))
+    assert not [b for row in reply.buttons for b in row if b.url]
+
+
+async def test_one_account_cannot_see_anothers_key(session):
+    identity = IdentityService(session)
+    await identity.create_account_from_messenger(TG, "555001")
+    await identity.create_account_from_messenger(TG, "999")
+
+    convo = await conversation(session)
+    theirs = (await convo.handle(press("acc:apinew"))).hidden
+
+    other = await conversation(session)
+    panel = await other.handle(press("acc:api", external_id="999"))
+
+    assert theirs[:8] not in panel.text
+    assert "کلید هنوز نساخته‌ای" in panel.text

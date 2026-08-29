@@ -50,6 +50,13 @@ Asking for a book you are not a member of returns **404**, not 403. Revoking
 someone else's API key returns 404. This is deliberate: a 403 would confirm the
 id exists.
 
+## Getting a key without leaving Telegram
+
+Account → 🔌 API issues one. It is shown once, concealed behind a tap, and
+never again: only a SHA-256 digest is stored, which is what makes a leaked
+database worth nothing. Issuing a new one revokes the old, so there is never a
+second key nobody remembers creating.
+
 ## Authenticating
 
 Either a bearer token or an API key. Both resolve to the same account.

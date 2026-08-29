@@ -14,6 +14,7 @@ enforces that.
 from __future__ import annotations
 
 import hmac
+import html
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -234,8 +235,31 @@ class BotApiAdapter:
             return UpdateBatch(refused=body.get("description") or "refused")
         return UpdateBatch(updates=body.get("result", []))
 
+    def _render(self, message: OutgoingMessage) -> Dict[str, Any]:
+        """The text to send, and the parse mode it needs — usually none.
+
+        Screens are plain text, and they stay that way: turning HTML parsing on
+        for every message would mean a Persian description containing a `<` or
+        an `&` could break a screen or fail to send. So the mode is switched on
+        only for the one message that needs concealment, and everything in that
+        message is escaped first.
+        """
+        if not message.hidden:
+            return {"text": message.text}
+
+        if not self.capabilities.spoiler:
+            # Honest degradation: show it rather than hide it badly.
+            return {"text": f"{message.text}\n{message.hidden}"}
+
+        body = html.escape(message.text)
+        secret = html.escape(message.hidden)
+        return {
+            "text": f"{body}\n<tg-spoiler>{secret}</tg-spoiler>",
+            "parse_mode": "HTML",
+        }
+
     async def send_message(self, message: OutgoingMessage) -> Optional[str]:
-        params: Dict[str, Any] = {"chat_id": message.chat_id, "text": message.text}
+        params: Dict[str, Any] = {"chat_id": message.chat_id, **self._render(message)}
         markup = self.build_buttons(message.buttons)
         if markup:
             params["reply_markup"] = markup
@@ -250,7 +274,7 @@ class BotApiAdapter:
         params: Dict[str, Any] = {
             "chat_id": message.chat_id,
             "message_id": int(message.edit_message_id),
-            "text": message.text,
+            **self._render(message),
         }
         markup = self.build_buttons(message.buttons)
         if markup:

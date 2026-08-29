@@ -28,6 +28,9 @@ class FakeTelegram:
         self.message_id = message_id
         self.calls: List[Dict[str, Any]] = []
 
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=self.transport())
+
     def transport(self) -> httpx.MockTransport:
         def handle(request: httpx.Request) -> httpx.Response:
             method = request.url.path.rsplit("/", 1)[-1]
@@ -494,3 +497,70 @@ async def test_the_call_table_covers_every_outgoing_method():
     }
     missing = public - set(CALLS)
     assert not missing, f"outgoing methods with no test: {sorted(missing)}"
+
+
+# ------------------------------------------------------------- concealment
+#
+# An API key is shown on a screen somebody may be sharing. Telegram can hide a
+# run of text behind a tap; the adapter is where that is turned into a wire
+# format, because a screen must not know what HTML is.
+
+async def test_hidden_text_is_sent_as_a_spoiler():
+    fake = FakeTelegram()
+    await fake.adapter().send_message(
+        OutgoingMessage("1", "کلید تازه", hidden="kb_secret")
+    )
+
+    body = fake.calls[0]["body"]
+    assert body["parse_mode"] == "HTML"
+    assert "<tg-spoiler>kb_secret</tg-spoiler>" in body["text"]
+    assert "کلید تازه" in body["text"]
+
+
+async def test_an_ordinary_message_is_still_plain_text():
+    """Turning HTML on for everything would break a description with a `<` in it."""
+    fake = FakeTelegram()
+    await fake.adapter().send_message(OutgoingMessage("1", "سلام"))
+
+    body = fake.calls[0]["body"]
+    assert "parse_mode" not in body
+    assert body["text"] == "سلام"
+
+
+async def test_the_visible_half_is_escaped_when_parsing_is_on():
+    """Once HTML is enabled, a stray `<` in Persian text would break the send."""
+    fake = FakeTelegram()
+    await fake.adapter().send_message(
+        OutgoingMessage("1", "سود < ۱۰۰ & بیشتر", hidden="kb_x")
+    )
+
+    text = fake.calls[0]["body"]["text"]
+    assert "&lt;" in text and "&amp;" in text
+    assert "<tg-spoiler>" in text          # the tag itself survives escaping
+
+
+async def test_editing_a_screen_conceals_too():
+    fake = FakeTelegram()
+    await fake.adapter().edit_message(
+        OutgoingMessage("1", "کلید", hidden="kb_secret", edit_message_id="9")
+    )
+
+    body = fake.calls[0]["body"]
+    assert fake.calls[0]["method"] == "editMessageText"
+    assert body["parse_mode"] == "HTML"
+    assert "<tg-spoiler>kb_secret</tg-spoiler>" in body["text"]
+
+
+async def test_a_provider_that_cannot_conceal_still_shows_it():
+    """A key nobody can see is worse than one that is merely not hidden."""
+    from kasbbook.adapters.bale import BaleAdapter
+
+    fake = FakeTelegram()
+    adapter = BaleAdapter(token="t", client=fake.client())
+    assert adapter.capabilities.spoiler is False
+
+    await adapter.send_message(OutgoingMessage("1", "کلید", hidden="kb_secret"))
+
+    body = fake.calls[0]["body"]
+    assert "parse_mode" not in body
+    assert "kb_secret" in body["text"]

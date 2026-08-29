@@ -76,6 +76,17 @@ be recognised in a list and revoked without being produced.
 Sent as `X-API-Key`. Resolves to the same `User` as a bearer token, so no route
 below has to care which arrived.
 
+## Showing a secret on a screen
+
+An API key is shown once, at creation, and marked for concealment — Telegram
+renders it behind a tap. Providers that cannot conceal text still show it,
+because a key nobody can see is worse than one that is merely not hidden, and
+`Capabilities.spoiler` is how each provider says which it is.
+
+HTML parsing is switched on **only** for that message, and both halves are
+escaped first. Enabling it everywhere would mean a Persian description
+containing a `<` or an `&` could break a screen or fail to send.
+
 ## Rate limiting
 
 Fixed windows, per address **and** per account:

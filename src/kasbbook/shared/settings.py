@@ -55,6 +55,7 @@ class Settings:
     rubika_bot_username: str = ""
     redis_url: Optional[str] = None
     web_base_url: str = ""
+    api_base_url: str = ""
     api_secret_key: Optional[str] = None
     access_token_minutes: int = 30
     refresh_token_days: int = 30
@@ -104,6 +105,7 @@ class Settings:
             rubika_bot_username=_env("RUBIKA_BOT_USERNAME", "") or "",
             redis_url=_env("REDIS_URL"),
             web_base_url=_env("KASBBOOK_WEB_URL", "") or "",
+            api_base_url=_env("KASBBOOK_API_URL", "") or "",
             api_secret_key=_env("KASBBOOK_SECRET_KEY"),
             access_token_minutes=int(_env("KASBBOOK_ACCESS_MINUTES", "30") or 30),
             refresh_token_days=int(_env("KASBBOOK_REFRESH_DAYS", "30") or 30),

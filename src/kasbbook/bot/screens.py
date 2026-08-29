@@ -277,10 +277,79 @@ def account_panel(user, identities: Iterable[Identity], current: Provider) -> Sc
          Button("📱 شماره", data="acc:phone")],
         [Button("🔑 " + ("تغییر رمز" if user.password_hash else "تعیین رمز"),
                 data="acc:pw")],
-        [Button("🖥 نشست‌های فعال", data="acc:sessions")],
+        [Button("🖥 نشست‌های فعال", data="acc:sessions"),
+         Button("🔌 API", data="acc:api")],
         [Button("🗑 حذف حساب", data="acc:close")],
         [Button("⬅️ بازگشت", data="nav:home")],
     ]
+
+
+def api_panel(keys, docs_url: str = "") -> Screen:
+    """Where a person gets a credential for something that is not a person.
+
+    An API key is issued once and stored as a digest, so this screen can never
+    show an existing one — only its first few characters, which is enough to
+    recognise it in a list. That is the whole reason a leaked database is worth
+    nothing, and it is worth saying on the screen rather than leaving somebody
+    hunting for a key that cannot be displayed.
+    """
+    rows = list(keys)
+    lines = ["🔌 دسترسی API", ""]
+
+    if not rows:
+        lines.append(
+            "با یک کلید API می‌توانی از بیرون — اسکریپت، صفحهٔ گسترده، هر برنامه‌ای — "
+            "درآمد و هزینه ثبت کنی و گزارش بگیری.\n\n"
+            "کلید هنوز نساخته‌ای."
+        )
+    else:
+        lines.append("کلیدهای فعال:")
+        for key in rows:
+            used = "استفاده‌شده" if key.last_used_at else "هنوز استفاده نشده"
+            lines.append(f"  • {key.prefix}…  ({used})")
+        lines += [
+            "",
+            "کلید فقط یک بار، همان لحظهٔ ساخت، نشان داده می‌شود و بعد از آن فقط "
+            "همین چند نویسهٔ اول باقی می‌ماند — چون خودش ذخیره نمی‌شود، فقط اثر "
+            "انگشتش. اگر گمش کردی، کلید تازه بساز؛ برگرداندن قدیمی ممکن نیست.",
+        ]
+
+    buttons: List[List[Button]] = []
+    if docs_url:
+        buttons.append([Button("📄 مستندات API", url=f"{docs_url.rstrip('/')}/docs")])
+    buttons.append([
+        Button("🔄 کلید تازه" if rows else "🔑 ساخت کلید", data="acc:apinew")
+    ])
+    buttons.append([Button("⬅️ بازگشت", data="acc:panel")])
+    return rtl("\n".join(lines)), buttons
+
+
+def api_key_created(key: str, replaced: bool, docs_url: str = "") -> Screen:
+    """The only screen that ever contains the key itself.
+
+    The key goes in `hidden`, not in the body, so a provider that can conceal
+    text does — somebody may be reading this over a shoulder or sharing a
+    screen. Providers that cannot still show it, because a key nobody can see
+    is worse than one that is merely not hidden.
+    """
+    lines = ["🔑 کلید API"]
+    if replaced:
+        lines.append("کلید قبلی از همین حالا کار نمی‌کند.")
+    lines += [
+        "",
+        "این تنها باری است که کامل نشانش می‌دهیم. جای امنی نگهش دار.",
+        "",
+        "برای استفاده، در هر درخواست این هدر را بفرست:",
+        "X-API-Key: <کلید>",
+        "",
+        "👇 برای دیدن، روی خط زیر بزن",
+    ]
+
+    buttons: List[List[Button]] = []
+    if docs_url:
+        buttons.append([Button("📄 مستندات API", url=f"{docs_url.rstrip('/')}/docs")])
+    buttons.append([Button("⬅️ بازگشت", data="acc:api")])
+    return rtl("\n".join(lines)), buttons
 
 
 def ask_email() -> Screen:
