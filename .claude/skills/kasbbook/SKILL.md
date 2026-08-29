@@ -162,7 +162,7 @@ break it.
   without a token.
 
 - **Persian is the UI language.** Screens, user-facing errors. Code, comments,
-  docs and commit subjects on `v2` are English.
+  docs and commit subjects are English.
 
 ---
 
@@ -306,14 +306,14 @@ purpose, with reasons. Check it before "fixing" an omission.
 ## 9. Working style
 
 - **Look at git before you touch anything.** `git branch --show-current` and
-  `git status`. Work happens on `v2`, which is expected to become `main`, so
-  its stability is not yours to spend. Never reset, discard, force-push or
+  `git status`. Work happens on `main`, which is what ships and what
+  install.sh clones, so its stability is not yours to spend. Never reset, discard, force-push or
   otherwise destroy work you did not create, and never without being asked.
 - **Run the suite before and after.** `pytest tests -q`. If it was red
   before you started, say so rather than absorbing someone else's failure.
 - **Verify claims against the code, not memory.** This project's own docs
   carried a wrong line about budgets until it was checked.
-- **Commit subjects in English on `v2`**, imperative, saying what changed for a
+- **Commit subjects in English**, imperative, saying what changed for a
   user or an operator. The body explains why — half of
   `docs/troubleshooting.md` was written from commit bodies.
 - **When the skill and the code disagree, the code wins.** Say so, so this

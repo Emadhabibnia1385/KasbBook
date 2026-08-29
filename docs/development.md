@@ -3,7 +3,7 @@
 ## Setting up
 
 ```bash
-git clone -b v2 https://github.com/Emadhabibnia1385/KasbBook.git
+git clone https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook
 python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt
@@ -144,7 +144,7 @@ docs/             these files
 
 ## Commits
 
-English subjects on `v2`, in the imperative, saying what changed for a user or
+English subjects, in the imperative, saying what changed for a user or
 an operator. The body explains **why** — especially when the change is small
 and the reason is not obvious.
 

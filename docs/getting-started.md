@@ -3,7 +3,7 @@
 ## On a server
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/v2/scripts/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scripts/install.sh | sudo bash
 ```
 
 You need Debian or Ubuntu, Python 3.11 or newer, and Docker if you want the
@@ -32,7 +32,7 @@ non-zero rather than claiming success. See [troubleshooting.md](./troubleshootin
 No Docker, no PostgreSQL, no token needed for the tests.
 
 ```bash
-git clone -b v2 https://github.com/Emadhabibnia1385/KasbBook.git
+git clone https://github.com/Emadhabibnia1385/KasbBook.git
 cd KasbBook
 python3 -m venv venv
 ./venv/bin/pip install -r requirements-dev.txt

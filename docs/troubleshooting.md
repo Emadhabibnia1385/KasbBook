@@ -23,7 +23,7 @@ The uvicorn case was the subtlest: `PYTHONPATH=/opt/kasbbook/src` was set
 correctly, but `WorkingDirectory` puts the repo root ahead of `PYTHONPATH`, so
 the root package still won.
 
-**Fix:** the first generation was removed from the `v2` branch. Before that,
+**Fix:** the first generation was removed from the codebase. Before that,
 each site ordered `sys.path` explicitly with a comment saying why.
 
 **If you see it again:** something has put the repo root ahead of `src/`. Print

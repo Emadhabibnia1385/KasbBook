@@ -22,7 +22,7 @@ it means the description left room for doubt.
 
 ## What it caught
 
-The first version scored 32/32, which looked like nothing to fix. But one query
+The first attempt scored 32/32, which looked like nothing to fix. But one query
 — "redis went down overnight, what breaks and what just degrades" — split 2-1,
 and the dissenting judge said plainly that Redis was not in the description.
 
@@ -36,15 +36,15 @@ skill is not for the Seamless bot. Three judges, no disagreement.
 
 | | length | accuracy | true-positive | false-positive | split votes |
 |---|---|---|---|---|---|
-| v1 | 995 | 32/32 | 98% | 0% | 1 |
-| v2 | 1169 | 32/32 | 100% | 0% | 0 |
-| **v3** | **985** | **32/32** | **100%** | **0%** | **0** |
+| first | 995 | 32/32 | 98% | 0% | 1 |
+| second | 1169 | 32/32 | 100% | 0% | 0 |
+| **third** | **985** | **32/32** | **100%** | **0%** | **0** |
 
-v2 won on merit and then failed to package: descriptions are capped at 1024
+The second won on merit and then failed to package: descriptions are capped at 1024
 characters. v3 is the same content with the lowest-signal parts removed — the
 Python version, and an enumeration of change types that "changing anything
-here" already covers — and was re-measured rather than assumed to inherit v2's
-score.
+here" already covers — and was re-measured rather than assumed to inherit the
+second's score.
 
 ## Re-running
 

@@ -1,4 +1,4 @@
-"""Test fixtures for the v2 core.
+"""Test fixtures.
 
 Each test gets its own in-memory database. SQLite is used here only — every
 column type in the models behaves the same on PostgreSQL, which is what

@@ -32,7 +32,7 @@
  {
   "id": 7,
   "should_trigger": true,
-  "query": "need to push the latest v2 branch to production. whats the right way, i dont want to break the bot for people mid-month"
+  "query": "need to push the latest main to production. whats the right way, i dont want to break the bot for people mid-month"
  },
  {
   "id": 8,

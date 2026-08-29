@@ -93,7 +93,7 @@ Read by the scripts, not by the application.
 | Variable | Default |
 |---|---|
 | `KASBBOOK_HOME` | `/opt/kasbbook` |
-| `KASBBOOK_BRANCH` | `v2` |
+| `KASBBOOK_BRANCH` | `main` |
 | `KASBBOOK_BACKUP_DIR` | `/var/backups/kasbbook` |
 | `KASBBOOK_BACKUP_KEEP` | `14` |
 
