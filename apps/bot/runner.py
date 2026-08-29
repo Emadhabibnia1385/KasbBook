@@ -197,7 +197,9 @@ class BotRunner:
         self._running = True
         logger.info("KasbBook telegram bot started")
 
-        # Polling and a webhook cannot both be active.
+        # Polling and a webhook cannot both be active. Deleting it here means
+        # switching KASBBOOK_UPDATE_MODE back to polling is enough on its own —
+        # nobody has to remember to unregister anything.
         await self.adapter.delete_webhook()
 
         while self._running:
@@ -227,15 +229,29 @@ async def main() -> None:
     )
 
     state = await build_state_store(settings)
-    runner = BotRunner(settings, database, adapter, state)
 
-    # Reminders run beside the poller rather than inside it, so a slow digest
-    # cannot delay someone's next button press.
+    # Reminders run beside the updates rather than inside them, so a slow
+    # digest cannot delay someone's next button press. They belong to this
+    # process in both modes: nothing about a daily digest needs an inbound
+    # request, and putting it in the API would mean two workers each sending
+    # one.
     reminders = ReminderLoop(database, adapter, state, provider=settings.provider)
     reminder_task = asyncio.create_task(reminders.run())
 
     try:
-        await runner.run()
+        if settings.uses_webhook:
+            url = settings.require_webhook()
+            if not await adapter.set_webhook(url):
+                raise RuntimeError(
+                    f"{settings.provider.value} refused the webhook at {url}. "
+                    "Check that the host is reachable over HTTPS from outside."
+                )
+            logger.info("updates arrive by webhook; this process only reminds")
+            # The API serves the updates. Staying alive keeps the reminder
+            # loop running and gives systemd something to supervise.
+            await reminder_task
+        else:
+            await BotRunner(settings, database, adapter, state).run()
     finally:
         reminders.stop()
         reminder_task.cancel()

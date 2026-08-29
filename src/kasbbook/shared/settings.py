@@ -56,6 +56,17 @@ class Settings:
     redis_url: Optional[str] = None
     web_base_url: str = ""
     api_base_url: str = ""
+    # "polling" or "webhook". Polling holds a long-lived outbound connection
+    # and needs nothing reachable from outside; webhook needs a public HTTPS
+    # endpoint and loses updates that arrive while the API is restarting,
+    # because a provider retries for a while and then gives up. Being a
+    # setting rather than a code path is deliberate: whichever turns out to be
+    # wrong, going back is one line and a restart.
+    update_mode: str = "polling"
+    # The unguessable segment in /webhooks/<provider>/<secret>. Telegram also
+    # echoes a header secret, which is real verification; Bale and Rubika sign
+    # nothing, so for them this path is the only thing standing in the way.
+    webhook_path_secret: str = ""
     api_secret_key: Optional[str] = None
     access_token_minutes: int = 30
     refresh_token_days: int = 30
@@ -106,6 +117,8 @@ class Settings:
             redis_url=_env("REDIS_URL"),
             web_base_url=_env("KASBBOOK_WEB_URL", "") or "",
             api_base_url=_env("KASBBOOK_API_URL", "") or "",
+            update_mode=(_env("KASBBOOK_UPDATE_MODE", "polling") or "polling").lower(),
+            webhook_path_secret=_env("KASBBOOK_WEBHOOK_PATH", "") or "",
             api_secret_key=_env("KASBBOOK_SECRET_KEY"),
             access_token_minutes=int(_env("KASBBOOK_ACCESS_MINUTES", "30") or 30),
             refresh_token_days=int(_env("KASBBOOK_REFRESH_DAYS", "30") or 30),
@@ -132,6 +145,31 @@ class Settings:
                 "put its token in the environment before starting the bot."
             )
         return self.telegram_token
+
+    @property
+    def uses_webhook(self) -> bool:
+        return self.update_mode == "webhook"
+
+    def require_webhook(self) -> str:
+        """The public URL a provider should deliver to, or a clear refusal."""
+        if not self.api_base_url:
+            raise RuntimeError(
+                "KASBBOOK_UPDATE_MODE=webhook needs KASBBOOK_API_URL — a provider "
+                "has to be told where to deliver."
+            )
+        if not self.api_base_url.startswith("https://"):
+            # Every update carries a person's messages. Telegram refuses plain
+            # HTTP outright; the others should be refused here.
+            raise RuntimeError("a webhook URL must be https")
+        if not self.webhook_path_secret:
+            raise RuntimeError(
+                "KASBBOOK_WEBHOOK_PATH is not set. Generate one with "
+                "`python3 -c \"import secrets; print(secrets.token_urlsafe(24))\"`."
+            )
+        return (
+            f"{self.api_base_url.rstrip('/')}/api/v1/webhooks/"
+            f"{self.provider.value}/{self.webhook_path_secret}"
+        )
 
     def require_secret_key(self) -> str:
         """The API's signing key. There is no safe default for this one."""

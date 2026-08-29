@@ -60,6 +60,8 @@ both messengers is one set of books.
 | `KASBBOOK_CORS_ORIGINS` | *(unset)* | Comma-separated. Never `*`: these endpoints carry credentials. |
 | `KASBBOOK_TRUSTED_PROXY` | *(unset)* | Set only when a proxy you run is in front. It makes `X-Forwarded-For` trusted for rate limiting — without a real proxy, anyone can set that header and rate limiting becomes decorative. |
 | `KASBBOOK_WEB_URL` | *(unset)* | Base URL used in links the bot sends. |
+| `KASBBOOK_UPDATE_MODE` | `polling` | `polling` or `webhook`. Polling holds an outbound connection and needs nothing reachable from outside. A webhook needs a public HTTPS endpoint and loses updates that arrive while the API is restarting, because a provider retries for a while and then gives up. |
+| `KASBBOOK_WEBHOOK_PATH` | *(unset)* | The unguessable segment in `/webhooks/<provider>/<secret>`. Required in webhook mode. Generate it, never choose it. |
 | `KASBBOOK_API_URL` | *(unset)* | Where the API is published, e.g. `https://kasbbook.example.com`. The bot links to `<url>/docs` from its API screen; unset means no link rather than a dead one. |
 
 To generate a key:

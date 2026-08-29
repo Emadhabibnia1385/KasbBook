@@ -78,15 +78,34 @@ def create_app(
         app.state.database = database or Database(resolved.database_url)
         app.state.limiter = limiter or await build_limiter(resolved)
 
-        # Filled in only when this process also serves webhooks. Empty means
-        # every webhook path answers 404, which is the right default.
+        # Empty unless this process is meant to receive updates, and an empty
+        # map means every webhook path answers 404 — so a misconfigured deploy
+        # is a provider seeing 404s rather than an open door.
         app.state.adapters = {}
         app.state.webhook_paths = {}
         app.state.state_store = None
 
+        if resolved.uses_webhook:
+            # Serving updates means the API does bot work: it needs the
+            # provider's adapter to parse and reply, and the same conversation
+            # state the poller would have used — Redis, or nothing shared at
+            # all if Redis is absent, which is worth knowing before a
+            # half-finished flow disappears between two workers.
+            from apps.bot.runner import build_adapter, build_state_store
+
+            resolved.require_webhook()
+            app.state.adapters = {resolved.provider.value: build_adapter(resolved)}
+            app.state.webhook_paths = {
+                resolved.provider.value: resolved.webhook_path_secret
+            }
+            app.state.state_store = await build_state_store(resolved)
+            logger.info("serving %s updates by webhook", resolved.provider.value)
+
         try:
             yield
         finally:
+            for adapter in app.state.adapters.values():
+                await adapter.aclose()
             if database is None:
                 await app.state.database.dispose()
 

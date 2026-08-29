@@ -17,6 +17,7 @@ import logging
 
 from fastapi import APIRouter, Request, Response, status
 
+from ...adapters.base import EventKind
 from ...modules.identity.models import Provider
 from ..deps import SessionDep
 
@@ -69,9 +70,29 @@ async def receive(
     if event.callback_id:
         await adapter.answer_callback(event.callback_id)
 
+    # The same single-screen behaviour the poller has. Without it a webhook
+    # deployment would quietly stop removing what people type — including a
+    # password.
+    if event.kind is not EventKind.CALLBACK and event.message_id:
+        try:
+            await adapter.delete_message(event.chat_id, event.message_id)
+        except Exception:
+            logger.debug("could not remove the incoming message", exc_info=True)
+
     if reply.edit_message_id:
         await adapter.edit_message(reply)
     else:
         await adapter.send_message(reply)
+
+    if reply.forward_file_id:
+        await adapter.send_stored_file(
+            reply.chat_id, reply.forward_file_id, reply.forward_file_kind
+        )
+
+    if reply.document is not None:
+        await adapter.send_file(
+            reply.chat_id, reply.document.content,
+            reply.document.filename, reply.document.caption,
+        )
 
     return Response(status_code=status.HTTP_200_OK)

@@ -167,6 +167,32 @@ an account linked to both messengers is one set of books.
 Add the unit name to `UNITS` in `scripts/lib.sh` so the update and health
 checks cover it.
 
+## Switching between polling and webhook
+
+```bash
+# in /opt/kasbbook/.env
+KASBBOOK_UPDATE_MODE=webhook
+KASBBOOK_WEBHOOK_PATH=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+KASBBOOK_API_URL=https://your.host
+```
+
+Then restart both units. The bot process registers the webhook at startup and
+afterwards only sends reminders; the API serves the updates.
+
+Going back is the same file: set `KASBBOOK_UPDATE_MODE=polling` and restart.
+The poller deletes the registered webhook itself, so nothing has to be
+unregistered by hand.
+
+Two things to know before switching:
+
+- **A restart of `kasbbook-api` is now a window where updates can be lost.**
+  With polling they queue at the provider and arrive afterwards; with a webhook
+  the provider retries for a while and then drops them. `update.sh` restarts
+  that unit.
+- **The secret is in the URL**, so nginx must not log it. The block for this
+  host turns off `access_log` for the webhook path; without that, every update
+  writes the secret to disk.
+
 ## Logs
 
 ```bash
