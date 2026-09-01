@@ -37,14 +37,28 @@ password: it can set a new one from the bot. Reset matters for the account that
 has drifted away from its messenger, which is precisely the one a mail path
 would serve.
 
+## Done since this page was written
+
 ### Webhooks in production
 
-The route exists and is tested; polling is what actually runs. Switching over
-needs a public hostname and TLS termination, which is a deployment decision
-rather than a code one.
+Built and running. `KASBBOOK_UPDATE_MODE=webhook` moves update delivery to the
+API process; the bot process registers the webhook at startup and afterwards
+only sends reminders. Switching back is the same setting.
 
-Polling has a real advantage worth stating: it works from behind any NAT with
-no inbound port, which is most of the boxes this will ever run on.
+Polling keeps a real advantage worth stating, and remains the default: it works
+from behind any NAT with no inbound port, and it does not lose updates while
+the API restarts. Webhook mode trades that for not holding a connection open.
+
+The first thing it cost was a secret in the journal — the path carries the
+secret, nginx was told not to log it, and uvicorn's own access log had not
+been. See [security.md](./security.md).
+
+### Account deletion
+
+Built. `DELETE /auth/me` with a preview endpoint, immediate and irreversible,
+refusing while a shared book would be orphaned. It is on this page's history
+rather than its future because the entry that said the foreign keys made it
+impossible was wrong: they made it *careful*, not impossible.
 
 ## Smaller things
 

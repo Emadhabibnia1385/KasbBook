@@ -113,6 +113,13 @@
 [dir="rtl"] .md-typeset .highlight,
 [dir="rtl"] .md-typeset pre { direction: ltr; text-align: left; }
 
+/* Inline code needs `unicode-bidi` as well: on an inline element `direction`
+   alone does nothing, so `/api/v1/webhooks/{provider}/{secret}` inherited the
+   paragraph's RTL run and rendered its leading slash to the right of its
+   closing brace. `isolate` makes each span its own LTR run and a neutral
+   object in the sentence around it. */
+[dir="rtl"] .md-typeset code { direction: ltr; unicode-bidi: isolate; }
+
 /* ------------------------------------------------------------ typography */
 .md-typeset {
   font-size: .78rem;
