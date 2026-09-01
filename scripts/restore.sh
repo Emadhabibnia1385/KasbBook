@@ -27,8 +27,7 @@ warn "this REPLACES the current database with the contents of:"
 echo "      $ARCHIVE  ($(date -r "$ARCHIVE" '+%Y-%m-%d %H:%M'))"
 echo "      target: $(printf '%s' "$URL" | sed 's|://[^@]*@|://***@|')"
 echo
-read -r -p "Type 'restore' to go ahead: " CONFIRM
-[ "$CONFIRM" = "restore" ] || die "cancelled"
+confirm restore "Type 'restore' to go ahead: "
 
 say "stopping services"
 for unit in "${UNITS[@]}"; do

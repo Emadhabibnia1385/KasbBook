@@ -66,3 +66,74 @@ show_failure() {
     echo "  ${R}--- last 25 lines of $unit ---${N}"
     journalctl -u "$unit" -n 25 --no-pager -o cat | sed 's/^/  /'
 }
+
+# ---------------------------------------------------------------- asking
+#
+# The README says to install with `curl ... | sudo bash`, and under a pipe
+# stdin *is the script*. A plain `read` there does not wait for anybody: it
+# swallows the next line of source as the answer, and that line then never
+# runs. It really happened — .env came out holding
+#
+#   TELEGRAM_BOT_TOKEN=[ -n "$TOKEN" ] || die "a bot token is required"
+#
+# with the check that would have caught it eaten as the answer, and the
+# installer exiting zero. So prompts are read from the terminal, never from
+# stdin, and an environment variable wins over both so the whole thing can be
+# driven with no terminal at all.
+# Opened rather than tested: /dev/tty exists on a box with no controlling
+# terminal and fails only when something tries to read it, which would put
+# "Device not configured" in front of a person who is being told something
+# more useful.
+KASBBOOK_TTY=""
+# The 2> comes first on purpose: redirections are applied left to right, and
+# with it second the failing open has already printed before stderr is shut.
+if [ -r /dev/tty ] && : 2>/dev/null < /dev/tty; then KASBBOOK_TTY=/dev/tty; fi
+
+ask() {  # ask VAR_NAME "prompt"
+    local __name=$1 __prompt=$2 __value=""
+    __value=${!__name:-}
+    if [ -z "$__value" ] && [ -n "$KASBBOOK_TTY" ]; then
+        read -r -p "$__prompt" __value < "$KASBBOOK_TTY" 2>/dev/null || __value=""
+    fi
+    printf -v "$__name" '%s' "$__value"
+}
+
+# A token or username can never contain whitespace or a quote, and those are
+# exactly what the bug above produced. Refusing them turns a .env full of shell
+# into a failed install, which is the difference between a bad five minutes and
+# a bad afternoon. The `$` matters for a second reason: .env is written from an
+# unquoted heredoc, so a value carrying one would be expanded on the way in.
+sane() {  # sane VALUE NAME
+    case "$1" in
+        *[[:space:]]*|*\"*|*\'*|*'$'*|*'`'*)
+            die "$2 contains whitespace or a shell character, which no real value does.
+     If you piped this script, the prompt may have eaten a line of it.
+     Pass the value instead: curl ... | sudo $2=... bash" ;;
+    esac
+}
+
+# Accept what a person actually types. "example.com" is a URL to everyone
+# except a URL parser, and a trailing slash turns <url>/docs into <url>//docs.
+normalise_url() {
+    local u=${1:-}
+    [ -n "$u" ] || { printf ''; return 0; }
+    case "$u" in
+        http://*) die "the API URL must be https — Telegram refuses a plain HTTP webhook, \
+and bearer tokens cross this boundary" ;;
+        https://*) ;;
+        *) u="https://$u" ;;
+    esac
+    printf '%s' "${u%/}"
+}
+
+# Confirming something destructive. Deliberately NOT ask(): no environment
+# variable may answer this, and it is read from the terminal only. Otherwise
+# `echo destroy | sudo ./uninstall.sh --purge` confirms itself, and a
+# confirmation something else can supply is not a confirmation. No terminal
+# means no, which is the safe direction for a script that deletes data.
+confirm() {  # confirm WORD "prompt"
+    local __want=$1 __prompt=$2 __got=""
+    [ -n "$KASBBOOK_TTY" ] || die "this destroys data and needs a terminal to confirm on"
+    read -r -p "$__prompt" __got < "$KASBBOOK_TTY" 2>/dev/null || __got=""
+    [ "$__got" = "$__want" ] || die "not confirmed; nothing was changed"
+}

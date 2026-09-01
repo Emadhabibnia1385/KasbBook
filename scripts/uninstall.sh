@@ -19,12 +19,10 @@ else
     echo "      the database and $BACKUP_DIR are kept. Add --purge to delete those as well."
 fi
 echo
-read -r -p "Type 'remove' to go ahead: " CONFIRM
-[ "$CONFIRM" = "remove" ] || die "cancelled"
+confirm remove "Type 'remove' to go ahead: "
 
 if [ "$PURGE" = 1 ]; then
-    read -r -p "Type the word 'destroy' to confirm deleting the data: " CONFIRM2
-    [ "$CONFIRM2" = "destroy" ] || die "cancelled"
+    confirm destroy "Type the word 'destroy' to confirm deleting the data: "
 fi
 
 # Even on the way out. If this is a mistake, the dump is what makes it a

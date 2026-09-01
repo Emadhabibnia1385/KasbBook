@@ -7,11 +7,28 @@ curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scri
 ```
 
 You need Debian or Ubuntu, Python 3.11 or newer, and Docker if you want the
-installer to provide PostgreSQL and Redis for you. It will ask for one thing: a
-bot token from [@BotFather](https://t.me/BotFather).
+installer to provide PostgreSQL and Redis for you.
 
-Everything else it generates — the database password, the signing key — because
-a secret a person chooses is a secret a person can guess.
+It asks for three things: a bot token from
+[@BotFather](https://t.me/BotFather), the bot's username, and — optionally —
+the public https URL this API will be served at. That last one is what makes
+the bot's API screen link to your own documentation, and it is required if you
+ever switch to webhooks. Leave it blank and nothing links anywhere, which is
+better than linking somewhere dead.
+
+Everything else it generates — the database password, the signing key, the
+webhook path secret — because a secret a person chooses is a secret a person
+can guess.
+
+Prompts are read from your terminal, not from standard input, because standard
+input under `curl ... | bash` is the script itself. To install with no terminal
+at all, answer from the environment instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scripts/install.sh \
+  | sudo TELEGRAM_BOT_TOKEN=... TELEGRAM_BOT_USERNAME=YourBot \
+         KASBBOOK_API_URL=https://your.host bash
+```
 
 Running it again is safe. It repairs a half-finished install, leaves an
 existing `.env` alone, and adds anything missing from it.
