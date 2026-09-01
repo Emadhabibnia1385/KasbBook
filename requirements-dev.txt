@@ -12,3 +12,4 @@ psycopg[binary]>=3.2
 # MkDocs 2.0 removes the plugin system with no migration path, so an unpinned
 # major would break the build on somebody else's schedule.
 mkdocs-material>=9.5,<10
+mkdocs-static-i18n>=1.2

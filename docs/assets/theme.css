@@ -7,14 +7,19 @@
  */
 
 :root {
-  --kb-green:        #10b981;
-  --kb-green-soft:   #34d399;
-  --kb-radius:       10px;
+  /* Neon on a near-black ground. The same green on white would fail contrast
+     for body text, so light mode keeps the neon for accents and buttons and
+     uses a deeper one wherever the green has to be *read*. */
+  --kb-neon:         #00e58a;
+  --kb-neon-bright:  #4dffb8;
+  --kb-neon-deep:    #0d9868;
+  --kb-glow:         0 0 22px rgba(0, 229, 138, .28);
+  --kb-radius:       12px;
 
-  --md-primary-fg-color:        var(--kb-green);
-  --md-primary-fg-color--light: var(--kb-green-soft);
-  --md-primary-fg-color--dark:  #059669;
-  --md-accent-fg-color:         var(--kb-green);
+  --md-primary-fg-color:        var(--kb-neon);
+  --md-primary-fg-color--light: var(--kb-neon-bright);
+  --md-primary-fg-color--dark:  var(--kb-neon-deep);
+  --md-accent-fg-color:         var(--kb-neon);
 
   --md-text-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --md-code-font: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -26,36 +31,51 @@
   --md-default-fg-color:      #18181b;
   --md-default-fg-color--light:  #52525b;
   --md-default-fg-color--lighter: #a1a1aa;
-  --md-code-bg-color:         #f4f4f5;
+  --md-code-bg-color:         #f6f6f7;
   --md-code-fg-color:         #18181b;
-  --kb-border:                #e4e4e7;
-  --kb-surface:               #fafafa;
-  --kb-grid:                  rgba(0, 0, 0, .045);
+  --md-typeset-a-color:       var(--kb-neon-deep);
+  --md-accent-fg-color:       var(--kb-neon-deep);
+  --kb-border:                #e6e6e9;
+  --kb-surface:               rgba(250, 250, 251, .72);
+  --kb-glass:                 rgba(255, 255, 255, .72);
+  --kb-grid:                  rgba(0, 0, 0, .04);
+  --kb-glow:                  0 0 20px rgba(13, 152, 104, .16);
 }
 
 /* ----------------------------------------------------------------- dark */
 [data-md-color-scheme="slate"] {
   --md-hue: 240;
-  --md-default-bg-color:      #0a0a0a;
+  --md-default-bg-color:      #060807;
   --md-default-fg-color:      #ededed;
   --md-default-fg-color--light:  #a1a1aa;
-  --md-default-fg-color--lighter: #71717a;
-  --md-code-bg-color:         #141414;
+  --md-default-fg-color--lighter: #6b7280;
+  --md-code-bg-color:         rgba(255, 255, 255, .035);
   --md-code-fg-color:         #e4e4e7;
-  --md-typeset-a-color:       var(--kb-green-soft);
-  --kb-border:                #262626;
-  --kb-surface:               #111111;
-  --kb-grid:                  rgba(255, 255, 255, .04);
+  --md-typeset-a-color:       var(--kb-neon-bright);
+  /* Borders carry a trace of the accent so panels read as lit rather than
+     merely outlined. */
+  --kb-border:                rgba(0, 229, 138, .13);
+  --kb-surface:               rgba(255, 255, 255, .035);
+  --kb-glass:                 rgba(10, 14, 12, .62);
+  --kb-grid:                  rgba(0, 229, 138, .055);
 }
 
 /* --------------------------------------------------------------- chrome */
 /* A documentation site is for reading; the header should not be the loudest
    thing on the page. */
 .md-header {
-  background: var(--md-default-bg-color);
+  /* Frosted rather than opaque, so the grid and the page scroll behind it.
+     A solid bar over a dark ground reads as a lid. */
+  background: var(--kb-glass);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  backdrop-filter: saturate(180%) blur(14px);
   color: var(--md-default-fg-color);
   border-bottom: 1px solid var(--kb-border);
   box-shadow: none;
+}
+/* Blur needs something behind it; without this the header sits on nothing. */
+@supports not (backdrop-filter: blur(1px)) {
+  .md-header { background: var(--md-default-bg-color); }
 }
 .md-header__title { font-weight: 650; letter-spacing: -.01em; }
 .md-tabs { background: var(--md-default-bg-color); border-bottom: 1px solid var(--kb-border); }
@@ -74,6 +94,8 @@
 
 .md-search__form {
   background: var(--kb-surface);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--kb-border);
   border-radius: var(--kb-radius);
   box-shadow: none;
@@ -84,6 +106,12 @@
 .md-sidebar { font-size: .74rem; }
 .md-nav__title { font-weight: 650; letter-spacing: .02em; text-transform: none; }
 .md-nav__link--active { font-weight: 600; }
+.md-nav__link:hover { color: var(--md-accent-fg-color); }
+
+/* Persian is right-to-left; the hero's full-bleed maths is direction-agnostic
+   but the code blocks inside it are not, and neither is the badge. */
+[dir="rtl"] .md-typeset .highlight,
+[dir="rtl"] .md-typeset pre { direction: ltr; text-align: left; }
 
 /* ------------------------------------------------------------ typography */
 .md-typeset {
@@ -141,13 +169,15 @@
   border: 1px solid var(--kb-border);
   border-radius: var(--kb-radius);
   background: var(--kb-surface);
-  padding: 1.1rem 1.2rem;
-  transition: border-color .15s ease, transform .15s ease;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  padding: 1.15rem 1.25rem;
+  transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 .md-typeset .grid.cards > ul > li:hover {
-  border-color: var(--kb-green);
-  transform: translateY(-2px);
-  box-shadow: none;
+  border-color: var(--kb-neon);
+  transform: translateY(-3px);
+  box-shadow: var(--kb-glow);
 }
 .md-typeset .grid.cards > ul > li > p:first-child strong {
   font-size: .92rem;
@@ -164,21 +194,23 @@
   transition: all .15s ease;
 }
 .md-typeset .md-button--primary {
-  background: var(--kb-green);
-  border-color: var(--kb-green);
-  color: #05271b;
+  background: var(--kb-neon);
+  border-color: var(--kb-neon);
+  color: #04231a;
+  box-shadow: var(--kb-glow);
 }
 .md-typeset .md-button--primary:hover {
-  background: var(--kb-green-soft);
-  border-color: var(--kb-green-soft);
-  color: #05271b;
+  background: var(--kb-neon-bright);
+  border-color: var(--kb-neon-bright);
+  color: #04231a;
+  box-shadow: 0 0 30px rgba(0, 229, 138, .45);
 }
 .md-typeset .md-button:not(.md-button--primary) {
   border-color: var(--kb-border);
   color: var(--md-default-fg-color);
 }
 .md-typeset .md-button:not(.md-button--primary):hover {
-  border-color: var(--kb-green);
+  border-color: var(--kb-neon);
   color: var(--md-default-fg-color);
   background: transparent;
 }
@@ -209,11 +241,13 @@
   color: var(--md-default-fg-color--light);
   border: 1px solid var(--kb-border);
   background: var(--kb-surface);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   border-radius: 999px;
-  padding: .3rem .85rem;
+  padding: .32rem .9rem;
   margin-bottom: 1.6rem;
 }
-.kb-hero__badge b { color: var(--kb-green); font-weight: 600; }
+.kb-hero__badge b { color: var(--kb-neon); font-weight: 600; }
 
 .md-typeset .kb-hero h1 {
   font-size: 2.5rem;
@@ -223,7 +257,15 @@
   margin: 0 0 .5rem;
   border: none;
 }
-.kb-hero h1 .kb-accent { color: var(--kb-green); }
+.kb-hero h1 .kb-accent {
+  color: var(--kb-neon);
+  /* Just enough bloom to read as neon; more and the letterforms smear. */
+  text-shadow: 0 0 34px rgba(0, 229, 138, .35);
+}
+[data-md-color-scheme="default"] .kb-hero h1 .kb-accent {
+  color: var(--kb-neon-deep);
+  text-shadow: none;
+}
 
 .kb-hero__sub {
   max-width: 34rem;

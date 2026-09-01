@@ -19,7 +19,10 @@ theme:
   logo: assets/logo.png
   favicon: assets/logo.png
   features:
-    - navigation.instant
+    # `navigation.instant` is deliberately absent: it is incompatible with the
+    # language switcher's contextual link, and switching language should land
+    # on the same page in the other language rather than on its home page.
+    # A slightly slower page load is worth much less than that.
     - navigation.tracking
     - navigation.sections
     - navigation.top
@@ -67,6 +70,9 @@ nav:
 extra_css:
   - assets/theme.css
 
+extra_javascript:
+  - assets/language.js
+
 markdown_extensions:
   - def_list
   - admonition
@@ -80,6 +86,47 @@ markdown_extensions:
   - pymdownx.highlight: { anchor_linenums: true }
 
 plugins:
+  # `search` has to come after i18n so it indexes both languages.
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+
+        - locale: fa
+          name: فارسی
+          build: true
+          site_name: کسب‌بوک
+          site_description: دفترداری کسب‌وکار کوچک، همان‌جا که کسب‌وکار حرف می‌زند
+          # Material knows Persian reads right to left and flips the whole
+          # layout — sidebar, table of contents, code gutters — from the
+          # language alone. Setting `direction` as well is rejected as an
+          # unknown override, and was doing nothing.
+          theme:
+            language: fa
+          nav_translations:
+            Home: خانه
+            Getting started: شروع
+            Understanding it: درک آن
+            Architecture: معماری
+            Data model: مدل داده
+            Double-entry: دفتر دوطرفه
+            Payroll & treasury: حقوق و خزانه
+            Providers: پیام‌رسان‌ها
+            Using it: استفاده
+            The API: رابط برنامه‌نویسی
+            Configuration: پیکربندی
+            Running it: اجرا
+            Operations: عملیات
+            Security: امنیت
+            Troubleshooting: عیب‌یابی
+            Contributing: مشارکت
+            Development: توسعه
+            Roadmap: نقشهٔ راه
   - search
 
 extra:
