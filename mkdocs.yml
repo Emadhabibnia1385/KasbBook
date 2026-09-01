@@ -134,7 +134,7 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/Emadhabibnia1385/KasbBook
     - icon: fontawesome/solid/book
-      link: https://kasbbook.seamlesss.ir/docs
+      link: https://kasbbook.nyxon.tech/docs
       name: Live API reference
 
 # A broken link in the docs should fail the build, not wait to be found by a

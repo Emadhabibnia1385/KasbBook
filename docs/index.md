@@ -13,7 +13,7 @@ behind it.
 
 <div class="kb-hero__actions" markdown>
 [Get started](getting-started.md){ .md-button .md-button--primary }
-[Live API reference](https://kasbbook.seamlesss.ir/docs){ .md-button }
+[Live API reference](https://kasbbook.nyxon.tech/docs){ .md-button }
 </div>
 
 </div>

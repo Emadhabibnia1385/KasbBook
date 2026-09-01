@@ -130,9 +130,9 @@ curl -X POST http://127.0.0.1:8210/api/v1/auth/login \
   -d '{"identifier":"you@example.com","password":"..."}'
 ```
 
-Interactive documentation at `/docs`. Short-lived access tokens, rotating
-refresh tokens with theft detection, API keys for programs, and rate limiting
-on the routes that need it.
+Interactive documentation at `/docs` — the reference deployment is at
+<https://kasbbook.nyxon.tech/docs>. Short-lived access tokens, rotating refresh tokens with theft
+detection, API keys for programs, and rate limiting on the routes that need it.
 
 **Money crosses the boundary as a string, never a JSON number.** JSON has one
 numeric type and it is a float; `12500000.15` does not survive that round trip,

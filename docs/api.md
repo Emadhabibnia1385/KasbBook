@@ -1,7 +1,8 @@
 # The API
 
-Interactive documentation at `/docs`. This page covers the conventions the
-OpenAPI schema cannot express.
+Interactive documentation at `/docs` on your own deployment; the reference
+one is at [kasbbook.nyxon.tech/docs](https://kasbbook.nyxon.tech/docs). This page covers the
+conventions the OpenAPI schema cannot express.
 
 Base path: `/api/v1`. Health checks sit outside it, at `/healthz` and
 `/readyz`.

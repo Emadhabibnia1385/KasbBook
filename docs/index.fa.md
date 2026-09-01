@@ -12,7 +12,7 @@
 
 <div class="kb-hero__actions" markdown>
 [شروع کنیم](getting-started.md){ .md-button .md-button--primary }
-[مستندات زندهٔ API](https://kasbbook.seamlesss.ir/docs){ .md-button }
+[مستندات زندهٔ API](https://kasbbook.nyxon.tech/docs){ .md-button }
 </div>
 
 </div>
