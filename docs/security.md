@@ -206,7 +206,10 @@ denied.
 - **No 2FA.** Worth having; not yet written. On the [roadmap](./roadmap.md).
 - **No password reset by email.** There is no mail path, and a reset flow
   without one is a support ticket pretending to be a feature.
-- **No account deletion.** The foreign keys would block it, correctly — see
-  [data-model.md](./data-model.md).
+- **No recovery of a deleted account.** `DELETE /auth/me` is immediate and
+  irreversible: there is no grace period and no undo, and the preview endpoint
+  exists so the decision is made with the consequences in view. It asks for the
+  password when the account has one, and refuses while a shared book would be
+  orphaned — see [data-model.md](./data-model.md).
 - **No unofficial provider APIs.** No reverse-engineered web-client endpoints,
   no logging in as a human with an OTP. A bot posts as a bot.
