@@ -1,0 +1,244 @@
+/* KasbBook documentation theme.
+ *
+ * Material's defaults are recognisably Material: a coloured header bar, a
+ * blue-grey "dark" mode, and Roboto. This makes it quieter — near-black in the
+ * dark, plain white in the light, one green accent, and typography sized for
+ * reading paragraphs rather than for filling a design grid.
+ */
+
+:root {
+  --kb-green:        #10b981;
+  --kb-green-soft:   #34d399;
+  --kb-radius:       10px;
+
+  --md-primary-fg-color:        var(--kb-green);
+  --md-primary-fg-color--light: var(--kb-green-soft);
+  --md-primary-fg-color--dark:  #059669;
+  --md-accent-fg-color:         var(--kb-green);
+
+  --md-text-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --md-code-font: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------------------------------------------------------------- light */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color:      #ffffff;
+  --md-default-fg-color:      #18181b;
+  --md-default-fg-color--light:  #52525b;
+  --md-default-fg-color--lighter: #a1a1aa;
+  --md-code-bg-color:         #f4f4f5;
+  --md-code-fg-color:         #18181b;
+  --kb-border:                #e4e4e7;
+  --kb-surface:               #fafafa;
+  --kb-grid:                  rgba(0, 0, 0, .045);
+}
+
+/* ----------------------------------------------------------------- dark */
+[data-md-color-scheme="slate"] {
+  --md-hue: 240;
+  --md-default-bg-color:      #0a0a0a;
+  --md-default-fg-color:      #ededed;
+  --md-default-fg-color--light:  #a1a1aa;
+  --md-default-fg-color--lighter: #71717a;
+  --md-code-bg-color:         #141414;
+  --md-code-fg-color:         #e4e4e7;
+  --md-typeset-a-color:       var(--kb-green-soft);
+  --kb-border:                #262626;
+  --kb-surface:               #111111;
+  --kb-grid:                  rgba(255, 255, 255, .04);
+}
+
+/* --------------------------------------------------------------- chrome */
+/* A documentation site is for reading; the header should not be the loudest
+   thing on the page. */
+.md-header {
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  border-bottom: 1px solid var(--kb-border);
+  box-shadow: none;
+}
+.md-header__title { font-weight: 650; letter-spacing: -.01em; }
+.md-tabs { background: var(--md-default-bg-color); border-bottom: 1px solid var(--kb-border); }
+
+/* Material paints the header with the primary colour and so makes everything
+   in it white. This header is the page colour instead, which left white text
+   on a white search box — invisible in light mode. Everything in the header
+   takes the page's own foreground now. */
+.md-header__button,
+.md-search__input,
+.md-search__icon,
+.md-header__topic {
+  color: var(--md-default-fg-color);
+}
+.md-search__input::placeholder { color: var(--md-default-fg-color--lighter); }
+
+.md-search__form {
+  background: var(--kb-surface);
+  border: 1px solid var(--kb-border);
+  border-radius: var(--kb-radius);
+  box-shadow: none;
+}
+.md-search__form:hover { background: var(--kb-surface); }
+.md-search__output { border-radius: var(--kb-radius); }
+
+.md-sidebar { font-size: .74rem; }
+.md-nav__title { font-weight: 650; letter-spacing: .02em; text-transform: none; }
+.md-nav__link--active { font-weight: 600; }
+
+/* ------------------------------------------------------------ typography */
+.md-typeset {
+  font-size: .78rem;
+  line-height: 1.75;
+  letter-spacing: -.003em;
+}
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -.03em;
+  color: var(--md-default-fg-color);
+  margin-bottom: .6em;
+}
+.md-typeset h2 {
+  font-weight: 650;
+  letter-spacing: -.02em;
+  margin-top: 2.2em;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--kb-border);
+}
+.md-typeset h3 { font-weight: 620; letter-spacing: -.015em; }
+
+.md-typeset a { text-underline-offset: .2em; }
+.md-typeset code {
+  border: 1px solid var(--kb-border);
+  border-radius: 5px;
+  padding: .1em .35em;
+  font-size: .86em;
+}
+.md-typeset pre > code { border: none; }
+.md-typeset .highlight > pre {
+  border: 1px solid var(--kb-border);
+  border-radius: var(--kb-radius);
+}
+
+.md-typeset table:not([class]) {
+  border: 1px solid var(--kb-border);
+  border-radius: var(--kb-radius);
+  overflow: hidden;
+  font-size: .74rem;
+}
+.md-typeset table:not([class]) th {
+  background: var(--kb-surface);
+  font-weight: 620;
+}
+.md-typeset table:not([class]) td { border-top: 1px solid var(--kb-border); }
+
+.md-typeset blockquote {
+  border-left: 2px solid var(--kb-border);
+  color: var(--md-default-fg-color--light);
+}
+
+/* ---------------------------------------------------------------- cards */
+.md-typeset .grid.cards > ul > li {
+  border: 1px solid var(--kb-border);
+  border-radius: var(--kb-radius);
+  background: var(--kb-surface);
+  padding: 1.1rem 1.2rem;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: var(--kb-green);
+  transform: translateY(-2px);
+  box-shadow: none;
+}
+.md-typeset .grid.cards > ul > li > p:first-child strong {
+  font-size: .92rem;
+  letter-spacing: -.015em;
+}
+
+/* -------------------------------------------------------------- buttons */
+.md-typeset .md-button {
+  border-radius: var(--kb-radius);
+  border-width: 1px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  padding: .5em 1.15em;
+  transition: all .15s ease;
+}
+.md-typeset .md-button--primary {
+  background: var(--kb-green);
+  border-color: var(--kb-green);
+  color: #05271b;
+}
+.md-typeset .md-button--primary:hover {
+  background: var(--kb-green-soft);
+  border-color: var(--kb-green-soft);
+  color: #05271b;
+}
+.md-typeset .md-button:not(.md-button--primary) {
+  border-color: var(--kb-border);
+  color: var(--md-default-fg-color);
+}
+.md-typeset .md-button:not(.md-button--primary):hover {
+  border-color: var(--kb-green);
+  color: var(--md-default-fg-color);
+  background: transparent;
+}
+
+/* ----------------------------------------------------------------- hero */
+/* Only on the landing page. The faint grid is what stops a near-black
+   background from reading as an unstyled page. */
+.kb-hero {
+  /* Full-bleed out of the content column: a hero boxed inside the reading
+     width reads as a card, not as a header. */
+  margin: -1.2rem calc(50% - 50vw) 3rem;
+  padding: 5rem max(1.5rem, calc(50vw - 50% + 1.5rem)) 4.5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--kb-border);
+  background-image:
+    linear-gradient(var(--kb-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--kb-grid) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: center;
+}
+.kb-hero__badge {
+  display: inline-flex;
+  gap: .5rem;
+  align-items: center;
+  font-size: .66rem;
+  font-weight: 550;
+  letter-spacing: .01em;
+  color: var(--md-default-fg-color--light);
+  border: 1px solid var(--kb-border);
+  background: var(--kb-surface);
+  border-radius: 999px;
+  padding: .3rem .85rem;
+  margin-bottom: 1.6rem;
+}
+.kb-hero__badge b { color: var(--kb-green); font-weight: 600; }
+
+.md-typeset .kb-hero h1 {
+  font-size: 2.5rem;
+  line-height: 1.12;
+  font-weight: 780;
+  letter-spacing: -.038em;
+  margin: 0 0 .5rem;
+  border: none;
+}
+.kb-hero h1 .kb-accent { color: var(--kb-green); }
+
+.kb-hero__sub {
+  max-width: 34rem;
+  margin: 0 auto 2rem;
+  color: var(--md-default-fg-color--light);
+  font-size: .85rem;
+  line-height: 1.7;
+}
+.kb-hero__actions { display: flex; gap: .7rem; justify-content: center; flex-wrap: wrap; }
+.md-typeset .kb-hero__actions .md-button { margin: 0; }
+
+@media screen and (max-width: 44.98em) {
+  .md-typeset .kb-hero h1 { font-size: 1.85rem; }
+  .kb-hero { padding: 3rem 1rem 2.5rem; }
+}
+
+/* A line of shell that people copy should look like one thing, not a wall. */
+.kb-hero + h2 { border-top: none; margin-top: 0; padding-top: 0; }

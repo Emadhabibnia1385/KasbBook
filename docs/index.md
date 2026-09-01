@@ -1,15 +1,22 @@
-# KasbBook
+<div class="kb-hero" markdown>
 
-**Bookkeeping for a small business, wherever that business already talks.**
+<span class="kb-hero__badge">● <b>1.0.0-beta.1</b> · Python 3.12 · FastAPI · MIT</span>
 
-Type `فروش ۲۵۰ک` and it is recorded. The same account works from Telegram, Bale
-and Rubika, and over an HTTP API. Money is exact, the calendar is Jalali, and
-every transaction has a balanced double-entry journal behind it.
+# Keep the books<br><span class="kb-accent">where the business already talks.</span>
 
+<p class="kb-hero__sub">
+Type <code>فروش ۲۵۰ک</code> and it is recorded. One account across Telegram,
+Bale and Rubika, and an HTTP API over the same rules. Money is exact, the
+calendar is Jalali, and every transaction has a balanced double-entry journal
+behind it.
+</p>
+
+<div class="kb-hero__actions" markdown>
 [Get started](getting-started.md){ .md-button .md-button--primary }
 [Live API reference](https://kasbbook.seamlesss.ir/docs){ .md-button }
+</div>
 
----
+</div>
 
 ## Install
 

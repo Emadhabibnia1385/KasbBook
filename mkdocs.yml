@@ -13,6 +13,9 @@ copyright: MIT
 theme:
   name: material
   language: en
+  font:
+    text: Inter
+    code: JetBrains Mono
   logo: assets/logo.png
   favicon: assets/logo.png
   features:
@@ -26,19 +29,20 @@ theme:
     - content.action.edit
     - toc.follow
   palette:
-    # The reader's own preference first, then a switch either way.
+    # The reader's own preference first, then a switch either way. `custom`
+    # hands the colours to assets/theme.css instead of a Material preset.
     - media: "(prefers-color-scheme)"
       toggle: { icon: material/brightness-auto, name: Follow the system }
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: teal
-      accent: teal
-      toggle: { icon: material/brightness-7, name: Switch to dark }
+      primary: custom
+      accent: custom
+      toggle: { icon: material/weather-night, name: Switch to dark }
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: teal
-      accent: teal
-      toggle: { icon: material/brightness-4, name: Switch to light }
+      primary: custom
+      accent: custom
+      toggle: { icon: material/weather-sunny, name: Switch to light }
 
 nav:
   - Home: index.md
@@ -59,6 +63,9 @@ nav:
   - Contributing:
       - Development: development.md
       - Roadmap: roadmap.md
+
+extra_css:
+  - assets/theme.css
 
 markdown_extensions:
   - def_list
