@@ -19,7 +19,9 @@ every transaction has a balanced journal entry behind it.
 
 **English** · [فارسی](./README.fa.md)
 
-[Install](#install) · [Quick entry](#quick-entry) · [Architecture](#architecture) · [API](#the-api) · [Docs](./docs) · [Development](#development)
+### 📖 [Read the documentation](https://emadhabibnia1385.github.io/KasbBook/)
+
+[Install](#install) · [Quick entry](#quick-entry) · [Architecture](#architecture) · [API](#the-api) · [Development](#development)
 
 </div>
 
@@ -171,6 +173,13 @@ See [docs/development.md](./docs/development.md).
 | [Development](./docs/development.md) | tests, migrations, conventions |
 | [Troubleshooting](./docs/troubleshooting.md) | real failures and what caused them |
 | [Roadmap](./docs/roadmap.md) | what is deliberately not built yet |
+
+The same pages are published as a site — searchable, and in Persian as well:
+
+| | |
+|---|---|
+| 🇬🇧 English | <https://emadhabibnia1385.github.io/KasbBook/> |
+| 🇮🇷 فارسی | <https://emadhabibnia1385.github.io/KasbBook/fa/> |
 
 ## License
 
