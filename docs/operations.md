@@ -12,6 +12,7 @@ All under `/opt/kasbbook/scripts/`, all needing `sudo`, all sourcing
 | `backup.sh` | dump, verify, keep the last 14 |
 | `restore.sh` | put a backup back, after backing up what it replaces |
 | `uninstall.sh` | remove services and checkout; `--purge` for the data too |
+| `messenger.sh` | add, list or remove a second messenger |
 
 ## Updating
 
@@ -155,17 +156,27 @@ Losing PostgreSQL is not; that is what the backups are for.
 ## Running a second messenger
 
 ```bash
-sudo cp /etc/systemd/system/kasbbook-bot.service \
-        /etc/systemd/system/kasbbook-bale.service
-# edit: EnvironmentFile=/opt/kasbbook/.env.bale
-sudo systemctl daemon-reload && sudo systemctl enable --now kasbbook-bale
+sudo /opt/kasbbook/scripts/messenger.sh add bale
 ```
 
-With `KASBBOOK_PROVIDER=bale` and `BALE_BOT_TOKEN` in that file. Same database:
-an account linked to both messengers is one set of books.
+It asks for the token and username, writes `/opt/kasbbook/.env.bale`,
+generates `kasbbook-bale.service` from the Telegram unit, starts it and checks
+it came up. `list` shows what this box runs; `remove <provider>` stops and
+deletes one, keeping the token file so removing the wrong one is a restart
+rather than a trip back to BotFather.
 
-Add the unit name to `UNITS` in `scripts/lib.sh` so the update and health
-checks cover it.
+Same database, which is the point: an account linked to both messengers is one
+set of books.
+
+The new unit carries **two** environment files — the shared one first, its own
+second — so the database URL and the signing key stay in one place and
+rotating a key is one edit rather than one per messenger.
+
+Nothing has to be registered anywhere. `UNITS` is discovered from the units on
+disk, because the array in `scripts/lib.sh` used to be the documented place to
+add it and `update.sh` overwrites that file — the edit survived exactly until
+the next update and then vanished, dropping the second bot out of the restart
+and health loops without a word.
 
 ## Switching between polling and webhook
 

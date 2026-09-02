@@ -17,7 +17,9 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh" 2>/dev/null || {
     ok()   { echo "  ${G}✓${N} $*"; }
     warn() { echo "  ${Y}!${N} $*"; }
     die()  { echo "  ${R}✗${N} $*" >&2; exit 1; }
-    UNITS=(kasbbook-bot kasbbook-api)
+    # No UNITS here on purpose. Nothing touches a unit before the checkout
+    # exists, and lib.sh — sourced below, once it does — discovers them from
+    # disk. A copy here would be a second answer to the same question.
 }
 
 [ "$(id -u)" -eq 0 ] || die "run this with sudo"

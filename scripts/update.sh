@@ -65,6 +65,14 @@ install_units() {
         [ -f "deploy/$unit.service" ] || continue
         install -m 644 "deploy/$unit.service" "/etc/systemd/system/$unit.service"
     done
+    # A second messenger's unit has no template of its own — it is generated
+    # from the Telegram one. Regenerating it here is the point: otherwise the
+    # entry point could move, every unit in deploy/ would follow, and the Bale
+    # bot alone would keep pointing at a path that no longer exists.
+    local provider
+    for provider in $(installed_providers); do
+        write_provider_unit "$provider"
+    done
     systemctl daemon-reload
 }
 
