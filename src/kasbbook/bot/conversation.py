@@ -768,7 +768,9 @@ class Conversation:
         if action == "api":
             await self.state.clear(key)
             return screens.api_panel(
-                await self._auth().list_api_keys(user.id), self._docs_url()
+                await self._auth().list_api_keys(user.id),
+                self._docs_url(),
+                self._guide_url(),
             )
 
         if action == "apinew":
@@ -782,7 +784,10 @@ class Conversation:
             issued = await auth.issue_api_key(user.id, "bot")
             self._hidden = issued.key
             return screens.api_key_created(
-                issued.key, replaced=bool(existing), docs_url=self._docs_url()
+                issued.key,
+                replaced=bool(existing),
+                docs_url=self._docs_url(),
+                guide_url=self._guide_url(),
             )
 
         if action == "sessions":
@@ -795,10 +800,16 @@ class Conversation:
         return await self._account_panel(user)
 
     def _docs_url(self) -> str:
-        """Where the published API documentation lives, if it is published."""
+        """Where this deployment's own API reference lives, if it is published."""
         from ..shared.settings import Settings
 
         return Settings.from_env().api_base_url
+
+    def _guide_url(self) -> str:
+        """Where the written guide lives — the software's, not this instance's."""
+        from ..shared.settings import Settings
+
+        return Settings.from_env().docs_url
 
     def _auth(self):
         """Sessions live behind AuthService, which needs the signing key.

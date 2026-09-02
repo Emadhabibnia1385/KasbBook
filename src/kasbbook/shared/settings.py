@@ -32,6 +32,12 @@ PREFIXES = {
     Provider.EITAA: "EITAA",
 }
 
+# The published guide, as opposed to the API reference. Defaulted rather than
+# left empty because it documents the software, not this deployment — a person
+# running an unmodified copy is better served by it than by no link at all, and
+# anyone whose copy has drifted can point this at their own or blank it.
+DEFAULT_DOCS_URL = "https://emadhabibnia1385.github.io/KasbBook/fa/"
+
 # Where BotFather's equivalent lives, so the error message is actionable
 # instead of just correct.
 WHERE_TO_GET_A_TOKEN = {
@@ -56,6 +62,10 @@ class Settings:
     redis_url: Optional[str] = None
     web_base_url: str = ""
     api_base_url: str = ""
+    # The guide. `api_base_url` is the reference: one lists the endpoints, the
+    # other says why money is a string, and a person who has just been handed
+    # a key needs both.
+    docs_url: str = DEFAULT_DOCS_URL
     # "polling" or "webhook". Polling holds a long-lived outbound connection
     # and needs nothing reachable from outside; webhook needs a public HTTPS
     # endpoint and loses updates that arrive while the API is restarting,
@@ -117,6 +127,14 @@ class Settings:
             redis_url=_env("REDIS_URL"),
             web_base_url=_env("KASBBOOK_WEB_URL", "") or "",
             api_base_url=_env("KASBBOOK_API_URL", "") or "",
+            # An explicitly empty value means "no guide button", the same way
+            # an empty API URL means no reference button. Only an unset
+            # variable falls back to the default.
+            docs_url=(
+                DEFAULT_DOCS_URL
+                if os.environ.get("KASBBOOK_DOCS_URL") is None
+                else _env("KASBBOOK_DOCS_URL", "") or ""
+            ),
             update_mode=(_env("KASBBOOK_UPDATE_MODE", "polling") or "polling").lower(),
             webhook_path_secret=_env("KASBBOOK_WEBHOOK_PATH", "") or "",
             api_secret_key=_env("KASBBOOK_SECRET_KEY"),

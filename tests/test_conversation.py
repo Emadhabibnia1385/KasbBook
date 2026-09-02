@@ -893,11 +893,22 @@ async def test_the_documentation_button_is_a_link_not_a_callback(session, monkey
 
 
 async def test_without_a_published_url_there_is_no_dead_link(session, monkeypatch):
+    """No API URL means no reference button — not a button to /docs of nothing.
+
+    The guide is a separate link with its own default, so it survives; blanking
+    it explicitly is what removes it. Asserting on "no links at all" would tie
+    this test to that default rather than to the thing it is checking.
+    """
     monkeypatch.delenv("KASBBOOK_API_URL", raising=False)
     identity = IdentityService(session)
     await identity.create_account_from_messenger(TG, "555001")
     convo = await conversation(session)
 
+    reply = await convo.handle(press("acc:api"))
+    links = [b.url for row in reply.buttons for b in row if b.url]
+    assert not [u for u in links if u.endswith("/docs")], links
+
+    monkeypatch.setenv("KASBBOOK_DOCS_URL", "")
     reply = await convo.handle(press("acc:api"))
     assert not [b for row in reply.buttons for b in row if b.url]
 
@@ -915,3 +926,54 @@ async def test_one_account_cannot_see_anothers_key(session):
 
     assert theirs[:8] not in panel.text
     assert "کلید هنوز نساخته‌ای" in panel.text
+
+def test_the_api_screen_offers_both_the_reference_and_the_guide():
+    """They answer different questions, and only one used to be reachable."""
+    from kasbbook.bot import screens
+
+    _, buttons = screens.api_panel(
+        [], docs_url="https://api.example.com", guide_url="https://guide.example.com/fa/"
+    )
+    urls = {b.text: b.url for row in buttons for b in row if b.url}
+    assert urls == {
+        "📄 مرجع API": "https://api.example.com/docs",
+        "📗 راهنما": "https://guide.example.com/fa/",
+    }
+
+
+def test_a_missing_url_produces_no_button_rather_than_a_dead_one():
+    from kasbbook.bot import screens
+
+    for docs, guide, expected in [
+        ("https://api.example.com", "", ["📄 مرجع API"]),
+        ("", "https://guide.example.com/", ["📗 راهنما"]),
+        ("", "", []),
+    ]:
+        _, buttons = screens.api_panel([], docs_url=docs, guide_url=guide)
+        assert [b.text for row in buttons for b in row if b.url] == expected
+
+
+def test_the_key_screen_carries_the_same_two_links():
+    """Somebody who has just been handed a key should not have to go looking."""
+    from kasbbook.bot import screens
+
+    _, buttons = screens.api_key_created(
+        "kb_x", replaced=False,
+        docs_url="https://api.example.com", guide_url="https://guide.example.com/fa/",
+    )
+    urls = [b.url for row in buttons for b in row if b.url]
+    assert urls == ["https://api.example.com/docs", "https://guide.example.com/fa/"]
+
+
+def test_an_explicitly_empty_docs_url_switches_the_guide_off(monkeypatch):
+    """Unset falls back to the published site; set-to-nothing means nothing."""
+    from kasbbook.shared.settings import Settings, DEFAULT_DOCS_URL
+
+    monkeypatch.delenv("KASBBOOK_DOCS_URL", raising=False)
+    assert Settings.from_env().docs_url == DEFAULT_DOCS_URL
+
+    monkeypatch.setenv("KASBBOOK_DOCS_URL", "")
+    assert Settings.from_env().docs_url == ""
+
+    monkeypatch.setenv("KASBBOOK_DOCS_URL", "https://mine.example.com/docs/")
+    assert Settings.from_env().docs_url == "https://mine.example.com/docs/"

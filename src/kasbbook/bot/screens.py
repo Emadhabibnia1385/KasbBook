@@ -284,7 +284,26 @@ def account_panel(user, identities: Iterable[Identity], current: Provider) -> Sc
     ]
 
 
-def api_panel(keys, docs_url: str = "") -> Screen:
+def _reading(docs_url: str, guide_url: str) -> List[List[Button]]:
+    """The two places to read, side by side, and neither if there is nowhere.
+
+    They answer different questions. The reference lists the endpoints and is
+    what somebody writing a script needs open; the guide is what explains why
+    money crosses as a string and why a period is Jalali — the things that turn
+    a working request into a correct one. Linking only the reference left the
+    second question with no answer reachable from inside the bot.
+
+    An unset URL produces no button rather than a dead one.
+    """
+    row = []
+    if docs_url:
+        row.append(Button("📄 مرجع API", url=f"{docs_url.rstrip('/')}/docs"))
+    if guide_url:
+        row.append(Button("📗 راهنما", url=guide_url))
+    return [row] if row else []
+
+
+def api_panel(keys, docs_url: str = "", guide_url: str = "") -> Screen:
     """Where a person gets a credential for something that is not a person.
 
     An API key is issued once and stored as a digest, so this screen can never
@@ -314,9 +333,7 @@ def api_panel(keys, docs_url: str = "") -> Screen:
             "انگشتش. اگر گمش کردی، کلید تازه بساز؛ برگرداندن قدیمی ممکن نیست.",
         ]
 
-    buttons: List[List[Button]] = []
-    if docs_url:
-        buttons.append([Button("📄 مستندات API", url=f"{docs_url.rstrip('/')}/docs")])
+    buttons: List[List[Button]] = _reading(docs_url, guide_url)
     buttons.append([
         Button("🔄 کلید تازه" if rows else "🔑 ساخت کلید", data="acc:apinew")
     ])
@@ -324,7 +341,9 @@ def api_panel(keys, docs_url: str = "") -> Screen:
     return rtl("\n".join(lines)), buttons
 
 
-def api_key_created(key: str, replaced: bool, docs_url: str = "") -> Screen:
+def api_key_created(
+    key: str, replaced: bool, docs_url: str = "", guide_url: str = ""
+) -> Screen:
     """The only screen that ever contains the key itself.
 
     The key goes in `hidden`, not in the body, so a provider that can conceal
@@ -345,9 +364,7 @@ def api_key_created(key: str, replaced: bool, docs_url: str = "") -> Screen:
         "👇 برای دیدن، روی خط زیر بزن",
     ]
 
-    buttons: List[List[Button]] = []
-    if docs_url:
-        buttons.append([Button("📄 مستندات API", url=f"{docs_url.rstrip('/')}/docs")])
+    buttons: List[List[Button]] = _reading(docs_url, guide_url)
     buttons.append([Button("⬅️ بازگشت", data="acc:api")])
     return rtl("\n".join(lines)), buttons
 

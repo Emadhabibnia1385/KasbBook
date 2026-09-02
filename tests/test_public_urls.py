@@ -24,6 +24,9 @@ FILES = [
     "README.md",
     "README.fa.md",
     ".env.example",
+    # The bot links to the guide, so the site's address is compiled in as a
+    # default. That is one more copy to keep in step with the rest.
+    "src/kasbbook/shared/settings.py",
     *(f"docs/{p.name}" for p in sorted((REPO / "docs").glob("*.md"))),
 ]
 
