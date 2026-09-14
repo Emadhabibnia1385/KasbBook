@@ -100,6 +100,24 @@ written; `trial_balance()` on that book now returns two equal numbers.
 Mordad of 1403 — converted to a Gregorian range before the query, so the
 database never sees a Jalali value and you never see a Gregorian one.
 
+## The daily list
+
+**📌 Record → 📅 Daily list** opens today across every book you are on — a team,
+your shop, your household — in one list. It is the first generation's daily
+screen, brought back:
+
+- a summary per book, split the way a shopkeeper reads a day: business income
+  and expense, personal spending, installments, and what the day left over;
+- **new** at the top, already set to that day;
+- previous and next day, or type any date in either calendar;
+- a filter per book when you are on more than one.
+
+Books are never added together. A team's revenue is not its members' savings,
+and two books in two currencies do not sum to anything.
+
+**➕ Single entry** is the other way in: pick a date, a kind, a category and an
+amount.
+
 ## What to set up next
 
 | | |

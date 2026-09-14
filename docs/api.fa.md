@@ -176,6 +176,7 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `GET /books/{id}/reports/summary` | `?period=1403-05` ← درآمد، هزینه، خالص، تعداد |
 | `GET /books/{id}/reports/by-category` | `?flow=expense&period=` ← جمع‌ها و سهم‌ها |
 | `GET /books/{id}/reports/export.csv` | همان دوره به شکل فایل، با تاریخ جلالی |
+| `GET /books/{id}/reports/day` | `?date=2026-03-19` ← همان تفکیک لیست روزانه: کاری، شخصی، قسط، پس‌انداز |
 
 ## بودجه، بدهی، وام
 

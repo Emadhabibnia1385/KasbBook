@@ -20,9 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
 from ...shared.money import ZERO, quantize
-from ..books.models import Permission
+from ...shared.errors import PermissionDenied
+from ..books.models import Book, Permission
 from ..books.service import BookService
-from ..ledger.models import Flow, Transaction
+from ..ledger.models import Flow, Scope, Transaction
+from ..loans.service import INSTALLMENT_CATEGORY
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,72 @@ class Summary:
     @property
     def net(self) -> Decimal:
         return self.income - self.expense
+
+
+@dataclass
+class DayTotals:
+    """One book's day, split the way the first generation's daily list split it.
+
+    Work and team money is the business; personal money is the person. Keeping
+    them apart is what makes the screen worth reading: a day the shop netted
+    eight million and its owner spent nine on themselves lost a million, and a
+    single "net" would have called it a good day.
+
+    An installment is personal money too, but it is a commitment rather than a
+    choice, so it is taken out last — "operational" savings is what the day
+    left before the loan, "final" is what it left after.
+    """
+
+    business_income: Decimal = ZERO
+    business_expense: Decimal = ZERO
+    personal_income: Decimal = ZERO
+    personal_expense: Decimal = ZERO  # installments are not in here
+    installment: Decimal = ZERO
+
+    @property
+    def business_net(self) -> Decimal:
+        return self.business_income - self.business_expense
+
+    @property
+    def savings_operational(self) -> Decimal:
+        return self.business_net + self.personal_income - self.personal_expense
+
+    @property
+    def savings_final(self) -> Decimal:
+        return self.savings_operational - self.installment
+
+
+@dataclass
+class BookDay:
+    book: Book
+    rows: List[Transaction]  # newest first, which is what a day is read for
+    totals: DayTotals
+    can_record: bool
+
+
+def day_totals(rows: Sequence[Transaction]) -> DayTotals:
+    totals = DayTotals()
+    for tx in rows:
+        amount = tx.converted_amount
+        if tx.scope is Scope.PERSONAL:
+            if tx.flow is Flow.INCOME:
+                totals.personal_income += amount
+            elif tx.category == INSTALLMENT_CATEGORY:
+                # The same word the loans module writes when an installment is
+                # paid, so a loan payment and a hand-typed "قسط" are one thing.
+                totals.installment += amount
+            else:
+                totals.personal_expense += amount
+        elif tx.flow is Flow.INCOME:
+            totals.business_income += amount
+        else:
+            totals.business_expense += amount
+
+    return DayTotals(
+        quantize(totals.business_income), quantize(totals.business_expense),
+        quantize(totals.personal_income), quantize(totals.personal_expense),
+        quantize(totals.installment),
+    )
 
 
 class ReportService:
@@ -251,3 +319,62 @@ class ReportService:
 
         # A BOM so Excel opens it as UTF-8 and the Persian is readable.
         return ("﻿" + buffer.getvalue()).encode("utf-8")
+
+    async def day(
+        self, user_id: uuid.UUID, on: date, book_id: Optional[uuid.UUID] = None
+    ) -> List[BookDay]:
+        """One day across every book this person is on, or across one of them.
+
+        Across all of them is the point: somebody who is on a team, runs a shop
+        and has a household opens one list at the end of the day rather than
+        three. Each book keeps its own totals, though, and they are never added
+        together — a team's revenue is not its members' savings, and two books
+        in two currencies do not sum to anything.
+        """
+        memberships = {}
+        if book_id is not None:
+            memberships[book_id] = await self.books.require(
+                book_id, user_id, Permission.VIEW_TRANSACTIONS
+            )
+            books = [await self.books.get_book(book_id)]
+        else:
+            books = []
+            for book in await self.books.books_for_user(user_id):
+                try:
+                    memberships[book.id] = await self.books.require(
+                        book.id, user_id, Permission.VIEW_TRANSACTIONS
+                    )
+                except PermissionDenied:
+                    continue
+                books.append(book)
+
+        if not books:
+            return []
+
+        rows = (
+            await self.session.execute(
+                select(Transaction)
+                .where(
+                    Transaction.book_id.in_([book.id for book in books]),
+                    Transaction.occurred_on == on,
+                )
+                .order_by(Transaction.created_at.desc())
+            )
+        ).scalars().all()
+
+        by_book: dict = {book.id: [] for book in books}
+        for tx in rows:
+            by_book[tx.book_id].append(tx)
+
+        return [
+            BookDay(
+                book=book,
+                rows=by_book[book.id],
+                totals=day_totals(by_book[book.id]),
+                can_record=bool(
+                    {Permission.RECORD_INCOME, Permission.RECORD_EXPENSE}
+                    & memberships[book.id].permissions
+                ),
+            )
+            for book in books
+        ]

@@ -217,6 +217,21 @@ class SummaryResponse(MoneyModel):
     transaction_count: int
 
 
+class DayResponse(MoneyModel):
+    """One book's day, in the same split the bot's daily list shows."""
+
+    on: date
+    business_income: Decimal
+    business_expense: Decimal
+    business_net: Decimal
+    personal_income: Decimal
+    personal_expense: Decimal
+    installment: Decimal
+    savings_operational: Decimal
+    savings_final: Decimal
+    transaction_count: int
+
+
 class CategoryLine(MoneyModel):
     category: str
     total: Decimal

@@ -184,7 +184,7 @@ fails, it is almost certainly right and you are almost certainly wrong.
 | `test_the_runner_loads_when_executed_as_a_script` | code that breaks when systemd runs it |
 | `test_the_two_dependency_lists_agree` | pyproject and requirements drifting |
 
-**Callback prefixes currently taken:** `acc bg book dt ln nav noop pf pr qk rep
+**Callback prefixes currently taken:** `acc bg book dl dt ln nav noop pf pr qk rep
 rm rr sh sr td tf tx` (and `rb`/`rc` for report periods). Pick a free one; the
 guard will tell you if you did not.
 

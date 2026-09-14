@@ -8,10 +8,11 @@ using this actually live in. Every period below is converted to a Gregorian
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
 import jdatetime
+from zoneinfo import ZoneInfo
 
 MONTHS = (
     "فروردین", "اردیبهشت", "خرداد",
@@ -37,6 +38,29 @@ def to_text(value: date) -> str:
 
 def from_parts(year: int, month: int, day: int) -> date:
     return jdatetime.date(year, month, day).togregorian()
+
+
+DEFAULT_TIMEZONE = "Asia/Tehran"
+
+
+def today_in(timezone: str, now: Optional[datetime] = None) -> date:
+    """The date where the person is, not where the server is racked.
+
+    The server runs on UTC and Tehran is three and a half hours ahead, so for
+    the first 3:30 of every Iranian day `date.today()` on the server still says
+    yesterday. An entry made at one in the morning was stamped with the day
+    before and was missing from the list for the day it was made — which is
+    exactly when somebody closing up a shop late opens that list.
+    """
+    moment = now or datetime.now(tz=ZoneInfo("UTC"))
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=ZoneInfo("UTC"))
+    try:
+        zone = ZoneInfo(timezone)
+    except Exception:
+        # A setting that names no real zone should not make "today" unknowable.
+        zone = ZoneInfo(DEFAULT_TIMEZONE)
+    return moment.astimezone(zone).date()
 
 
 def month_range(year: int, month: int) -> Tuple[date, date]:

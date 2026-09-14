@@ -8,6 +8,7 @@ and the user thinks in months.
 from __future__ import annotations
 
 import uuid
+from datetime import date as date_type
 from typing import List, Optional
 
 from fastapi import APIRouter, Query, Response
@@ -17,7 +18,7 @@ from ...modules.reports import service as reports
 from ...shared.errors import ValidationError
 from ...shared.money import ZERO, quantize
 from ..deps import CurrentUser, SessionDep
-from ..schemas import CategoryLine, SummaryResponse
+from ..schemas import CategoryLine, DayResponse, SummaryResponse
 
 router = APIRouter(prefix="/books/{book_id}/reports", tags=["reports"])
 
@@ -47,6 +48,35 @@ async def summary(
     return SummaryResponse(
         income=totals.income, expense=totals.expense, net=totals.net,
         transaction_count=totals.count,
+    )
+
+
+@router.get("/day", response_model=DayResponse)
+async def day(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    on: str = Query(alias="date", description="a Gregorian date, 2026-03-19"),
+) -> DayResponse:
+    """The bot's daily list, as numbers. Same service, so the two cannot disagree."""
+    try:
+        day_on = date_type.fromisoformat(on)
+    except ValueError:
+        raise ValidationError("date must look like 2026-03-19") from None
+
+    (sheet,) = await reports.ReportService(session).day(user.id, day_on, book_id)
+    totals = sheet.totals
+    return DayResponse(
+        on=day_on,
+        business_income=totals.business_income,
+        business_expense=totals.business_expense,
+        business_net=totals.business_net,
+        personal_income=totals.personal_income,
+        personal_expense=totals.personal_expense,
+        installment=totals.installment,
+        savings_operational=totals.savings_operational,
+        savings_final=totals.savings_final,
+        transaction_count=len(sheet.rows),
     )
 
 

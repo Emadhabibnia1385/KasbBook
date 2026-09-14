@@ -7,13 +7,14 @@ and what lets every one of them be tested without a bot token.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from ..adapters.base import Button
 from ..modules.books.models import Book, BookType
 from ..modules.identity.models import Identity, Provider
-from ..modules.ledger.models import Flow
+from ..modules.ledger.models import Flow, Scope
 
 RLM = "‏"
 
@@ -136,13 +137,261 @@ def ask_book_name(book_type: BookType) -> Screen:
 
 
 # ------------------------------------------------------------- transactions
-def pick_flow(book: Book) -> Screen:
+# How a transaction is described when its type is chosen. The codes are two
+# letters because a daily-list button already spends forty-four of Telegram's
+# sixty-four callback bytes on a book id and a date.
+ENTRY_TYPES = {
+    "wi": (Flow.INCOME, Scope.WORK, "💰", "درآمد کاری"),
+    "we": (Flow.EXPENSE, Scope.WORK, "🏢", "هزینه کاری"),
+    "ti": (Flow.INCOME, Scope.TEAM, "💰", "درآمد تیم"),
+    "te": (Flow.EXPENSE, Scope.TEAM, "🏢", "هزینه تیم"),
+    "pi": (Flow.INCOME, Scope.PERSONAL, "💵", "درآمد شخصی"),
+    "pe": (Flow.EXPENSE, Scope.PERSONAL, "👤", "هزینه شخصی"),
+}
+
+# What each kind of book offers. A team book has no personal money — keeping
+# someone's groceries out of it is what scope exists for — and a household has
+# no business. A shop has both, which is the four-way split the first
+# generation's daily list was built around.
+TYPES_FOR_BOOK = {
+    BookType.BUSINESS: ("wi", "we", "pi", "pe"),
+    BookType.PERSONAL: ("pi", "pe"),
+    BookType.TEAM: ("ti", "te"),
+    BookType.ORGANIZATION: ("ti", "te"),
+}
+
+# The business first, then the person — the order the old list was read in.
+# Every flow and scope pair is here, so no transaction can fall out of the list.
+SECTION_ORDER = ("wi", "we", "ti", "te", "pi", "pe")
+
+DAY_PAGE = 12
+
+
+def day_token(value: date) -> str:
+    """A date as it travels in a button: eight bytes, and still readable in a log."""
+    return value.strftime("%Y%m%d")
+
+
+def _entry_code(flow: Flow, scope: Scope) -> str:
+    for code, (entry_flow, entry_scope, _, _) in ENTRY_TYPES.items():
+        if entry_flow is flow and entry_scope is scope:
+            return code
+    return "we"
+
+
+def _pairs(buttons: List[Button], per_row: int = 2) -> List[List[Button]]:
+    return [buttons[i:i + per_row] for i in range(0, len(buttons), per_row)]
+
+
+def _book_mark(book: Book) -> str:
+    return BOOK_LABELS.get(book.type, "").split(" ")[0]
+
+
+def tx_home(today: date) -> Screen:
+    """The two ways in that the first generation had, and people kept asking for."""
+    return rtl(
+        "📌 ثبت تراکنش\n\n"
+        "➕ ثبت تکی — یک تراکنش، با هر تاریخی\n"
+        "📅 لیست روزانه — همهٔ دفترهایت، روز به روز"
+    ), [
+        [Button("➕ ثبت تکی", data="tx:one")],
+        [Button("📅 لیست روزانه", data=f"dl:v:{day_token(today)}:a:0")],
+        [Button("⬅️ بازگشت", data="nav:home")],
+    ]
+
+
+def pick_date(book: Book, today: date) -> Screen:
+    from ..shared import jalali
+
     label = BOOK_LABELS.get(book.type, "")
-    return rtl(f"{label} — {book.name}\n\nدرآمد یا هزینه؟"), [
-        [Button("💰 درآمد", data="tx:flow:income")],
-        [Button("🧾 هزینه", data="tx:flow:expense")],
+    return rtl(f"{label} — {book.name}\n\n📅 تاریخ این تراکنش؟"), [
+        [Button(f"✅ امروز ({jalali.to_text(today)})", data="tx:on:today")],
+        [Button("✍️ تاریخ دیگر", data="tx:on:ask")],
         [Button("⬅️ بازگشت", data="tx:new")],
     ]
+
+
+def ask_date(cancel_data: str) -> Screen:
+    """One prompt for both calendars: the parser tells them apart by the year."""
+    return rtl(
+        "📅 تاریخ را بنویس — شمسی یا میلادی.\n\n"
+        "مثال: 1404/12/28 یا 2026-03-19\n"
+        "«دیروز» و «فردا» هم می‌شود."
+    ), [[Button("↩️ انصراف", data=cancel_data)]]
+
+
+def pick_type(book: Book, on: date) -> Screen:
+    from ..shared import jalali
+
+    label = BOOK_LABELS.get(book.type, "")
+    buttons = _pairs([
+        Button(f"{ENTRY_TYPES[code][2]} {ENTRY_TYPES[code][3]}", data=f"tx:type:{code}")
+        for code in TYPES_FOR_BOOK.get(book.type, ("wi", "we"))
+    ])
+    buttons.append([Button("⬅️ بازگشت", data="tx:new")])
+    return rtl(f"{label} — {book.name}\n📅 {jalali.to_text(on)}\n\nنوع تراکنش؟"), buttons
+
+
+def daily_pick_type(book: Book, on: date) -> Screen:
+    """Adding from the all-books list: the book is chosen, now what kind of entry."""
+    from ..shared import jalali
+
+    token = day_token(on)
+    label = BOOK_LABELS.get(book.type, "")
+    buttons = _pairs([
+        Button(f"{ENTRY_TYPES[code][2]} {ENTRY_TYPES[code][3]}",
+               data=f"dl:add:{token}:{book.id}:{code}:a")
+        for code in TYPES_FOR_BOOK.get(book.type, ("wi", "we"))
+    ])
+    buttons.append([Button("⬅️ بازگشت", data=f"dl:v:{token}:a:0")])
+    return rtl(f"{label} — {book.name}\n📅 {jalali.to_text(on)}\n\nچه چیزی ثبت شود؟"), buttons
+
+
+def _day_summary(sheet) -> List[str]:
+    """The first generation's lines, for whichever of them this book can have.
+
+    A line is shown when the book's kind implies it or when there is money on
+    it, so an unusual entry — a loan installment in a team book, say — is never
+    in the list below and missing from the totals above.
+    """
+    totals, kind = sheet.totals, sheet.book.type
+    team = kind in (BookType.TEAM, BookType.ORGANIZATION)
+    has_business = kind is not BookType.PERSONAL or bool(
+        totals.business_income or totals.business_expense
+    )
+    has_personal = not team or bool(
+        totals.personal_income or totals.personal_expense or totals.installment
+    )
+
+    lines: List[str] = []
+    if has_business:
+        word = "" if team else " کاری"
+        lines += [
+            f"💰 درآمد{word}: {fmt(totals.business_income)}",
+            f"🏢 هزینه{word}: {fmt(totals.business_expense)}",
+            f"➖ خالص{word}: {fmt(totals.business_net)}",
+        ]
+    if has_personal:
+        if totals.personal_income or kind is BookType.PERSONAL:
+            lines.append(f"💵 درآمد شخصی: {fmt(totals.personal_income)}")
+        lines += [
+            f"📄 قسط پرداختی: {fmt(totals.installment)}",
+            f"👤 هزینه شخصی (بدون قسط): {fmt(totals.personal_expense)}",
+            f"💾 پس‌انداز عملیاتی: {fmt(totals.savings_operational)}",
+            f"💾 پس‌انداز نهایی: {fmt(totals.savings_final)}",
+        ]
+    return lines
+
+
+def daily_view(
+    on: date,
+    today: date,
+    sheets,
+    books: Sequence[Book],
+    filter_book_id=None,
+    page: int = 0,
+    per_page: int = DAY_PAGE,
+) -> Screen:
+    """The first generation's daily list, across every book the person is on.
+
+    Each book keeps its own summary — a team's revenue is not its members'
+    savings — and the filter narrows the list to one of them.
+    """
+    from ..shared import jalali
+
+    token = day_token(on)
+    view = "a" if filter_book_id is None else str(filter_book_id)
+    # Where a transaction opened from here should come back to: all books, or
+    # "the book this transaction is in", which needs no id of its own.
+    origin = "a" if filter_book_id is None else "b"
+    single = len(sheets) == 1
+    here = f"dl:v:{token}:{view}:{page}"
+
+    lines = [f"📅 {on.isoformat()}  |  {jalali.to_text(on)}"]
+    if filter_book_id is not None and sheets:
+        lines.append(f"🔎 فقط: {_book_mark(sheets[0].book)} {sheets[0].book.name}")
+    lines += ["", "📊 گزارش روز"]
+
+    # One book is always summarised, zeros included, as the old list was. Of
+    # several, only the ones that moved today — five blocks of zeros bury the
+    # one that matters.
+    shown = [sheet for sheet in sheets if single or sheet.rows]
+    if not shown:
+        lines.append("برای این روز هنوز چیزی ثبت نشده.")
+    for sheet in shown:
+        if not single:
+            lines += ["", f"— {_book_mark(sheet.book)} {sheet.book.name} —"]
+        lines += _day_summary(sheet)
+
+    buttons: List[List[Button]] = []
+
+    recordable = [sheet for sheet in sheets if sheet.can_record]
+    if single and recordable:
+        book = sheets[0].book
+        buttons += _pairs([
+            Button(f"➕ {ENTRY_TYPES[code][3]}", data=f"dl:add:{token}:{book.id}:{code}:{origin}")
+            for code in TYPES_FOR_BOOK.get(book.type, ("wi", "we"))
+        ])
+    elif recordable:
+        buttons += _pairs([
+            Button(f"➕ {_book_mark(sheet.book)} {sheet.book.name}"[:30],
+                   data=f"dl:ab:{token}:{sheet.book.id}")
+            for sheet in recordable
+        ])
+
+    buttons.append([
+        Button("◀️ روز قبل", data=f"dl:v:{day_token(on - timedelta(days=1))}:{view}:0"),
+        Button("📆 تاریخ", data=f"dl:go:{view}"),
+        Button("روز بعد ▶️", data=f"dl:v:{day_token(on + timedelta(days=1))}:{view}:0"),
+    ])
+    if on != today:
+        buttons.append([Button("↩️ امروز", data=f"dl:v:{day_token(today)}:{view}:0")])
+
+    # Filters only mean something when there is more than one book to filter.
+    if len(books) > 1:
+        chips = [Button(("✅ " if filter_book_id is None else "") + "همه",
+                        data=f"dl:v:{token}:a:0")]
+        for book in books:
+            mark = "✅ " if book.id == filter_book_id else ""
+            chips.append(Button(f"{mark}{_book_mark(book)} {book.name}"[:24],
+                                data=f"dl:v:{token}:{book.id}:0"))
+        buttons += _pairs(chips, 3)
+
+    entries = [
+        (sheet, code, tx)
+        for sheet in sheets
+        for code in SECTION_ORDER
+        for tx in sheet.rows
+        if _entry_code(tx.flow, tx.scope) == code
+    ]
+    last = max(0, (len(entries) - 1) // per_page)
+    page = max(0, min(page, last))
+
+    current = None
+    for sheet, code, tx in entries[page * per_page:(page + 1) * per_page]:
+        if (sheet.book.id, code) != current:
+            current = (sheet.book.id, code)
+            count = sum(1 for s, c, _ in entries if s is sheet and c == code)
+            where = "" if single else f"{_book_mark(sheet.book)} {sheet.book.name} · "
+            # A header is not a button anyone means to press. Pressing it
+            # redraws this same list, rather than leaving for somewhere else.
+            buttons.append([Button(f"— {where}لیست {ENTRY_TYPES[code][3]} ({count}) —", data=here)])
+        buttons.append([
+            Button(tx.category[:24], data=f"td:open:{tx.id}:{origin}"),
+            Button(fmt(tx.converted_amount), data=f"td:open:{tx.id}:{origin}"),
+        ])
+
+    if last:
+        nav: List[Button] = []
+        if page > 0:
+            nav.append(Button("◀️ قبلی", data=f"dl:v:{token}:{view}:{page - 1}"))
+        nav.append(Button(f"{page + 1}/{last + 1}", data=here))
+        if page < last:
+            nav.append(Button("بعدی ▶️", data=f"dl:v:{token}:{view}:{page + 1}"))
+        buttons.append(nav)
+
+    buttons.append([Button("⬅️ بازگشت", data="tx:new")])
+    return rtl("\n".join(lines)), buttons
 
 
 def ask_category(flow: Flow, recent: Sequence[str] = ()) -> Screen:
@@ -944,13 +1193,21 @@ def _receipt_line(tx) -> str:
     return f"{label} — {tx.receipt_file_name}" if tx.receipt_file_name else label
 
 
-def transaction_detail(book: Book, tx) -> Screen:
+def transaction_detail(book: Book, tx, origin: str = "") -> Screen:
+    """One transaction, and a way back to wherever it was opened from.
+
+    `origin` is "a" when it came from the all-books daily list and "b" when it
+    came from that list filtered to this book; empty means the book's own list.
+    It rides along on every button here, so managing a receipt or deleting from
+    the daily list lands back on the daily list rather than somewhere else.
+    """
     from ..shared import jalali
 
     word = "درآمد" if tx.flow is Flow.INCOME else "هزینه"
     lines = [
         "🧾 جزئیات تراکنش",
         "",
+        f"📚 {book.name}",
         f"📅 {jalali.to_text(tx.occurred_on)}  ({tx.occurred_on.isoformat()})",
         f"🔖 {word}",
         f"🏷 {tx.category}",
@@ -963,17 +1220,24 @@ def transaction_detail(book: Book, tx) -> Screen:
         lines.append(f"📝 {tx.description}")
     lines.append("🧾 رسید: " + _receipt_line(tx))
 
+    tail = f":{origin}" if origin in ("a", "b") else ""
     buttons: List[List[Button]] = []
     if tx.receipt_file_id:
         buttons.append([
-            Button("🧾 دیدن رسید", data=f"td:rcpv:{tx.id}"),
-            Button("❌ حذف رسید", data=f"td:rcpd:{tx.id}"),
+            Button("🧾 دیدن رسید", data=f"td:rcpv:{tx.id}{tail}"),
+            Button("❌ حذف رسید", data=f"td:rcpd:{tx.id}{tail}"),
         ])
     else:
-        buttons.append([Button("🧾 افزودن رسید", data=f"td:rcp:{tx.id}")])
+        buttons.append([Button("🧾 افزودن رسید", data=f"td:rcp:{tx.id}{tail}")])
 
-    buttons.append([Button("🗑 حذف تراکنش", data=f"td:del:{tx.id}")])
-    buttons.append([Button("⬅️ بازگشت", data=f"td:list:{book.id}")])
+    buttons.append([Button("🗑 حذف تراکنش", data=f"td:del:{tx.id}{tail}")])
+    day = day_token(tx.occurred_on)
+    if origin == "a":
+        buttons.append([Button("⬅️ بازگشت", data=f"dl:v:{day}:a:0")])
+    elif origin == "b":
+        buttons.append([Button("⬅️ بازگشت", data=f"dl:v:{day}:{book.id}:0")])
+    else:
+        buttons.append([Button("⬅️ بازگشت", data=f"td:list:{book.id}")])
     return rtl("\n".join(lines)), buttons
 
 

@@ -9,14 +9,14 @@ Bale or Rubika, because the adapter already turned their payload into an
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
-from ..modules.books.models import BookType
+from ..modules.books.models import BookType, Permission
 from ..modules.books.service import BookService
 from ..modules.budgets.models import BudgetKind
 from ..modules.budgets.service import BudgetService
@@ -192,6 +192,9 @@ class Conversation:
         if area == "tx":
             return await self._tx_callback(action, argument, user, key)
 
+        if area == "dl":
+            return await self._daily_callback(parts, user, key)
+
         if area == "rep":
             return await self._report_callback(action, argument, user)
 
@@ -266,30 +269,54 @@ class Conversation:
     async def _tx_callback(self, action: str, argument: str, user, key: str):
         if action == "new":
             await self.state.clear(key)
-            return screens.pick_book(await self.books.books_for_user(user.id), "tx")
+            return screens.tx_home(self._today(user))
+
+        if action == "one":
+            await self.state.clear(key)
+            books = await self.books.books_for_user(user.id)
+            if len(books) == 1:
+                return await self._start_single(books[0], user, key)
+            return screens.pick_book(books, "tx")
 
         if action == "book":
             book = await self.books.get_book(uuid.UUID(argument))
-            await self.state.set(key, {"flow": "tx", "book_id": str(book.id)})
-            return screens.pick_flow(book)
+            return await self._start_single(book, user, key)
+
+        if action == "on":
+            draft = await self.state.get(key)
+            if not draft.get("book_id"):
+                return screens.tx_home(self._today(user))
+            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+
+            if argument == "ask":
+                draft["awaiting"] = "date"
+                await self.state.set(key, draft)
+                return screens.ask_date("tx:new")
+
+            draft["on"] = self._today(user).isoformat()
+            await self.state.set(key, draft)
+            return screens.pick_type(book, self._today(user))
+
+        if action == "type":
+            entry = screens.ENTRY_TYPES.get(argument)
+            draft = await self.state.get(key)
+            if entry is None or not draft.get("book_id"):
+                return screens.tx_home(self._today(user))
+
+            draft["direction"] = entry[0].value
+            draft["scope"] = entry[1].value
+            return await self._ask_category(draft, user, key)
 
         if action == "flow":
+            # Buttons from before the date and type steps existed may still be
+            # on somebody's screen. They keep working: the book's own scope,
+            # and a date left for record() to fill in with the book's today.
             draft = await self.state.get(key)
             if not draft.get("book_id"):
                 return screens.pick_book(await self.books.books_for_user(user.id), "tx")
 
             draft["direction"] = argument
-            flow = Flow(argument)
-
-            # Kept in the draft so a press can name one by position. The
-            # callback payload has sixty-four bytes; a Persian category does
-            # not reliably fit, and a button that overflows it fails silently.
-            recent = list(await self.ledger.recent_categories(
-                uuid.UUID(draft["book_id"]), user.id, flow
-            ))
-            draft["recent"] = recent
-            await self.state.set(key, draft)
-            return screens.ask_category(flow, recent)
+            return await self._ask_category(draft, user, key)
 
         if action == "cat":
             draft = await self.state.get(key)
@@ -303,7 +330,95 @@ class Conversation:
             await self.state.set(key, draft)
             return screens.ask_amount(draft["category"])
 
-        return screens.pick_book(await self.books.books_for_user(user.id), "tx")
+        return screens.tx_home(self._today(user))
+
+    def _today(self, user) -> date:
+        """The person's day. See jalali.today_in for why not the server's."""
+        return jalali.today_in(user.timezone)
+
+    @staticmethod
+    def _day_from_token(token: str, fallback: date) -> date:
+        try:
+            return datetime.strptime(token, "%Y%m%d").date()
+        except (ValueError, TypeError):
+            return fallback
+
+    async def _start_single(self, book, user, key: str):
+        # Checked before anything is drawn: the next screen names the book, and
+        # a crafted button should not be a way to learn another book's name.
+        await self.books.require(book.id, user.id, Permission.VIEW_TRANSACTIONS)
+        await self.state.set(key, {"flow": "tx", "book_id": str(book.id)})
+        return screens.pick_date(book, self._today(user))
+
+    async def _ask_category(self, draft: dict, user, key: str):
+        flow = Flow(draft["direction"])
+        # Kept in the draft so a press can name one by position. The callback
+        # payload has sixty-four bytes; a Persian category does not reliably
+        # fit, and a button that overflows it fails silently.
+        recent = list(await self.ledger.recent_categories(
+            uuid.UUID(draft["book_id"]), user.id, flow
+        ))
+        draft["recent"] = recent
+        await self.state.set(key, draft)
+        return screens.ask_category(flow, recent)
+
+    async def _daily_callback(self, parts, user, key: str):
+        """dl:v shows a day, dl:go asks for one, dl:ab and dl:add record into one."""
+        action = parts[1] if len(parts) > 1 else ""
+        today = self._today(user)
+        on = self._day_from_token(parts[2] if len(parts) > 2 else "", today)
+
+        if action == "v":
+            view = parts[3] if len(parts) > 3 else "a"
+            page = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
+            await self.state.clear(key)
+            return await self._daily_screen(user, on, view, page)
+
+        if action == "go":
+            view = parts[2] if len(parts) > 2 else "a"
+            await self.state.set(key, {"flow": "daily_date", "view": view})
+            return screens.ask_date(f"dl:v:{screens.day_token(today)}:{view}:0")
+
+        if action == "ab" and len(parts) > 3:
+            book = await self.books.get_book(uuid.UUID(parts[3]))
+            await self.books.require(book.id, user.id, Permission.VIEW_TRANSACTIONS)
+            return screens.daily_pick_type(book, on)
+
+        if action == "add" and len(parts) > 4:
+            book = await self.books.get_book(uuid.UUID(parts[3]))
+            entry = screens.ENTRY_TYPES.get(parts[4])
+            if entry is None:
+                return await self._daily_screen(user, on, "a", 0)
+
+            origin = parts[5] if len(parts) > 5 else "a"
+            draft = {
+                "flow": "tx",
+                "book_id": str(book.id),
+                "on": on.isoformat(),
+                "direction": entry[0].value,
+                "scope": entry[1].value,
+                # Recorded from the list, so the list is what comes back.
+                "back": {"on": on.isoformat(),
+                         "view": str(book.id) if origin == "b" else "a"},
+            }
+            return await self._ask_category(draft, user, key)
+
+        return await self._daily_screen(user, today, "a", 0)
+
+    async def _daily_screen(self, user, on: date, view: str, page: int):
+        books = await self.books.books_for_user(user.id)
+        if not books:
+            return screens.pick_book(books, "tx")
+
+        book_id = None
+        if view and view != "a":
+            try:
+                book_id = uuid.UUID(view)
+            except ValueError:
+                book_id = None
+
+        sheets = await self.reports.day(user.id, on, book_id)
+        return screens.daily_view(on, self._today(user), sheets, books, book_id, page)
 
     async def _report_callback(self, action: str, argument: str, user):
         if action == "book":
@@ -364,7 +479,7 @@ class Conversation:
         tx = await self.ledger.get_transaction(
             book.id, user.id, uuid.UUID(draft["tx_id"])
         )
-        return screens.transaction_detail(book, tx)
+        return screens.transaction_detail(book, tx, draft.get("origin", ""))
 
     # -------------------------------------------------- transactions & receipts
     TX_PAGE = 8
@@ -386,14 +501,19 @@ class Conversation:
         return None, None
 
     async def _tx_detail_callback(self, action: str, argument: str, user, key: str, event):
+        parts = (event.callback_data or "").split(":")
+
         if action == "list":
             book = await self.books.get_book(uuid.UUID(argument))
             return await self._tx_list(book, user)
 
         if action == "page":
-            parts = (event.callback_data or "").split(":")
             book = await self.books.get_book(uuid.UUID(parts[2]))
             return await self._tx_list(book, user, int(parts[3]))
+
+        # Opened from the daily list: see screens.transaction_detail.
+        origin = parts[3] if len(parts) > 3 and parts[3] in ("a", "b") else ""
+        tail = f":{origin}" if origin else ""
 
         target = uuid.UUID(argument)
         book, tx = await self._tx_and_book(user, target)
@@ -401,11 +521,11 @@ class Conversation:
             return screens.error("این تراکنش پیدا نشد")
 
         if action == "open":
-            return screens.transaction_detail(book, tx)
+            return screens.transaction_detail(book, tx, origin)
 
         if action == "rcp":
             await self.state.set(key, {"flow": "receipt", "tx_id": str(tx.id),
-                                       "book_id": str(book.id)})
+                                       "book_id": str(book.id), "origin": origin})
             return screens.ask_receipt()
 
         if action == "rcpv":
@@ -414,23 +534,28 @@ class Conversation:
             self._pending_file = None
             self._forward_file_id = tx.receipt_file_id
             self._forward_file_kind = tx.receipt_kind
-            return screens.transaction_detail(book, tx)
+            return screens.transaction_detail(book, tx, origin)
 
         if action == "rcpd":
             await self.ledger.attach_receipt(book.id, user.id, tx.id, None, None)
             fresh = await self.ledger.get_transaction(book.id, user.id, tx.id)
-            return screens.transaction_detail(book, fresh)
+            return screens.transaction_detail(book, fresh, origin)
 
         if action == "del":
             return screens.confirm_delete(
-                f"تراکنش «{tx.category}»", f"td:delok:{tx.id}", f"td:open:{tx.id}"
+                f"تراکنش «{tx.category}»", f"td:delok:{tx.id}{tail}", f"td:open:{tx.id}{tail}"
             )
 
         if action == "delok":
+            on = tx.occurred_on
             await self.ledger.delete(book.id, user.id, tx.id)
+            if origin:
+                return await self._daily_screen(
+                    user, on, str(book.id) if origin == "b" else "a", 0
+                )
             return await self._tx_list(book, user)
 
-        return screens.transaction_detail(book, tx)
+        return screens.transaction_detail(book, tx, origin)
 
     # --------------------------------------------------------------- search
     async def _search_callback(self, action: str, argument: str, user, key: str):
@@ -1378,6 +1503,14 @@ class Conversation:
         if draft.get("flow") == "tx":
             return await self._tx_text(text, draft, user, key)
 
+        if draft.get("flow") == "daily_date":
+            view = draft.get("view", "a")
+            on = parse_date(text, self._today(user))
+            if on is None:
+                return screens.ask_date(f"dl:v:{screens.day_token(self._today(user))}:{view}:0")
+            await self.state.clear(key)
+            return await self._daily_screen(user, on, view, 0)
+
         if draft.get("flow") == "budget":
             return await self._budget_text(text, draft, user, key)
 
@@ -1586,9 +1719,20 @@ class Conversation:
         return screens.reminder_settings(user)
 
     async def _tx_text(self, text: str, draft: dict, user, key: str):
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+
+        if draft.get("awaiting") == "date":
+            on = parse_date(text, self._today(user))
+            if on is None:
+                return screens.ask_date("tx:new")
+            draft.pop("awaiting")
+            draft["on"] = on.isoformat()
+            await self.state.set(key, draft)
+            return screens.pick_type(book, on)
+
         if not draft.get("direction"):
-            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-            return screens.pick_flow(book)
+            on = date.fromisoformat(draft["on"]) if draft.get("on") else self._today(user)
+            return screens.pick_type(book, on)
 
         if not draft.get("category"):
             draft["category"] = text[:80]
@@ -1599,18 +1743,27 @@ class Conversation:
         if amount is None:
             return screens.ask_amount(draft["category"])
 
-        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
         flow = Flow(draft["direction"])
-
         transaction = await self.ledger.record(
             book_id=book.id,
             actor_user_id=user.id,
             flow=flow,
-            scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+            scope=(Scope(draft["scope"]) if draft.get("scope")
+                   else SCOPE_FOR_BOOK.get(book.type, Scope.WORK)),
             category=draft["category"],
             amount=amount,
+            occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
         )
         await self.state.clear(key)
+
+        back = draft.get("back")
+        if back:
+            # The list comes back with the new line in it, which is a better
+            # confirmation than a sentence saying so.
+            return await self._daily_screen(
+                user, date.fromisoformat(back["on"]), back["view"], 0
+            )
+
         return screens.transaction_saved(
             book, flow, transaction.category,
             transaction.converted_amount, book.base_currency,

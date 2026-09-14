@@ -201,6 +201,30 @@ And the health check was made harder to fool:
 **The lesson:** any script that updates the tree it lives in must not be running
 from that tree. This applies to `update.sh` here and to anything shaped like it.
 
+## An entry made after midnight landed on the day before
+
+**What it looked like:** something recorded at one in the morning in Tehran
+was stamped with the previous day.
+
+**What it was:** the server runs on UTC, and "today" came from `date.today()`
+— the server's date. Tehran is three and a half hours ahead, so for the first
+3:30 of every Iranian day the server still believed it was yesterday, and
+`record()` stamped undated entries with that.
+
+It went unnoticed because nothing in the bot showed entries by day. It was
+found while building the one screen that does — where an entry missing from
+the list for the day it was made is the first thing anyone would see.
+
+**Fix:** `jalali.today_in(timezone)` answers "what day is it for this person",
+and `record()` stamps an undated entry with its book's day. The daily list and
+the dated single entry use the person's.
+
+**Not yet fixed:** about twenty other places still ask the server for today —
+budget months, recurring rules, loan starts, payroll dates. Each decides
+something different and deserves its own look rather than a blanket replace.
+
+---
+
 ## Everyday checks
 
 ```bash

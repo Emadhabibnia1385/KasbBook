@@ -16,6 +16,7 @@ from typing import Optional, Sequence, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...shared import jalali
 from ...shared.errors import BalanceError, NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
@@ -119,7 +120,8 @@ class LedgerService:
         transaction = Transaction(
             book_id=book_id,
             actor_user_id=actor_user_id,
-            occurred_on=occurred_on or date.today(),
+            # The book's day, not the server's: see jalali.today_in.
+            occurred_on=occurred_on or jalali.today_in(book.timezone),
             flow=flow,
             scope=scope,
             category=category.strip(),

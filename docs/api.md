@@ -178,6 +178,7 @@ by email or phone.
 | `GET /books/{id}/reports/summary` | `?period=1403-05` → income, expense, net, count |
 | `GET /books/{id}/reports/by-category` | `?flow=expense&period=` → totals and shares |
 | `GET /books/{id}/reports/export.csv` | the period as a file, Jalali dates included |
+| `GET /books/{id}/reports/day` | `?date=2026-03-19` → the daily list's split: business, personal, installments, savings |
 
 ## Budgets, debts, loans
 
