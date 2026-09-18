@@ -34,8 +34,7 @@ say "current: $(git log --oneline -1)"
 say "fetching"
 git fetch --quiet origin "$KASBBOOK_BRANCH"
 if [ "$PREVIOUS" = "$(git rev-parse "origin/$KASBBOOK_BRANCH")" ]; then
-    ok "already up to date"
-    exit 0
+    ok "code already up to date; verifying the complete installation"
 fi
 
 # Taken before anything changes, so the rollback path exists even if the

@@ -20,6 +20,10 @@ All under `/opt/kasbbook/scripts/`, all needing `sudo`, all sourcing
 sudo /opt/kasbbook/scripts/update.sh
 ```
 
+Rerunning the update also backs up, tests, migrates and verifies an installation
+whose checkout already matches the remote commit. A matching commit alone does
+not prove that a previous installation completed its migrations or restart.
+
 In order:
 
 1. **Back up first** — so the rollback path exists even if the migration is
