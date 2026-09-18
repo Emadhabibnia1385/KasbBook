@@ -58,8 +58,11 @@ class CategoryService:
             await self.session.flush()
         return row
 
+    async def require_create(self, book_id, actor_user_id):
+        await self.books.require(book_id, actor_user_id, Permission.CREATE_CATEGORY)
+
     async def create(self, book_id, actor_user_id, name):
-        await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
+        await self.require_create(book_id, actor_user_id)
         await self.lock_book(book_id)
         name = self.name(name)
         if await self.session.scalar(select(Category.id).where(

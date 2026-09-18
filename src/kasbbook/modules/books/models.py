@@ -50,6 +50,7 @@ class Permission(str, enum.Enum):
     VIEW_TRANSACTIONS = "view_transactions"
     RECORD_INCOME = "record_income"
     RECORD_EXPENSE = "record_expense"
+    CREATE_CATEGORY = "create_category"
     EDIT_TRANSACTION = "edit_transaction"
     DELETE_TRANSACTION = "delete_transaction"
     APPROVE_EXPENSE = "approve_expense"
@@ -74,6 +75,7 @@ ROLE_PERMISSIONS = {
         Permission.RECORD_INCOME,
         Permission.RECORD_EXPENSE,
         Permission.EDIT_TRANSACTION,
+        Permission.CREATE_CATEGORY,
         Permission.APPROVE_EXPENSE,
         Permission.MANAGE_TREASURY,
         Permission.MANAGE_PAYROLL,
@@ -86,6 +88,7 @@ ROLE_PERMISSIONS = {
         Permission.VIEW_TRANSACTIONS,
         Permission.RECORD_INCOME,
         Permission.RECORD_EXPENSE,
+        Permission.CREATE_CATEGORY,
     },
     Role.VIEWER: {
         Permission.VIEW_REPORTS,

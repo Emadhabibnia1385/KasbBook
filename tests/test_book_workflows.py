@@ -122,6 +122,34 @@ async def test_member_can_attach_a_receipt_during_creation_without_editing_permi
     assert tx.actor_user_id == member.id and tx.receipt_file_name == "invoice.pdf"
 
 
+async def test_member_can_add_category_from_menu_but_cannot_rename_or_delete(session):
+    owner, _ = await account(session)
+    member, convo = await account(session, "200")
+    viewer, viewer_convo = await account(session, "300")
+    books = BookService(session)
+    book = await books.create_book(owner.id, "تیم", BookType.TEAM)
+    await books.add_member(owner.id, book.id, member.id, Role.MEMBER)
+    await books.add_member(owner.id, book.id, viewer.id, Role.VIEWER)
+    reply = await convo.handle(event("200", callback_data=f"cg:new:{book.id}"))
+    assert "⚠️" not in reply.text
+    await convo.handle(event("200", text="دسته عضو"))
+    service = CategoryService(session)
+    (category,) = await service.list(book.id, owner.id)
+    assert category.name == "دسته عضو"
+    for operation in (lambda: service.rename(book.id, member.id, category.id, "تغییر"),
+                      lambda: service.delete(book.id, member.id, category.id),
+                      lambda: service.create(book.id, viewer.id, "ممنوع")):
+        with pytest.raises(PermissionDenied):
+            await operation()
+    reply = await viewer_convo.handle(event("300", callback_data=f"cg:new:{book.id}"))
+    assert "⚠️" in reply.text
+    assert not await viewer_convo.state.get(conversation_key("telegram", "300"))
+    await books.deactivate_member(owner.id, book.id, member.id)
+    with pytest.raises(NotFound):
+        await service.create(book.id, member.id, "غیرفعال")
+    assert await LedgerService(session).trial_balance(book.id) == (Decimal("0"), Decimal("0"))
+
+
 async def test_category_management_is_reachable_and_used_categories_cannot_be_deleted(session):
     user, convo = await account(session)
     book = await BookService(session).create_book(user.id, "دفتر", BookType.BUSINESS)
@@ -453,6 +481,24 @@ async def test_api_cross_user_book_and_transaction_changes_return_not_found(api)
     assert (await api.delete(path + f"/categories/{category['id']}", headers=stranger)).status_code == 404
     assert (await api.patch(path + f"/transactions/{tx['id']}", headers=stranger, json={"amount": "2"})).status_code == 404
     assert (await api.post(path + "/invitations", headers=stranger, json={"provider": "telegram", "identifier": "100"})).status_code == 404
+
+
+async def test_api_member_category_creation_keeps_edit_and_viewer_boundaries(api, session):
+    owner, owner_id = await api_user(api, "owner@example.com")
+    member, member_id = await api_user(api, "member@example.com")
+    viewer, viewer_id = await api_user(api, "viewer@example.com")
+    book = await BookService(session).create_book(owner_id, "تیم", BookType.TEAM)
+    await BookService(session).add_member(owner_id, book.id, member_id, Role.MEMBER)
+    await BookService(session).add_member(owner_id, book.id, viewer_id, Role.VIEWER)
+    await session.commit()
+    path = f"/api/v1/books/{book.id}/categories"
+    response = await api.post(path, headers=member, json={"name": "دسته عضو"})
+    assert response.status_code == 201
+    category_id = response.json()["id"]
+    assert (await api.patch(path + "/" + category_id, headers=member, json={"name": "تغییر"})).status_code == 403
+    assert (await api.delete(path + "/" + category_id, headers=member)).status_code == 403
+    assert (await api.post(path, headers=viewer, json={"name": "ممنوع"})).status_code == 403
+    assert [row["name"] for row in (await api.get(path, headers=owner)).json()] == ["دسته عضو"]
 
 
 async def test_api_invitation_requires_recipient_consent(api, session):

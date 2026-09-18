@@ -250,7 +250,9 @@ the deploys that look fine and are not.
 Book categories are shared by all transaction flows. `GET/POST
 /api/v1/books/{book_id}/categories`, `PATCH/DELETE
 /api/v1/books/{book_id}/categories/{category_id}` use `CategoryService`.
-Reading requires transaction visibility; mutations require transaction editing.
+Reading requires transaction visibility. Creation requires `create_category`,
+which is granted to owners, admins, accountants and members; renaming and
+deletion still require transaction editing. Viewers cannot create categories.
 A category with any transaction cannot be deleted. Renaming also updates the
 existing category budget, recurring and treasury filters without merging them.
 

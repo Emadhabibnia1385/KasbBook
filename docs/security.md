@@ -215,6 +215,10 @@ denied.
   no logging in as a human with an OTP. A bot posts as a bot.
 # Consent-based invitations and account switching
 
+Members may create book categories through the explicit `create_category`
+permission. This does not grant transaction editing or category rename/delete
+rights. Viewers and inactive memberships cannot create categories.
+
 Unknown messenger starts create a fresh account directly. Existing explicit
 link deep links retain their proof-based linking behavior. Account switching
 requires a five-minute, one-time code delivered to an already-linked identity

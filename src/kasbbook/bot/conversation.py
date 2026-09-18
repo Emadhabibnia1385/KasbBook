@@ -1893,7 +1893,7 @@ class Conversation:
             if action == "list":
                 await self.state.clear(key)
                 return await self._category_screen(book_id, user)
-            await self.books.require(book_id, user.id, Permission.EDIT_TRANSACTION)
+            await self.categories.require_create(book_id, user.id)
             await self.state.set(key, {"flow": "category_manage", "book_id": argument})
             return screens.ask_category_name()
         for book in await self.books.books_for_user(user.id):
