@@ -194,6 +194,13 @@ Both paths free the messenger, so somebody who closes an account and comes back
 starts genuinely fresh.
 # Managed categories and consent records
 
+Migration `ddf5ddf99303` adds nullable `transactions.last_edited_by_id` and
+`last_edited_at`. The editor foreign key uses SET NULL, preserving the edit time
+if the editor is removed. Original `actor_user_id` and `created_at` are retained.
+Legacy modification timestamps are copied from `updated_at`; historical editor
+IDs are not inferred because receipt/category edits previously lacked complete
+audit coverage. These metadata changes never modify amounts or journal lines.
+
 Migration `cce4cce99202` adds nullable income/expense `categories.flow`.
 Existing categories stay unclassified because historical names can span both
 directions. New categories require an explicit type; automatic categories created

@@ -127,6 +127,10 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
     actor_user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
+    last_edited_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    last_edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
     flow: Mapped[Flow] = mapped_column(

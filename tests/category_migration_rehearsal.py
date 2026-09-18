@@ -1,7 +1,7 @@
 """A populated category migration rehearsal shared by SQLite and PostgreSQL."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -33,7 +33,8 @@ def rehearse_categories(engine, config):
                 category="فروش قدیمی", description="historical", original_amount=Decimal("10.15"),
                 original_currency="USD", base_currency="IRT", conversion_rate=Decimal("12.3456"),
                 converted_amount=Decimal("125.3078"), rate_mode="MANUAL", receipt_file_id=f"FILE{index}",
-                receipt_provider="telegram", receipt_kind="photo"))
+                receipt_provider="telegram", receipt_kind="photo",
+                updated_at=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc) if index == 1 else None))
         before = connection.execute(select(transactions).order_by(transactions.c.id)).mappings().all()
     command.upgrade(config, "bba3bba99101")
     legacy_categories = Table("categories", MetaData(), autoload_with=engine)
@@ -51,8 +52,11 @@ def rehearse_categories(engine, config):
             [{key: value for key, value in row.items() if key != "flow"} for row in category_rows],
             key=lambda row: row["id"])
         assert [dict(row) for row in before] == [
-            {key: value for key, value in row.items() if key != "category_id"} for row in after]
+            {key: value for key, value in row.items() if key not in
+             {"category_id", "last_edited_at", "last_edited_by_id"}} for row in after]
         for transaction in after:
+            assert transaction["last_edited_at"] == transaction["updated_at"]
+            assert transaction["last_edited_by_id"] is None
             category = next(row for row in category_rows if row["id"] == transaction["category_id"])
             assert category["book_id"] == transaction["book_id"]
             assert category["name"] == transaction["category"]

@@ -1199,7 +1199,7 @@ def _receipt_line(tx) -> str:
     return f"{label} — {tx.receipt_file_name}" if tx.receipt_file_name else label
 
 
-def transaction_detail(book: Book, tx, origin: str = "") -> Screen:
+def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Screen:
     """One transaction, and a way back to wherever it was opened from.
 
     `origin` is "a" when it came from the all-books daily list and "b" when it
@@ -1225,6 +1225,10 @@ def transaction_detail(book: Book, tx, origin: str = "") -> Screen:
     if tx.description:
         lines.append(f"📝 {tx.description}")
     lines.append("🧾 رسید: " + _receipt_line(tx))
+    if activity is not None:
+        label = "ویرایش‌شده توسط" if activity.kind == "edited" else "ثبت‌شده توسط"
+        lines.append(f"👤 {label}: {activity.display_name}")
+        lines.append(f"🕒 {jalali.datetime_text(activity.at, book.timezone)}")
 
     tail = f":{origin}" if origin in ("a", "b") else ""
     buttons: List[List[Button]] = []

@@ -9,7 +9,8 @@ data rather than a hope.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional, Sequence, Tuple
 
@@ -19,9 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...shared import jalali
 from ...shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
+from ...shared.security import utcnow
 from ..books.models import Permission
 from ..books.service import BookService
-from ..identity.models import AuditEvent
+from ..identity.models import AuditEvent, User
 from ..loans.models import LoanPayment
 from ..payroll.models import FinancialPeriod, PeriodStatus, Payslip
 from .categories import CategoryService
@@ -37,6 +39,14 @@ from .models import (
     Scope,
     Transaction,
 )
+
+
+@dataclass(frozen=True)
+class TransactionActivity:
+    kind: str
+    user_id: Optional[uuid.UUID]
+    display_name: str
+    at: datetime
 
 # The minimum chart of accounts a book needs to record anything at all.
 DEFAULT_ACCOUNTS = (
@@ -364,9 +374,11 @@ class LedgerService:
         """
         await self.books.require(book_id, user_id, Permission.EDIT_TRANSACTION)
         self._validate_receipt(file_id, provider, kind, file_name, mime_type)
-
-        transaction = await self.session.get(Transaction, transaction_id)
-        if transaction is None or transaction.book_id != book_id:
+        await self.categories.lock_book(book_id)
+        transaction = await self.session.scalar(select(Transaction).where(
+            Transaction.id == transaction_id, Transaction.book_id == book_id
+        ).with_for_update().execution_options(populate_existing=True))
+        if transaction is None:
             raise NotFound("این تراکنش پیدا نشد")
 
         transaction.receipt_file_id = file_id
@@ -374,6 +386,7 @@ class LedgerService:
         transaction.receipt_kind = kind if file_id else None
         transaction.receipt_file_name = (file_name or None) if file_id else None
         transaction.receipt_mime_type = (mime_type or None) if file_id else None
+        self._mark_edited(transaction, user_id)
         await self.session.flush()
         return transaction
 
@@ -386,6 +399,30 @@ class LedgerService:
         if transaction is None or transaction.book_id != book_id:
             raise NotFound("این تراکنش پیدا نشد")
         return transaction
+
+    def _mark_edited(self, transaction, user_id):
+        transaction.last_edited_by_id, transaction.last_edited_at = user_id, utcnow()
+        self.session.add(AuditEvent(user_id=user_id, action="transaction.updated", subject=str(transaction.id)))
+
+    async def activities(self, user_id, transactions):
+        """Authorized, batched attribution for bot/API presentation."""
+        for book_id in sorted({row.book_id for row in transactions}):
+            await self.books.require(book_id, user_id, Permission.VIEW_TRANSACTIONS)
+        actors = {row.last_edited_by_id if row.last_edited_at else row.actor_user_id for row in transactions}
+        names = dict((await self.session.execute(select(User.id, User.display_name).where(
+            User.id.in_(actors - {None})
+        ))).all()) if actors - {None} else {}
+        result = {}
+        for row in transactions:
+            edited = row.last_edited_at is not None
+            actor_id = row.last_edited_by_id if edited else row.actor_user_id
+            at = row.last_edited_at if edited else row.created_at
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+            at = at.astimezone(timezone.utc)
+            result[row.id] = TransactionActivity("edited" if edited else "created", actor_id,
+                                                  names.get(actor_id, "کاربر نامشخص"), at)
+        return result
 
     @staticmethod
     def _validate_receipt(file_id, provider, kind, file_name, mime_type):
@@ -451,7 +488,7 @@ class LedgerService:
                                   memo=f"{tx.flow.value}: {tx.category}", transaction_id=tx.id)
         else:
             entries[0].memo = f"{tx.flow.value}: {tx.category}"
-        self.session.add(AuditEvent(user_id=actor_user_id, action="transaction.updated", subject=str(tx.id)))
+        self._mark_edited(tx, actor_user_id)
         await self.session.flush()
         return tx
 

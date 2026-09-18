@@ -498,7 +498,7 @@ class Conversation:
         tx = await self.ledger.get_transaction(
             book.id, user.id, uuid.UUID(draft["tx_id"])
         )
-        return self._transaction_screen(book, tx, draft.get("origin", ""))
+        return await self._transaction_screen(book, tx, user, draft.get("origin", ""))
 
     # -------------------------------------------------- transactions & receipts
     TX_PAGE = 8
@@ -545,7 +545,7 @@ class Conversation:
             return screens.error("این تراکنش پیدا نشد")
 
         if action == "open":
-            return self._transaction_screen(book, tx, origin)
+            return await self._transaction_screen(book, tx, user, origin)
 
         if action in ("ec", "ea", "ed"):
             await self.books.require(book.id, user.id, Permission.EDIT_TRANSACTION)
@@ -569,12 +569,12 @@ class Conversation:
         if action == "rcpv":
             # The file lives on the provider; hand its id back so the adapter
             # can forward it without us ever holding the bytes.
-            return self._transaction_screen(book, tx, origin)
+            return await self._transaction_screen(book, tx, user, origin)
 
         if action == "rcpd":
             await self.ledger.attach_receipt(book.id, user.id, tx.id, None, None)
             fresh = await self.ledger.get_transaction(book.id, user.id, tx.id)
-            return self._transaction_screen(book, fresh, origin)
+            return await self._transaction_screen(book, fresh, user, origin)
 
         if action == "del":
             return screens.confirm_delete(
@@ -590,10 +590,11 @@ class Conversation:
                 )
             return await self._tx_list(book, user)
 
-        return self._transaction_screen(book, tx, origin)
+        return await self._transaction_screen(book, tx, user, origin)
 
-    def _transaction_screen(self, book, tx, origin=""):
-        text, buttons = screens.transaction_detail(book, tx, origin)
+    async def _transaction_screen(self, book, tx, user, origin=""):
+        activity = (await self.ledger.activities(user.id, [tx]))[tx.id]
+        text, buttons = screens.transaction_detail(book, tx, origin, activity)
         if tx.receipt_file_id:
             if tx.receipt_provider == self.provider.value:
                 self._forward_file_id, self._forward_file_kind = tx.receipt_file_id, tx.receipt_kind
@@ -612,7 +613,7 @@ class Conversation:
                                       uuid.UUID(draft["tx_id"]), **{field: value})
         await self.state.clear(key)
         book = await self.books.get_book(tx.book_id)
-        return self._transaction_screen(book, tx, draft.get("origin", ""))
+        return await self._transaction_screen(book, tx, user, draft.get("origin", ""))
 
     # --------------------------------------------------------------- search
     async def _search_callback(self, action: str, argument: str, user, key: str):
@@ -1877,7 +1878,7 @@ class Conversation:
                 user, date.fromisoformat(back["on"]), back["view"], 0
             )
 
-        text, buttons = self._transaction_screen(book, transaction)
+        text, buttons = await self._transaction_screen(book, transaction, user)
         return screens.rtl("✅ ثبت شد\n") + text, buttons
 
     async def _category_screen(self, book_id, user):

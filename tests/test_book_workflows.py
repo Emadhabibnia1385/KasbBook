@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -33,6 +33,7 @@ from kasbbook.modules.payroll.models import PeriodStatus
 from kasbbook.modules.payroll.service import PayrollService
 from kasbbook.shared.errors import NotFound, PermissionDenied, ValidationError
 from kasbbook.shared.security import token_digest, utcnow
+from kasbbook.shared import jalali
 from kasbbook.shared.settings import Settings
 
 pytestmark = pytest.mark.asyncio
@@ -175,6 +176,83 @@ async def test_category_management_is_reachable_and_used_categories_cannot_be_de
     await convo.handle(event(callback_data=f"cg:delok:{category.id}"))
     assert await service.list(book.id, user.id) == []
     assert await LedgerService(session).trial_balance(book.id) == (Decimal("0"), Decimal("0"))
+
+
+async def test_transaction_detail_replaces_creator_with_latest_editor_and_local_time(session, monkeypatch):
+    creator, creator_convo = await account(session)
+    editor, editor_convo = await account(session, "200")
+    outsider, _ = await account(session, "300")
+    books = BookService(session)
+    book = await books.create_book(creator.id, "تیم", BookType.TEAM)
+    await books.add_member(creator.id, book.id, editor.id, Role.ACCOUNTANT)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, creator.id, Flow.INCOME, Scope.TEAM, "فروش", "10.15", occurred_on=DAY)
+    tx.created_at = datetime(2026, 8, 24, 22, 30, tzinfo=timezone.utc)
+    await session.flush()
+    reply = await creator_convo.handle(event(callback_data=f"td:open:{tx.id}"))
+    assert "ثبت‌شده توسط: کاربر 100" in reply.text and "ویرایش‌شده" not in reply.text
+    assert jalali.to_text(date(2026, 8, 25)) + " ساعت 02:00:00" in reply.text
+    moment = datetime(2026, 8, 25, 20, 45, tzinfo=timezone.utc)
+    monkeypatch.setattr("kasbbook.modules.ledger.service.utcnow", lambda: moment)
+    await editor_convo.handle(event("200", callback_data=f"td:ed:{tx.id}"))
+    reply = await editor_convo.handle(event("200", text="شرح تازه"))
+    assert "ویرایش‌شده توسط: کاربر 200" in reply.text and "ثبت‌شده توسط" not in reply.text
+    assert jalali.to_text(date(2026, 8, 26)) + " ساعت 00:15:00" in reply.text
+    assert tx.actor_user_id == creator.id and tx.last_edited_by_id == editor.id
+    assert tx.last_edited_at == moment
+    with pytest.raises(NotFound):
+        await ledger.activities(outsider.id, [tx])
+    with pytest.raises(ValidationError):
+        await ledger.update(book.id, creator.id, tx.id, amount="-1")
+    assert (await ledger.activities(creator.id, [tx]))[tx.id].at == moment
+    assert tx.last_edited_by_id == editor.id
+    later = moment + timedelta(seconds=1)
+    monkeypatch.setattr("kasbbook.modules.ledger.service.utcnow", lambda: later)
+    await ledger.update(book.id, creator.id, tx.id, description="آخرین ویرایش")
+    reply = await creator_convo.handle(event(callback_data=f"td:open:{tx.id}"))
+    assert "ویرایش‌شده توسط: کاربر 100" in reply.text and "کاربر 200" not in reply.text
+    assert tx.last_edited_at == later
+    assert await ledger.trial_balance(book.id) == (Decimal("10.15"), Decimal("10.15"))
+
+
+async def test_receipt_and_category_rename_record_editor_but_preserve_creator(session):
+    creator, _ = await account(session)
+    editor, _ = await account(session, "200")
+    book = await BookService(session).create_book(creator.id, "تیم", BookType.TEAM)
+    await BookService(session).add_member(creator.id, book.id, editor.id, Role.ACCOUNTANT)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, creator.id, Flow.INCOME, Scope.TEAM, "فروش", "5", occurred_on=DAY,
+                             receipt_file_id="P", receipt_provider="telegram", receipt_kind="photo")
+    assert tx.last_edited_at is None
+    await ledger.attach_receipt(book.id, editor.id, tx.id, None, None)
+    assert tx.last_edited_at is not None and tx.last_edited_by_id == editor.id
+    await CategoryService(session).rename(book.id, creator.id, tx.category_id, "فروش جدید")
+    assert tx.last_edited_by_id == creator.id and tx.actor_user_id == creator.id
+    assert await ledger.trial_balance(book.id) == (Decimal("5"), Decimal("5"))
+
+
+async def test_api_transaction_activity_matches_create_edit_and_list_without_leaks(api, session):
+    creator, creator_id = await api_user(api, "creator@example.com")
+    editor, editor_id = await api_user(api, "editor@example.com")
+    outsider, _ = await api_user(api, "outsider@example.com")
+    book = (await api.post("/api/v1/books", headers=creator, json={"name": "تیم", "type": "team"})).json()
+    await BookService(session).add_member(creator_id, uuid.UUID(book["id"]), editor_id, Role.ACCOUNTANT)
+    await session.commit()
+    path = f"/api/v1/books/{book['id']}/transactions"
+    created = (await api.post(path, headers=creator, json={"flow": "income", "category": "فروش", "amount": "12.25"})).json()
+    assert created["activity"]["kind"] == "created"
+    assert created["activity"]["user_id"] == str(creator_id)
+    detail_path = path + "/" + created["id"]
+    assert (await api.get(detail_path, headers=outsider)).status_code == 404
+    edited = await api.patch(detail_path, headers=editor, json={"description": "ویرایش"})
+    assert edited.status_code == 200
+    activity = edited.json()["activity"]
+    assert activity["kind"] == "edited" and activity["user_id"] == str(editor_id)
+    assert activity["display_name"] == "کاربر" and activity["at"].endswith(("Z", "+00:00"))
+    assert (await api.get(detail_path, headers=creator)).json()["activity"] == activity
+    assert (await api.get(path, headers=creator)).json()["items"][0]["activity"] == activity
+    assert (await api.patch(detail_path, headers=outsider, json={"description": "خراب"})).status_code == 404
+    assert (await api.get(detail_path, headers=creator)).json()["activity"] == activity
 
 
 async def test_category_type_edit_filters_future_choices_without_rewriting_history(session):

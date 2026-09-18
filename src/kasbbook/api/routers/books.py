@@ -192,9 +192,11 @@ async def list_transactions(
     # Newest first, which is what a list is read for.
     rows = list(reversed(rows))
     start = (page - 1) * per_page
+    visible = rows[start:start + per_page]
+    activities = await LedgerService(session).activities(user.id, visible)
 
     return TransactionPage(
-        items=[_transaction(row) for row in rows[start:start + per_page]],
+        items=[_transaction(row, activities[row.id]) for row in visible],
         total=len(rows), page=page, per_page=per_page,
     )
 
@@ -223,7 +225,8 @@ async def record_transaction(
         description=body.description,
         currency=body.currency,
     )
-    return _transaction(transaction)
+    activity = (await LedgerService(session).activities(user.id, [transaction]))[transaction.id]
+    return _transaction(transaction, activity)
 
 
 @router.get("/{book_id}/transactions/{transaction_id}", response_model=TransactionResponse)
@@ -233,7 +236,8 @@ async def get_transaction(
     row = await LedgerService(session).get_transaction(book_id, user.id, transaction_id)
     if row is None:
         raise NotFound("transaction")
-    return _transaction(row)
+    activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
+    return _transaction(row, activity)
 
 
 @router.delete("/{book_id}/transactions/{transaction_id}", status_code=204)
@@ -248,10 +252,11 @@ async def edit_transaction(book_id: uuid.UUID, transaction_id: uuid.UUID, body: 
                             user: CurrentUser, session: SessionDep):
     changes = body.model_dump(exclude_unset=True)
     row = await LedgerService(session).update(book_id, user.id, transaction_id, **changes)
-    return _transaction(row)
+    activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
+    return _transaction(row, activity)
 
 
-def _transaction(row) -> TransactionResponse:
+def _transaction(row, activity) -> TransactionResponse:
     return TransactionResponse(
         id=row.id,
         flow=row.flow.value,
@@ -263,6 +268,7 @@ def _transaction(row) -> TransactionResponse:
         description=row.description,
         occurred_on=row.occurred_on,
         created_at=row.created_at,
+        activity=activity,
         has_receipt=row.receipt_file_id is not None,
         receipt_kind=row.receipt_kind,
         receipt_file_name=row.receipt_file_name,

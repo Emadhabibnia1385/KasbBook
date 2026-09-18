@@ -43,6 +43,18 @@ def from_parts(year: int, month: int, day: int) -> date:
 DEFAULT_TIMEZONE = "Asia/Tehran"
 
 
+def datetime_text(value: datetime, timezone: str = DEFAULT_TIMEZONE) -> str:
+    """A stored UTC timestamp displayed in the book's local Jalali calendar."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    try:
+        zone = ZoneInfo(timezone)
+    except Exception:
+        zone = ZoneInfo(DEFAULT_TIMEZONE)
+    local = value.astimezone(zone)
+    return f"{to_text(local.date())} ساعت {local:%H:%M:%S}"
+
+
 def today_in(timezone: str, now: Optional[datetime] = None) -> date:
     """The date where the person is, not where the server is racked.
 

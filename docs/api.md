@@ -247,6 +247,15 @@ A process that cannot reach its database is up but not useful, and those are
 the deploys that look fine and are not.
 # Categories, transaction editing, invitations and account switching
 
+Transaction responses include `activity` with `kind` (`created` or `edited`),
+`user_id`, `display_name` and the UTC `at` timestamp. Detail and list endpoints
+use the same authorized, batched ledger-service attribution as the bot. The bot
+shows either original creation or the latest edit, with the date/time converted
+to the book's local Jalali calendar. Category/name, amount, description and
+receipt edits update the displayed editor. Original creator/date remain stored.
+Historical edited rows lacking reliable editor attribution show an unknown
+editor rather than assigning the edit to the creator or guessing from timestamps.
+
 Book categories are shared by all transaction flows. `GET/POST
 /api/v1/books/{book_id}/categories`, `PATCH/DELETE
 /api/v1/books/{book_id}/categories/{category_id}` use `CategoryService`.

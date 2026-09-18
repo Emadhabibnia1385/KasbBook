@@ -243,6 +243,13 @@ class TransactionUpdate(MoneyModel):
     description: Optional[str] = Field(default=None, max_length=500)
 
 
+class TransactionActivityResponse(Model):
+    kind: str
+    user_id: Optional[uuid.UUID]
+    display_name: str
+    at: datetime
+
+
 class TransactionResponse(MoneyModel):
     id: uuid.UUID
     flow: str
@@ -254,6 +261,7 @@ class TransactionResponse(MoneyModel):
     description: Optional[str] = None
     occurred_on: date
     created_at: datetime
+    activity: TransactionActivityResponse
     # Enough to know a receipt exists and what it is. The file itself stays on
     # the messenger that received it — the id is opaque and provider-scoped, so
     # it would mean nothing to an HTTP client and is deliberately not returned.

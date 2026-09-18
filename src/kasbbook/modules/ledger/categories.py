@@ -4,6 +4,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import NotFound, ValidationError
+from ...shared.security import utcnow
 from ..books.models import Book, Permission
 from ..books.service import BookService
 from ..budgets.models import Budget, BudgetKind
@@ -121,7 +122,7 @@ class CategoryService:
         row.name = name
         await self.session.execute(update(Transaction).where(
             Transaction.book_id == book_id, Transaction.category_id == row.id
-        ).values(category=name))
+        ).values(category=name, last_edited_by_id=actor_user_id, last_edited_at=utcnow()))
         await self.session.execute(update(JournalEntry).where(
             JournalEntry.book_id == book_id,
             JournalEntry.transaction_id.in_(select(Transaction.id).where(
