@@ -14,11 +14,16 @@ depends_on = None
 
 
 def upgrade():
+    connection = op.get_bind()
+    if connection.dialect.name == "postgresql":
+        # Earlier category backfills can queue deferred FK checks in the same
+        # Alembic transaction. Validate them before DDL, then restore deferral.
+        connection.execute(sa.text("SET CONSTRAINTS fk_transaction_category_book IMMEDIATE"))
+        connection.execute(sa.text("SET CONSTRAINTS fk_transaction_category_book DEFERRED"))
     with op.batch_alter_table("transactions") as batch:
         batch.add_column(sa.Column("last_edited_by_id", sa.Uuid(), nullable=True))
         batch.add_column(sa.Column("last_edited_at", sa.DateTime(timezone=True), nullable=True))
         batch.create_foreign_key("fk_transaction_last_editor", "users", ["last_edited_by_id"], ["id"], ondelete="SET NULL")
-    connection = op.get_bind()
     transactions = sa.table("transactions", sa.column("id", sa.Uuid()),
         sa.column("updated_at", sa.DateTime(timezone=True)),
         sa.column("last_edited_by_id", sa.Uuid()), sa.column("last_edited_at", sa.DateTime(timezone=True)))
