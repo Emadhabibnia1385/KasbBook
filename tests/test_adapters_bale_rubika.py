@@ -312,6 +312,35 @@ def _build(name):
 
 
 @pytest.mark.parametrize("name", sorted(ADAPTERS))
+async def test_receipt_summary_and_buttons_are_sent_with_the_media(name):
+    adapter, fake = _build(name)
+    result = await adapter.send_message(OutgoingMessage("900", "شرح کامل", [[Button("ویرایش", data="td:ea:1")]],
+        forward_file_id="RECEIPT", forward_file_kind="photo"))
+    assert result
+    assert len(fake.calls) == 1
+    call = fake.calls[0]
+    if name == "rubika":
+        assert call["method"] == "sendFile"
+        assert call["body"]["text"] == "شرح کامل"
+        assert call["body"]["inline_keypad"]
+    else:
+        assert call["method"] == "sendPhoto"
+        assert call["body"]["caption"] == "شرح کامل"
+        assert call["body"]["reply_markup"]
+
+
+@pytest.mark.parametrize("name", ["telegram", "bale"])
+async def test_long_receipt_summary_is_preserved_as_a_reply_to_media(name):
+    adapter, fake = _build(name)
+    text = "شرح" * 400
+    assert await adapter.send_message(OutgoingMessage("900", text, [[Button("ویرایش", data="edit")]],
+        forward_file_id="RECEIPT", forward_file_kind="photo"))
+    assert [call["method"] for call in fake.calls] == ["sendPhoto", "sendMessage"]
+    assert fake.calls[1]["body"]["text"] == text
+    assert fake.calls[1]["body"]["reply_to_message_id"] == 42
+
+
+@pytest.mark.parametrize("name", sorted(ADAPTERS))
 async def test_every_adapter_declares_a_provider_and_capabilities(name):
     adapter, _ = _build(name)
     assert isinstance(adapter.provider, Provider)

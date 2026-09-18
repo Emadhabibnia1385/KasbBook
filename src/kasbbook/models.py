@@ -5,11 +5,12 @@ its side effect is easy to delete by accident, so this file exists to make that
 requirement explicit and to give migrations a single, obvious entry point.
 """
 
-from .modules.books.models import Book, Membership
+from .modules.books.models import Book, Membership, TeamInvitation
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
 from .modules.identity.models import (
     ApiKey,
+    AccountLoginChallenge,
     AuditEvent,
     Identity,
     LinkToken,
@@ -20,6 +21,7 @@ from .modules.loans.models import Loan, LoanPayment
 from .modules.recurring.models import RecurringRule
 from .modules.ledger.models import (
     Account,
+    Category,
     JournalEntry,
     JournalLine,
     Transaction,
@@ -45,6 +47,9 @@ from .shared.database import Base
 __all__ = [
     "Base",
     "Account",
+    "AccountLoginChallenge",
+    "Category",
+    "TeamInvitation",
     "ApiKey",
     "Adjustment",
     "AuditEvent",

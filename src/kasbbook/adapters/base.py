@@ -110,6 +110,8 @@ class OutgoingMessage:
     # rather than being dropped: a key nobody can see is worse than one that is
     # merely not hidden.
     hidden: Optional[str] = None
+    # Login proof delivery after the caller commits. Never persisted in state.
+    notifications: Sequence["OutgoingMessage"] = ()
 
 
 @dataclass(frozen=True)
@@ -155,6 +157,12 @@ class MessagingAdapter(Protocol):
 
     async def send_file(
         self, chat_id: str, content: bytes, filename: str, caption: Optional[str] = None
+    ) -> Optional[str]:
+        ...
+
+    async def send_stored_file(
+        self, chat_id: str, file_id: str, kind: Optional[str] = None,
+        *, caption: Optional[str] = None, buttons: Sequence[Sequence[Button]] = (),
     ) -> Optional[str]:
         ...
 

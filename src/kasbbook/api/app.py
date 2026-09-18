@@ -24,6 +24,7 @@ from .routers import (
     books,
     health,
     identities,
+    invitations,
     payroll,
     planning,
     reports,
@@ -152,6 +153,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(auth.router, prefix=api)
     app.include_router(identities.router, prefix=api)
+    app.include_router(invitations.router, prefix=api)
     app.include_router(books.router, prefix=api)
     app.include_router(reports.router, prefix=api)
     app.include_router(planning.router, prefix=api)

@@ -405,6 +405,19 @@ class IdentityService:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def observe_username(self, provider, external_id, username):
+        """A provider update identifies the numeric sender; usernames can change."""
+        identity = await self.find_identity(provider, external_id)
+        if identity is not None:
+            identity.external_username = username
+            await self.session.flush()
+
+    async def owned_identity(self, user_id, identity_id):
+        identity = await self.session.get(Identity, identity_id)
+        if identity is None or identity.user_id != user_id:
+            raise NotFound("هویت پیدا نشد.")
+        return identity
+
     async def user_for_identity(self, provider: Provider, external_id: str) -> Optional["User"]:
         identity = await self.find_identity(provider, external_id)
         return identity.user if identity else None

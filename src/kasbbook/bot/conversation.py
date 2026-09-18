@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
 from ..modules.books.models import BookType, Permission
 from ..modules.books.service import BookService
+from ..modules.books.invitations import InvitationService
 from ..modules.budgets.models import BudgetKind
 from ..modules.budgets.service import BudgetService
 from ..modules.debts.models import Direction
@@ -34,6 +35,8 @@ from ..modules.recurring.models import Period as RecurringPeriod
 from ..modules.recurring.service import RecurringService
 from ..modules.identity.models import Provider
 from ..modules.identity.service import IdentityService
+from ..modules.identity.login import AccountLoginService
+from ..modules.ledger.categories import CategoryService
 from ..modules.ledger.models import Flow, Scope
 from ..modules.ledger.service import LedgerService
 from ..modules.reports import service as reports_service
@@ -77,6 +80,10 @@ class Conversation:
         self.recurring = RecurringService(session)
         self.payroll = PayrollService(session)
         self.treasury = TreasuryService(session)
+        self.categories = CategoryService(session)
+        self.invitations = InvitationService(session)
+        self.account_login = AccountLoginService(session)
+        self._notifications = []
         # Set by a handler that needs to hand the user a file alongside a screen.
         self._pending_file: Optional[OutgoingFile] = None
         # A receipt the provider already holds: forwarded by id, never downloaded.
@@ -87,6 +94,8 @@ class Conversation:
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
+        self._pending_file = self._forward_file_id = self._forward_file_kind = self._hidden = None
+        self._notifications = []
         key = conversation_key(self.provider.value, event.identity.external_id)
 
         try:
@@ -103,6 +112,7 @@ class Conversation:
             forward_file_id=self._forward_file_id,
             forward_file_kind=self._forward_file_kind,
             hidden=self._hidden,
+            notifications=self._notifications,
             # Editing the screen in place is what keeps the chat a panel rather
             # than a transcript; the adapter falls back to a new message if the
             # anchor is gone.
@@ -110,6 +120,7 @@ class Conversation:
         )
 
     async def _route(self, event: IncomingEvent, key: str):
+        await self.identity.observe_username(self.provider, event.identity.external_id, event.identity.username)
         user = await self.identity.user_for_identity(
             self.provider, event.identity.external_id
         )
@@ -150,21 +161,13 @@ class Conversation:
             user = await self.identity.get_user(identity.user_id)
             return screens.welcome(user.display_name)
 
-        if event.kind is EventKind.CALLBACK and event.callback_data == "acc:create":
-            user = await self.identity.create_account_from_messenger(
-                self.provider,
-                event.identity.external_id,
-                display_name=event.identity.display_name,
-                external_username=event.identity.username,
-            )
-            return screens.account_created(user.display_name)
-
-        issued = await self.identity.start_link_from_messenger(
+        user = await self.identity.create_account_from_messenger(
             self.provider,
             event.identity.external_id,
+            display_name=event.identity.display_name,
             external_username=event.identity.username,
         )
-        return screens.not_linked(issued.token)
+        return screens.welcome(user.display_name)
 
     # ------------------------------------------------------------ commands
     async def _command(self, event: IncomingEvent, user, key: str):
@@ -188,6 +191,12 @@ class Conversation:
 
         if area == "book":
             return await self._book_callback(action, argument, user, key)
+
+        if area == "cg":
+            return await self._category_callback(action, argument, user, key)
+
+        if area == "iv":
+            return await self._invitation_callback(action, argument, user, key)
 
         if area == "tx":
             return await self._tx_callback(action, argument, user, key)
@@ -261,12 +270,18 @@ class Conversation:
             return screens.ask_book_name(book_type)
 
         if action == "open":
+            await self.books.require(uuid.UUID(argument), user.id, Permission.VIEW_TRANSACTIONS)
             book = await self.books.get_book(uuid.UUID(argument))
             return screens.book_menu(book)
 
         return screens.book_list(await self.books.books_for_user(user.id))
 
     async def _tx_callback(self, action: str, argument: str, user, key: str):
+        if action == "skip":
+            draft = await self.state.get(key)
+            if draft.get("flow") == "tx" and draft.get("awaiting") == "description":
+                return await self._save_tx(draft, user, key)
+            return screens.tx_home(self._today(user))
         if action == "new":
             await self.state.clear(key)
             return screens.tx_home(self._today(user))
@@ -322,11 +337,15 @@ class Conversation:
             draft = await self.state.get(key)
             recent = draft.get("recent") or []
             try:
+                if int(argument) < 0:
+                    raise IndexError
                 draft["category"] = recent[int(argument)]
             except (ValueError, IndexError):
                 # The suggestions moved on since this screen was drawn.
                 return screens.ask_category(Flow(draft.get("direction", "expense")), recent)
 
+            if draft.get("flow") == "tx_edit" and draft.get("field") == "category":
+                return await self._edit_tx_text(draft["category"], draft, user, key)
             await self.state.set(key, draft)
             return screens.ask_amount(draft["category"])
 
@@ -355,9 +374,7 @@ class Conversation:
         # Kept in the draft so a press can name one by position. The callback
         # payload has sixty-four bytes; a Persian category does not reliably
         # fit, and a button that overflows it fails silently.
-        recent = list(await self.ledger.recent_categories(
-            uuid.UUID(draft["book_id"]), user.id, flow
-        ))
+        recent = [row.name for row in await self.categories.list(uuid.UUID(draft["book_id"]), user.id)]
         draft["recent"] = recent
         await self.state.set(key, draft)
         return screens.ask_category(flow, recent)
@@ -463,6 +480,8 @@ class Conversation:
     async def _attachment(self, event: IncomingEvent, user, key: str):
         """A file only means something while a receipt is being asked for."""
         draft = await self.state.get(key)
+        if draft.get("flow") == "tx" and draft.get("awaiting") == "description":
+            return await self._save_tx(draft, user, key, event.text, event.attachment)
         if draft.get("flow") != "receipt" or event.attachment is None:
             return None
 
@@ -479,7 +498,7 @@ class Conversation:
         tx = await self.ledger.get_transaction(
             book.id, user.id, uuid.UUID(draft["tx_id"])
         )
-        return screens.transaction_detail(book, tx, draft.get("origin", ""))
+        return self._transaction_screen(book, tx, draft.get("origin", ""))
 
     # -------------------------------------------------- transactions & receipts
     TX_PAGE = 8
@@ -501,6 +520,11 @@ class Conversation:
         return None, None
 
     async def _tx_detail_callback(self, action: str, argument: str, user, key: str, event):
+        if action == "clear_description":
+            draft = await self.state.get(key)
+            if draft.get("flow") != "tx_edit" or draft.get("field") != "description":
+                return screens.welcome(user.display_name)
+            return await self._edit_tx_text(None, draft, user, key)
         parts = (event.callback_data or "").split(":")
 
         if action == "list":
@@ -521,7 +545,21 @@ class Conversation:
             return screens.error("این تراکنش پیدا نشد")
 
         if action == "open":
-            return screens.transaction_detail(book, tx, origin)
+            return self._transaction_screen(book, tx, origin)
+
+        if action in ("ec", "ea", "ed"):
+            await self.books.require(book.id, user.id, Permission.EDIT_TRANSACTION)
+            field = {"ec": "category", "ea": "amount", "ed": "description"}[action]
+            await self.state.set(key, {"flow": "tx_edit", "book_id": str(book.id),
+                                      "tx_id": str(tx.id), "field": field, "origin": origin})
+            if field == "category":
+                draft = await self.state.get(key)
+                draft["recent"] = [row.name for row in await self.categories.list(book.id, user.id)]
+                await self.state.set(key, draft)
+                return screens.ask_category(tx.flow, draft["recent"])
+            if field == "amount":
+                return screens.ask_amount(tx.category, tx.original_currency)
+            return screens.ask_description(editing=True)
 
         if action == "rcp":
             await self.state.set(key, {"flow": "receipt", "tx_id": str(tx.id),
@@ -531,15 +569,12 @@ class Conversation:
         if action == "rcpv":
             # The file lives on the provider; hand its id back so the adapter
             # can forward it without us ever holding the bytes.
-            self._pending_file = None
-            self._forward_file_id = tx.receipt_file_id
-            self._forward_file_kind = tx.receipt_kind
-            return screens.transaction_detail(book, tx, origin)
+            return self._transaction_screen(book, tx, origin)
 
         if action == "rcpd":
             await self.ledger.attach_receipt(book.id, user.id, tx.id, None, None)
             fresh = await self.ledger.get_transaction(book.id, user.id, tx.id)
-            return screens.transaction_detail(book, fresh, origin)
+            return self._transaction_screen(book, fresh, origin)
 
         if action == "del":
             return screens.confirm_delete(
@@ -555,7 +590,29 @@ class Conversation:
                 )
             return await self._tx_list(book, user)
 
-        return screens.transaction_detail(book, tx, origin)
+        return self._transaction_screen(book, tx, origin)
+
+    def _transaction_screen(self, book, tx, origin=""):
+        text, buttons = screens.transaction_detail(book, tx, origin)
+        if tx.receipt_file_id:
+            if tx.receipt_provider == self.provider.value:
+                self._forward_file_id, self._forward_file_kind = tx.receipt_file_id, tx.receipt_kind
+            else:
+                text += "\n\nپیوست را در پیام‌رسانی که رسید را ثبت کرده‌ای مشاهده کن."
+        return text, buttons
+
+    async def _edit_tx_text(self, text, draft, user, key):
+        field = draft["field"]
+        value = text
+        if field == "amount":
+            value = parse_amount(text or "")
+            if value is None:
+                return screens.error("مبلغ معتبر وارد کن.")
+        tx = await self.ledger.update(uuid.UUID(draft["book_id"]), user.id,
+                                      uuid.UUID(draft["tx_id"]), **{field: value})
+        await self.state.clear(key)
+        book = await self.books.get_book(tx.book_id)
+        return self._transaction_screen(book, tx, draft.get("origin", ""))
 
     # --------------------------------------------------------------- search
     async def _search_callback(self, action: str, argument: str, user, key: str):
@@ -827,6 +884,11 @@ class Conversation:
         )
 
     async def _account_callback(self, action: str, argument: str, user, key: str, event):
+        if action == "create":
+            return screens.account_created(user.display_name)
+        if action == "login":
+            await self.state.set(key, {"flow": "account_login", "awaiting": "destination"})
+            return screens.ask_login_destination()
         if action == "newcode":
             issued = await self.identity.start_link_from_messenger(
                 self.provider, event.identity.external_id
@@ -1495,6 +1557,43 @@ class Conversation:
         draft = await self.state.get(key)
         text = (event.text or "").strip()
 
+        if draft.get("flow") == "category_manage":
+            book_id = uuid.UUID(draft["book_id"])
+            if draft.get("category_id"):
+                await self.categories.rename(book_id, user.id, uuid.UUID(draft["category_id"]), text)
+            else:
+                await self.categories.create(book_id, user.id, text)
+            await self.state.clear(key)
+            return await self._category_screen(book_id, user)
+
+        if draft.get("flow") == "tx_edit":
+            return await self._edit_tx_text(text, draft, user, key)
+
+        if draft.get("flow") == "team_invite":
+            row = await self.invitations.create(uuid.UUID(draft["book_id"]), user.id, self.provider,
+                                                 to_ascii_digits(text))
+            await self.state.clear(key)
+            person = await self.identity.get_user(row.recipient_user_id)
+            return screens.rtl(f"✅ دعوت برای «{person.display_name}» ثبت شد و برای ارسال در صف قرار گرفت."), [
+                [screens.Button("⬅️ دفتر", data=f"book:open:{row.book_id}")]]
+
+        if draft.get("flow") == "account_login":
+            identity = await self.identity.find_identity(self.provider, event.identity.external_id)
+            if draft.get("awaiting") == "destination":
+                issued = await self.account_login.request(user.id, identity.id, to_ascii_digits(text))
+                await self.state.set(key, {"flow": "account_login", "awaiting": "code",
+                                          "challenge_id": str(issued.challenge_id)})
+                if issued.destination_external_id:
+                    proof, buttons = screens.login_proof(issued.code)
+                    self._notifications.append(OutgoingMessage(issued.destination_external_id, proof, buttons))
+                return screens.ask_login_code()
+            target = await self.account_login.complete(user.id, identity.id,
+                uuid.UUID(draft["challenge_id"]), to_ascii_digits(text))
+            if target is None:
+                return screens.error("کد معتبر نیست یا منقضی شده است.")
+            await self.state.clear(key)
+            return screens.welcome(target.display_name)
+
         if draft.get("flow") == "new_book":
             await self.books.create_book(user.id, text, BookType(draft["type"]))
             await self.state.clear(key)
@@ -1681,7 +1780,7 @@ class Conversation:
 
     async def _recurring_text(self, text: str, draft: dict, user, key: str):
         if not draft.get("category"):
-            draft["category"] = text[:80]
+            draft["category"] = self.categories.name(text)
             await self.state.set(key, draft)
             return screens.recurring_ask_amount(draft["category"])
 
@@ -1721,6 +1820,9 @@ class Conversation:
     async def _tx_text(self, text: str, draft: dict, user, key: str):
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
 
+        if draft.get("awaiting") == "description":
+            return await self._save_tx(draft, user, key, text)
+
         if draft.get("awaiting") == "date":
             on = parse_date(text, self._today(user))
             if on is None:
@@ -1735,13 +1837,21 @@ class Conversation:
             return screens.pick_type(book, on)
 
         if not draft.get("category"):
-            draft["category"] = text[:80]
+            draft["category"] = self.categories.name(text)
             await self.state.set(key, draft)
             return screens.ask_amount(draft["category"])
 
         amount = parse_amount(text)
         if amount is None:
             return screens.ask_amount(draft["category"])
+
+        draft["amount"] = str(amount)
+        draft["awaiting"] = "description"
+        await self.state.set(key, draft)
+        return screens.ask_description()
+
+    async def _save_tx(self, draft, user, key, description=None, attachment=None):
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
 
         flow = Flow(draft["direction"])
         transaction = await self.ledger.record(
@@ -1751,8 +1861,14 @@ class Conversation:
             scope=(Scope(draft["scope"]) if draft.get("scope")
                    else SCOPE_FOR_BOOK.get(book.type, Scope.WORK)),
             category=draft["category"],
-            amount=amount,
+            amount=Decimal(draft["amount"]),
             occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
+            description=description,
+            receipt_file_id=attachment.file_id if attachment else None,
+            receipt_provider=self.provider.value if attachment else None,
+            receipt_kind=attachment.kind if attachment else None,
+            receipt_file_name=attachment.file_name if attachment else None,
+            receipt_mime_type=attachment.mime_type if attachment else None,
         )
         await self.state.clear(key)
 
@@ -1764,7 +1880,56 @@ class Conversation:
                 user, date.fromisoformat(back["on"]), back["view"], 0
             )
 
-        return screens.transaction_saved(
-            book, flow, transaction.category,
-            transaction.converted_amount, book.base_currency,
-        )
+        text, buttons = self._transaction_screen(book, transaction)
+        return screens.rtl("✅ ثبت شد\n") + text, buttons
+
+    async def _category_screen(self, book_id, user):
+        rows = await self.categories.list(book_id, user.id)
+        return screens.category_list(await self.books.get_book(book_id), rows)
+
+    async def _category_callback(self, action, argument, user, key):
+        if action in ("list", "new"):
+            book_id = uuid.UUID(argument)
+            if action == "list":
+                await self.state.clear(key)
+                return await self._category_screen(book_id, user)
+            await self.books.require(book_id, user.id, Permission.EDIT_TRANSACTION)
+            await self.state.set(key, {"flow": "category_manage", "book_id": argument})
+            return screens.ask_category_name()
+        for book in await self.books.books_for_user(user.id):
+            rows = await self.categories.list(book.id, user.id)
+            row = next((r for r in rows if str(r.id) == argument), None)
+            if row is None:
+                continue
+            if action == "del":
+                return screens.confirm_delete(row.name, f"cg:delok:{row.id}", f"cg:list:{book.id}")
+            if action == "delok":
+                await self.categories.delete(book.id, user.id, row.id)
+                return await self._category_screen(book.id, user)
+            if action == "edit":
+                await self.books.require(book.id, user.id, Permission.EDIT_TRANSACTION)
+                await self.state.set(key, {"flow": "category_manage", "book_id": str(book.id),
+                                          "category_id": str(row.id)})
+                return screens.ask_category_name()
+            return await self._category_screen(book.id, user)
+        return screens.error("این دسته‌بندی پیدا نشد.")
+
+    async def _invitation_callback(self, action, argument, user, key):
+        if action == "new":
+            await self.books.require(uuid.UUID(argument), user.id, Permission.MANAGE_MEMBERS)
+            await self.state.set(key, {"flow": "team_invite", "book_id": argument})
+            return screens.ask_teammate()
+        if action in ("yes", "no"):
+            row = await self.invitations.respond(uuid.UUID(argument), user.id, action == "yes")
+            await self.state.clear(key)
+            if action == "yes":
+                return screens.book_menu(await self.books.get_book(row.book_id))
+            return screens.rtl("دعوت رد شد."), [[screens.Button("⬅️ حساب", data="acc:panel")]]
+        rows = await self.invitations.incoming(user.id)
+        if action == "open":
+            row = next((r for r in rows if str(r.id) == argument), None)
+            if row is None:
+                return screens.error("دعوت پیدا نشد.")
+            return screens.team_invitation(await self.books.get_book(row.book_id), row)
+        books = {row.book_id: await self.books.get_book(row.book_id) for row in rows}
+        return screens.invitation_inbox(rows, books)

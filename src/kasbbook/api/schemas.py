@@ -146,6 +146,26 @@ class ClaimLinkRequest(Model):
     code: str = Field(min_length=1, max_length=64)
 
 
+class AccountLoginRequest(Model):
+    identity_id: uuid.UUID
+    identifier: str = Field(min_length=1, max_length=320)
+
+
+class AccountLoginResponse(Model):
+    challenge_id: uuid.UUID
+    expires_in: int = 300
+
+
+class AccountLoginComplete(Model):
+    identity_id: uuid.UUID
+    challenge_id: uuid.UUID
+    code: str = Field(min_length=1, max_length=64)
+
+
+class AccountLoginResult(Model):
+    success: bool
+
+
 # ---------------------------------------------------------------- books
 class BookRequest(Model):
     name: str = Field(min_length=1, max_length=120)
@@ -172,6 +192,33 @@ class InviteRequest(Model):
     role: str
 
 
+class CategoryRequest(Model):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class CategoryResponse(Model):
+    id: uuid.UUID
+    book_id: uuid.UUID
+    name: str
+
+
+class TeamInviteRequest(Model):
+    provider: str
+    identifier: str = Field(min_length=1, max_length=120)
+    role: str = "member"
+
+
+class InvitationResponse(Model):
+    id: uuid.UUID
+    book_id: uuid.UUID
+    status: str
+    expires_at: datetime
+
+
+class InvitationReply(Model):
+    accept: bool
+
+
 # --------------------------------------------------------- transactions
 class TransactionRequest(MoneyModel):
     flow: str
@@ -181,6 +228,12 @@ class TransactionRequest(MoneyModel):
     description: Optional[str] = Field(default=None, max_length=500)
     occurred_on: Optional[date] = None
     scope: Optional[str] = None
+
+
+class TransactionUpdate(MoneyModel):
+    category: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    description: Optional[str] = Field(default=None, max_length=500)
 
 
 class TransactionResponse(MoneyModel):

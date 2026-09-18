@@ -166,6 +166,31 @@ class LinkToken(UUIDPrimaryKey, Timestamped, Base):
         return self.consumed_at is None and self.revoked_at is None
 
 
+class AccountLoginChallenge(UUIDPrimaryKey, Timestamped, Base):
+    """Proof from an existing messenger, bound to the identity asking to move."""
+
+    __tablename__ = "account_login_challenges"
+    __table_args__ = (Index("ix_account_login_requester", "requester_identity_id", "created_at"),)
+
+    requester_identity_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("identities.id", ondelete="CASCADE"), nullable=False
+    )
+    source_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    target_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE")
+    )
+    destination_identity_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("identities.id", ondelete="SET NULL")
+    )
+    destination_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class AuditEvent(UUIDPrimaryKey, Timestamped, Base):
     """Append-only record of anything that changes who can see what."""
 

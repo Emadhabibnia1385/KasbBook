@@ -675,7 +675,7 @@ async def test_a_book_with_other_members_cannot_be_deleted(session):
 async def test_only_the_owner_may_delete_a_book(session):
     from kasbbook.modules.books.models import BookType
     from kasbbook.modules.books.service import BookService
-    from kasbbook.shared.errors import PermissionDenied
+    from kasbbook.shared.errors import NotFound
 
     identity = IdentityService(session)
     owner = await identity.create_user("مالک")
@@ -684,5 +684,5 @@ async def test_only_the_owner_may_delete_a_book(session):
     books = BookService(session)
     book = await books.create_book(owner.id, "مغازه", BookType.BUSINESS)
 
-    with pytest.raises(PermissionDenied):
+    with pytest.raises(NotFound):
         await books.delete_book(stranger.id, book.id)

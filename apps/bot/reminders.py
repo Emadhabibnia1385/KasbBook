@@ -74,6 +74,8 @@ class ReminderLoop:
         sent = 0
 
         async for session in self.database.session():
+            from kasbbook.bot.delivery import deliver_invitations
+            sent += await deliver_invitations(session, self.adapter, self.provider)
             service = ReminderService(session)
             recipients = await service.recipients(self.provider)
 

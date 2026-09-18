@@ -151,10 +151,12 @@ class BotRunner:
         else:
             await self.adapter.send_message(reply)
 
-        if reply.forward_file_id:
-            await self.adapter.send_stored_file(
-                reply.chat_id, reply.forward_file_id, reply.forward_file_kind
-            )
+        from kasbbook.bot.delivery import deliver_invitations, deliver_notifications
+
+        await deliver_notifications(self.adapter, reply)
+        async for delivery_session in self.database.session():
+            await deliver_invitations(delivery_session, self.adapter)
+            await delivery_session.commit()
 
         if reply.document is not None:
             await self.adapter.send_file(
@@ -190,6 +192,12 @@ class BotRunner:
             # cannot wedge the bot in a loop on the same message.
             self._offset = update["update_id"] + 1
             await self.handle_update(update)
+
+        # API-created invitations have no incoming bot update to trigger them.
+        from kasbbook.bot.delivery import deliver_invitations
+        async for delivery_session in self.database.session():
+            await deliver_invitations(delivery_session, self.adapter)
+            await delivery_session.commit()
 
         return len(updates)
 

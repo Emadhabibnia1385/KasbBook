@@ -22,6 +22,7 @@ from ..books.models import Permission
 from ..books.service import BookService
 from ..identity.models import AuditEvent
 from ..ledger.models import Flow, Transaction
+from ..ledger.categories import CategoryService
 from ..treasury.models import RuleBasis, TreasuryAllocation, TreasuryRule
 from .models import (
     PERIOD_TRANSITIONS,
@@ -72,6 +73,7 @@ class PayrollService:
         ends_on: date,
     ) -> FinancialPeriod:
         await self.books.require(book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        await CategoryService(self.session).lock_book(book_id)
         if ends_on < starts_on:
             raise ValidationError("a period cannot end before it starts")
 
@@ -123,6 +125,8 @@ class PayrollService:
             Permission.LOCK_PERIOD if to is PeriodStatus.LOCKED else Permission.MANAGE_PAYROLL
         )
         await self.books.require(period.book_id, actor_user_id, needed)
+        await CategoryService(self.session).lock_book(period.book_id)
+        await self.session.refresh(period)
 
         if to not in PERIOD_TRANSITIONS[period.status]:
             raise ValidationError(
@@ -491,6 +495,9 @@ class PayrollService:
         await self._require_editable(period)
 
         book = await self.books.get_book(period.book_id)
+        await CategoryService(self.session).lock_book(period.book_id)
+        await self.session.refresh(period)
+        await self._require_editable(period)
         distribution = await self.compute_distribution(period_id)
         shares = await self._base_shares(period, distribution.distributable)
 

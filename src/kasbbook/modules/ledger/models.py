@@ -19,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
@@ -86,6 +87,19 @@ class Account(UUIDPrimaryKey, Timestamped, Base):
         return f"<Account {self.code} {self.type.value}>"
 
 
+class Category(UUIDPrimaryKey, Timestamped, Base):
+    __tablename__ = "categories"
+    __table_args__ = (
+        UniqueConstraint("book_id", "name", name="one_category_name_per_book"),
+        UniqueConstraint("book_id", "id", name="category_book_identity"),
+    )
+
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
 class Transaction(UUIDPrimaryKey, Timestamped, Base):
     """What the user actually entered.
 
@@ -98,6 +112,10 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
     __table_args__ = (
         Index("ix_tx_book_date", "book_id", "occurred_on"),
         Index("ix_tx_book_flow_date", "book_id", "flow", "occurred_on"),
+        ForeignKeyConstraint(
+            ["book_id", "category_id"], ["categories.book_id", "categories.id"],
+            name="fk_transaction_category_book", deferrable=True, initially="DEFERRED",
+        ),
     )
 
     book_id: Mapped[uuid.UUID] = mapped_column(
@@ -116,6 +134,7 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
         Enum(Scope, native_enum=False, length=12), nullable=False
     )
     category: Mapped[str] = mapped_column(String(80), nullable=False)
+    category_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     # A receipt lives on the messenger that received it: storing the provider's

@@ -213,3 +213,26 @@ denied.
   orphaned — see [data-model.md](./data-model.md).
 - **No unofficial provider APIs.** No reverse-engineered web-client endpoints,
   no logging in as a human with an OTP. A bot posts as a bot.
+# Consent-based invitations and account switching
+
+Unknown messenger starts create a fresh account directly. Existing explicit
+link deep links retain their proof-based linking behavior. Account switching
+requires a five-minute, one-time code delivered to an already-linked identity
+on the destination account's same provider. Unknown destinations use decoy
+challenges with the same requester response. Only a hash is stored; raw proof
+never enters conversation state or logs. Each challenge permits five attempts;
+requesting identities and destination accounts are limited to five requests
+per hour. A new request consumes previous challenges for that identity.
+
+Switching moves only the requesting messenger identity. It never merges books,
+memberships, credentials, payroll or balances. A source account with books must
+retain another linked identity or password-backed email/phone access. The
+destination identity used for proof must still belong to the destination when
+redeemed. Access-token generations advance and refresh tokens are revoked for
+both accounts. API keys retain their existing account ownership.
+
+Team invitations are provider-scoped and require recipient consent. Numeric
+IDs on different providers never match. Observed usernames can change or be
+ambiguous; ambiguous lookup is refused and numeric IDs are recommended. Before
+delivery and acceptance, sender permission is checked again. Recipient-scoped
+lookup hides invitations from other users.

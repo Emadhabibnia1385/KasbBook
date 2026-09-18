@@ -67,13 +67,15 @@ async def linked_user(session, name="عماد", external_id="555001"):
 
 
 # ------------------------------------------------------------- not linked
-async def test_an_unknown_messenger_account_is_offered_a_code(session):
+async def test_an_unknown_messenger_account_is_created_and_goes_home(session):
     convo = await conversation(session)
     reply = await convo.handle(command("start"))
 
-    assert "وصل نیست" in reply.text
+    assert await IdentityService(session).user_for_identity(TG, "555001") is not None
+    assert "عماد" in reply.text
     labels = [b.text for row in reply.buttons for b in row]
-    assert any("ساخت حساب" in label for label in labels)
+    assert any("دفتر" in label for label in labels)
+    assert not any("ساخت حساب" in label for label in labels)
 
 
 async def test_a_deep_link_token_attaches_this_messenger_to_the_account(session):
@@ -167,6 +169,10 @@ async def test_the_whole_recording_flow_saves_one_transaction(session):
     await convo.handle(says("فروش"))
     reply = await convo.handle(says("۲۵۰ک"))
 
+    assert "توضیحات" in reply.text
+    assert await LedgerService(session).transactions(book.id, user.id) == []
+    reply = await convo.handle(press("tx:skip"))
+
     assert "ثبت شد" in reply.text
     rows = await LedgerService(session).transactions(book.id, user.id)
     assert len(rows) == 1
@@ -200,6 +206,7 @@ async def test_the_scope_follows_the_book_so_money_cannot_mix(session):
         await convo.handle(press("tx:flow:income"))
         await convo.handle(says("پروژه"))
         await convo.handle(says("1000"))
+        await convo.handle(press("tx:skip"))
 
         rows = await LedgerService(session).transactions(book.id, user.id)
         assert rows[0].scope.value == expected
@@ -231,6 +238,7 @@ async def test_the_report_shows_what_was_recorded(session):
     await convo.handle(press("tx:flow:income"))
     await convo.handle(says("فروش"))
     await convo.handle(says("500000"))
+    await convo.handle(press("tx:skip"))
 
     menu = await convo.handle(press(f"rep:book:{book.id}"))
     assert "کدام بازه" in menu.text
@@ -258,6 +266,7 @@ async def test_a_transaction_from_telegram_belongs_to_the_shared_account(session
     await telegram.handle(press("tx:flow:income", external_id="tg-1"))
     await telegram.handle(says("فروش", external_id="tg-1"))
     await telegram.handle(says("300000", external_id="tg-1"))
+    await telegram.handle(press("tx:skip", external_id="tg-1"))
 
     # Read from Bale, by the same person, without anything being copied across.
     bale = Conversation(session, MemoryStateStore(), Provider.BALE)
@@ -415,8 +424,8 @@ async def test_categories_already_used_are_offered_as_buttons(session):
         assert category in labels
 
 
-async def test_income_categories_are_not_offered_for_an_expense(session):
-    """Suggesting "فروش" as an expense would be worse than suggesting nothing."""
+async def test_managed_book_categories_are_available_for_either_flow(session):
+    """A category belongs to the book; its first transaction does not fix a flow."""
     user = await linked_user(session)
     book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
     ledger = LedgerService(session)
@@ -429,7 +438,7 @@ async def test_income_categories_are_not_offered_for_an_expense(session):
 
     labels = [b.text for row in reply.buttons for b in row]
     assert "اجاره" in labels
-    assert "فروش" not in labels
+    assert "فروش" in labels
 
 
 async def test_pressing_a_suggestion_skips_straight_to_the_amount(session):
@@ -459,6 +468,7 @@ async def test_a_suggested_category_records_the_transaction(session):
     await convo.handle(press("tx:flow:expense"))
     await convo.handle(press("tx:cat:0"))
     await convo.handle(says("۲م"))
+    await convo.handle(press("tx:skip"))
 
     rows = await ledger.transactions(book.id, user.id)
     assert len(rows) == 2
@@ -479,6 +489,7 @@ async def test_typing_a_new_category_still_works(session):
     await convo.handle(press("tx:flow:expense"))
     await convo.handle(says("چیز تازه"))
     await convo.handle(says("۵۰۰ک"))
+    await convo.handle(press("tx:skip"))
 
     rows = await LedgerService(session).transactions(book.id, user.id)
     assert rows[-1].category == "چیز تازه"
@@ -790,7 +801,7 @@ async def test_the_messenger_is_free_to_start_again_right_away(session):
     reply = await convo.handle(press("acc:create"))
     fresh = await identity.user_for_identity(TG, "555001")
     assert fresh is not None and fresh.id != user.id
-    assert "از دست بدهی" in reply.text
+    assert "عماد" in reply.text
 
 
 # ============================================================ API access

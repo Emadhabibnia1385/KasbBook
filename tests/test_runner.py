@@ -113,10 +113,11 @@ async def test_a_full_conversation_runs_through_the_loop(db, session):
         update(3, data="tx:flow:income"),
         update(4, text="فروش"),
         update(5, text="۲۵۰ک"),
+        update(6, data="tx:skip"),
     ])
 
     handled = await runner.poll_once()
-    assert handled == 5
+    assert handled == 6
 
     rows = await LedgerService(session).transactions(book.id, user.id)
     assert len(rows) == 1
@@ -275,6 +276,7 @@ async def test_the_same_runner_drives_bale(db, session):
         update(3, data="tx:flow:income"),
         update(4, text="فروش"),
         update(5, text="۲۵۰ک"),
+        update(6, data="tx:skip"),
     ])
     adapter = BaleAdapter(
         token="test", bot_username="KasbBookBot",
@@ -285,7 +287,7 @@ async def test_the_same_runner_drives_bale(db, session):
         db, adapter, MemoryStateStore(),
     )
 
-    assert await runner.poll_once() == 5
+    assert await runner.poll_once() == 6
 
     rows = await LedgerService(session).transactions(book.id, user.id)
     assert len(rows) == 1

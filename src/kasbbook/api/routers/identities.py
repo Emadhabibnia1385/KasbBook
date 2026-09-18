@@ -8,12 +8,14 @@ a messenger starts one and the web claims it.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
+from ...modules.identity.login import AccountLoginService
 from ...shared.errors import ValidationError
 from ..deps import CurrentUser, SessionDep, SettingsDep
 from ..schemas import (
@@ -21,6 +23,10 @@ from ..schemas import (
     IdentityResponse,
     StartLinkRequest,
     StartLinkResponse,
+    AccountLoginRequest,
+    AccountLoginResponse,
+    AccountLoginComplete,
+    AccountLoginResult,
 )
 
 router = APIRouter(prefix="/identities", tags=["identities"])
@@ -89,3 +95,40 @@ async def claim_link(
 @router.delete("/{identity_id}", status_code=204)
 async def unlink(identity_id: uuid.UUID, user: CurrentUser, session: SessionDep) -> None:
     await IdentityService(session).unlink(user.id, identity_id)
+
+
+@router.post("/account-login/request", response_model=AccountLoginResponse, status_code=201)
+async def request_account_login(body: AccountLoginRequest, user: CurrentUser, session: SessionDep,
+                                 settings: SettingsDep, request: Request):
+    identity = await IdentityService(session).owned_identity(user.id, body.identity_id)
+    adapter = getattr(request.app.state, "adapters", {}).get(identity.provider.value)
+    temporary = adapter is None
+    if temporary:
+        from apps.bot.runner import build_adapter
+        selected = replace(settings, provider=identity.provider)
+        if not selected.token:
+            raise ValidationError("ارسال کد در این پیام‌رسان پیکربندی نشده است.")
+        adapter = build_adapter(selected)
+    try:
+        issued = await AccountLoginService(session).request(user.id, body.identity_id, body.identifier)
+        # Proof must not arrive before the challenge is committed and redeemable.
+        await session.commit()
+        if issued.destination_external_id:
+            from ...bot.delivery import deliver_notifications
+            from ...bot.screens import login_proof
+            from ...adapters.base import OutgoingMessage
+            text, buttons = login_proof(issued.code)
+            notification = OutgoingMessage(issued.destination_external_id, text, buttons)
+            await deliver_notifications(adapter, OutgoingMessage("", "", notifications=[notification]))
+        return AccountLoginResponse(challenge_id=issued.challenge_id)
+    finally:
+        if temporary:
+            await adapter.aclose()
+
+
+@router.post("/account-login/complete", response_model=AccountLoginResult)
+async def complete_account_login(body: AccountLoginComplete, user: CurrentUser, session: SessionDep):
+    # An invalid code is a normal result so the caller commits the attempt count.
+    target = await AccountLoginService(session).complete(user.id, body.identity_id,
+                                                          body.challenge_id, body.code)
+    return AccountLoginResult(success=target is not None)

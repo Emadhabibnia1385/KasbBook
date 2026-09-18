@@ -259,6 +259,22 @@ class BotApiAdapter:
         }
 
     async def send_message(self, message: OutgoingMessage) -> Optional[str]:
+        if message.forward_file_id:
+            if len(message.text.encode("utf-16-le")) // 2 > 1024:
+                media_id = await self.send_stored_file(message.chat_id, message.forward_file_id,
+                                                        message.forward_file_kind)
+                params = {"chat_id": message.chat_id, "text": message.text,
+                          "reply_markup": self.build_buttons(message.buttons)}
+                if media_id:
+                    params["reply_to_message_id"] = int(media_id)
+                else:
+                    params["text"] += "\n\n⚠️ ارسال پیوست انجام نشد؛ دوباره پیوست را ارسال کن."
+                result = await self._call("sendMessage", **params)
+                return str(result["message_id"]) if result else None
+            return await self.send_stored_file(
+                message.chat_id, message.forward_file_id, message.forward_file_kind,
+                caption=message.text, buttons=message.buttons,
+            )
         params: Dict[str, Any] = {"chat_id": message.chat_id, **self._render(message)}
         markup = self.build_buttons(message.buttons)
         if markup:
@@ -268,6 +284,10 @@ class BotApiAdapter:
         return str(result["message_id"]) if result else None
 
     async def edit_message(self, message: OutgoingMessage) -> Optional[str]:
+        if message.forward_file_id:
+            # The anchor may be text or another media kind. Sending a complete
+            # receipt screen avoids retaining buttons on an unrelated message.
+            return await self.send_message(message)
         if not message.edit_message_id:
             return await self.send_message(message)
 
@@ -316,7 +336,8 @@ class BotApiAdapter:
                   "sendVoice": "voice"}
 
     async def send_stored_file(
-        self, chat_id: str, file_id: str, kind: Optional[str] = None
+        self, chat_id: str, file_id: str, kind: Optional[str] = None,
+        *, caption: Optional[str] = None, buttons=(),
     ) -> Optional[str]:
         """Forward a file the provider already has, by its id.
 
@@ -332,11 +353,22 @@ class BotApiAdapter:
             methods = [first] + [m for m in methods if m != first]
 
         for method in methods:
+            params = {"chat_id": chat_id, self.SEND_FIELD[method]: file_id}
+            if caption is not None:
+                params["caption"] = caption
+            if buttons:
+                params["reply_markup"] = self.build_buttons(buttons)
             result = await self._call(
-                method, **{"chat_id": chat_id, self.SEND_FIELD[method]: file_id}
+                method, **params
             )
             if result is not None:
                 return str(result.get("message_id"))
+        if caption is not None:
+            # A stale provider file id must be visible as a failure; do not lose
+            # the bookkeeping summary or pretend the receipt was displayed.
+            return await self.send_message(OutgoingMessage(
+                chat_id, caption + "\n\n⚠️ ارسال پیوست انجام نشد؛ دوباره پیوست را ارسال کن.", buttons
+            ))
         return None
 
     async def send_plain(self, chat_id: str, text: str) -> Optional[str]:

@@ -126,6 +126,11 @@ def test_every_migration_applies_to_a_table_that_already_has_rows(clean_database
     assert version == _revisions()[-1]
 
 
+def test_categories_backfill_preserves_populated_financial_rows_and_downgrades(clean_database):
+    from category_migration_rehearsal import rehearse_categories
+    rehearse_categories(clean_database, _config())
+
+
 def test_the_seeded_row_survives_every_migration(clean_database):
     """A migration that drops data would pass a schema check and fail people."""
     engine = clean_database

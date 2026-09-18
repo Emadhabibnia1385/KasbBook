@@ -198,6 +198,8 @@ async def test_a_single_entry_takes_a_typed_jalali_date(session):
     await convo.handle(press("tx:type:pe"))
     await convo.handle(says("شارژ و اینترنت"))
     reply = await convo.handle(says("110000"))
+    assert "توضیحات" in reply.text
+    reply = await convo.handle(press("tx:skip"))
     assert "ثبت شد" in reply.text
 
     (tx,) = await LedgerService(session).transactions(shop.id, user.id)
@@ -281,6 +283,8 @@ async def test_adding_from_the_list_lands_on_that_day_and_comes_back(session):
     await convo.handle(press(f"dl:add:{TOKEN}:{shop.id}:we:b"))
     await convo.handle(says("کرایه"))
     reply = await convo.handle(says("250"))
+    assert "توضیحات" in reply.text
+    reply = await convo.handle(press("tx:skip"))
 
     assert "1404/12/28" in reply.text
     assert "🏢 هزینه کاری: 550" in reply.text
@@ -310,6 +314,8 @@ async def test_adding_to_the_team_from_the_all_books_list(session):
     await convo.handle(press(f"dl:add:{TOKEN}:{team.id}:te:a"))
     await convo.handle(says("ناهار تیم"))
     reply = await convo.handle(says("40"))
+    assert "توضیحات" in reply.text
+    reply = await convo.handle(press("tx:skip"))
 
     assert "— 👥 تیم الف —" in reply.text
     (tx,) = await LedgerService(session).transactions(team.id, user.id)

@@ -144,3 +144,27 @@ class Membership(UUIDPrimaryKey, Timestamped, Base):
     @property
     def permissions(self) -> set:
         return ROLE_PERMISSIONS[self.role] if self.is_active else set()
+
+
+class TeamInvitation(UUIDPrimaryKey, Timestamped, Base):
+    """Pending membership and a durable delivery queue, never access itself."""
+
+    __tablename__ = "team_invitations"
+    __table_args__ = (Index("ix_invitations_recipient", "recipient_user_id", "status"),)
+
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_identity_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("identities.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False, length=16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

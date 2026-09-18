@@ -71,6 +71,17 @@ def test_the_migration_creates_every_table_the_models_declare(migrated_db):
     assert actual - expected == set(), f"the migration creates extra {actual - expected}"
 
 
+def test_categories_backfill_preserves_populated_financial_rows_and_downgrades(migrated_db):
+    from category_migration_rehearsal import rehearse_categories
+    sync_url, _ = migrated_db
+    engine = create_engine(sync_url)
+    try:
+        command.downgrade(_alembic_config(sync_url), "f55f2e58ba86")
+        rehearse_categories(engine, _alembic_config(sync_url))
+    finally:
+        engine.dispose()
+
+
 def test_the_migration_and_the_models_have_not_drifted(migrated_db):
     """Autogenerate against the migrated database must find nothing to do.
 

@@ -420,11 +420,12 @@ def ask_category(flow: Flow, recent: Sequence[str] = ()) -> Screen:
     return text, buttons
 
 
-def ask_amount(category: str) -> Screen:
+def ask_amount(category: str, currency: str | None = None) -> Screen:
     return (
         rtl(
             f"دسته: {category}\n\n"
-            "مبلغ را بنویس.\n"
+            + (f"مبلغ اصلی به {currency} است؛ نرخ تبدیل ثبت‌شده حفظ می‌شود.\n" if currency else "")
+            + "مبلغ را بنویس.\n"
             "می‌توانی این‌طور هم بنویسی: ۲۵۰ک، 1.2م، 250,000"
         ),
         [[Button("↩️ انصراف", data="nav:home")]],
@@ -529,6 +530,8 @@ def account_panel(user, identities: Iterable[Identity], current: Provider) -> Sc
         [Button("🖥 نشست‌های فعال", data="acc:sessions"),
          Button("🔌 API", data="acc:api")],
         [Button("🗑 حذف حساب", data="acc:close")],
+        [Button("🔐 ورود به حساب دیگر", data="acc:login")],
+        [Button("👥 دعوت‌های تیمی", data="iv:inbox")],
         [Button("⬅️ بازگشت", data="nav:home")],
     ]
 
@@ -914,6 +917,7 @@ def book_menu(book: Book) -> Screen:
     label = BOOK_LABELS.get(book.type, "")
     return rtl(f"{label} — {book.name}"), [
         [Button("📌 ثبت تراکنش", data=f"tx:book:{book.id}")],
+        [Button("🏷 دسته‌بندی‌ها", data=f"cg:list:{book.id}")],
         [Button("📄 تراکنش‌ها", data=f"td:list:{book.id}"),
          Button("🔎 جست‌وجو", data=f"sr:new:{book.id}")],
         [Button("📊 گزارش", data=f"rep:book:{book.id}")],
@@ -924,6 +928,8 @@ def book_menu(book: Book) -> Screen:
         # Only where there is more than one person to pay. On a personal book
         # the whole idea is noise, so it is not offered.
         *([[Button("👥 حقوق و سهم", data=f"pr:list:{book.id}")]]
+          if book.type in (BookType.TEAM, BookType.ORGANIZATION) else []),
+        *([[Button("👤 افزودن هم‌تیمی", data=f"iv:new:{book.id}")]]
           if book.type in (BookType.TEAM, BookType.ORGANIZATION) else []),
         [Button("⬅️ دفترها", data="book:list")],
     ]
@@ -1222,6 +1228,11 @@ def transaction_detail(book: Book, tx, origin: str = "") -> Screen:
 
     tail = f":{origin}" if origin in ("a", "b") else ""
     buttons: List[List[Button]] = []
+    buttons.append([
+        Button("ویرایش دسته", data=f"td:ec:{tx.id}{tail}"),
+        Button("ویرایش مبلغ", data=f"td:ea:{tx.id}{tail}"),
+        Button("ویرایش توضیحات", data=f"td:ed:{tx.id}{tail}"),
+    ])
     if tx.receipt_file_id:
         buttons.append([
             Button("🧾 دیدن رسید", data=f"td:rcpv:{tx.id}{tail}"),
@@ -1243,6 +1254,65 @@ def transaction_detail(book: Book, tx, origin: str = "") -> Screen:
 
 def ask_receipt() -> Screen:
     return rtl("🧾 عکس یا فایل رسید را بفرست.\n\nبرای انصراف /cancel بزن."), []
+
+
+def ask_description(editing=False) -> Screen:
+    text = "توضیحات تراکنش را بفرست (حداکثر ۵۰۰ حرف)."
+    if not editing:
+        text += "\nاگر رسید، عکس یا فایلی داری، همراه توضیحات بفرست."
+    data = "td:clear_description" if editing else "tx:skip"
+    return rtl(text), [[Button("پاک کردن توضیحات" if editing else "ثبت بدون توضیحات", data=data)],
+                       [Button("↩️ انصراف", data="nav:home")]]
+
+
+def category_list(book, categories) -> Screen:
+    rows = [[Button("➕ افزودن دسته‌بندی", data=f"cg:new:{book.id}")]]
+    for category in categories:
+        rows.append([Button(category.name[:24], data=f"cg:open:{category.id}"),
+                     Button("ویرایش", data=f"cg:edit:{category.id}"),
+                     Button("حذف", data=f"cg:del:{category.id}")])
+    rows.append([Button("⬅️ دفتر", data=f"book:open:{book.id}")])
+    return rtl(f"🏷 دسته‌بندی‌های {book.name}\n\n" +
+               ("یک دسته‌بندی انتخاب کن." if categories else "هنوز دسته‌بندی نداری؛ از دکمهٔ بالا اضافه کن.")), rows
+
+
+def ask_category_name() -> Screen:
+    return rtl("نام دسته‌بندی را بفرست (۱ تا ۸۰ حرف)."), [[Button("↩️ انصراف", data="nav:home")]]
+
+
+def ask_teammate() -> Screen:
+    return rtl("یوزرنیم یا شناسهٔ عددی هم‌تیمی را در همین پیام‌رسان بفرست.\n"
+               "باید قبلاً ربات را استارت کرده باشد. دعوت پس از پذیرش او فعال می‌شود."), [
+        [Button("↩️ انصراف", data="nav:home")]]
+
+
+def team_invitation(book, invitation) -> Screen:
+    return rtl(f"👥 دعوت به تیم «{book.name}»\n\nآیا دعوت را می‌پذیری؟"), [[
+        Button("✅ پذیرش", data=f"iv:yes:{invitation.id}"),
+        Button("❌ رد", data=f"iv:no:{invitation.id}"),
+    ]]
+
+
+def invitation_inbox(invitations, books) -> Screen:
+    rows = [[Button(books[row.book_id].name[:24], data=f"iv:open:{row.id}")] for row in invitations]
+    rows.append([Button("⬅️ حساب کاربری", data="acc:panel")])
+    return rtl("👥 دعوت‌های تیمی" if invitations else "دعوت فعالی نداری."), rows
+
+
+def ask_login_destination() -> Screen:
+    return rtl("ایمیل یا شمارهٔ حساب مقصد را بفرست.\n"
+               "کد به پیام‌رسان از قبل متصلِ حساب مقصد در همین نرم‌افزار ارسال می‌شود.\n"
+               "دفترهای دو حساب ادغام نمی‌شوند."), [[Button("↩️ انصراف", data="acc:panel")]]
+
+
+def ask_login_code() -> Screen:
+    return rtl("اگر حساب مقصد در همین پیام‌رسان متصل باشد، کد ورود برایش ارسال می‌شود.\n"
+               "کد را اینجا بفرست؛ اعتبار آن ۵ دقیقه است."), [[Button("↩️ انصراف", data="acc:panel")]]
+
+
+def login_proof(code) -> Screen:
+    return rtl(f"🔐 کد ورود به حساب کسب‌بوک: {code}\nاعتبار: ۵ دقیقه.\n"
+               "فقط در ربات رسمی یا API رسمی کسب‌بوک وارد کن. اگر درخواست نداده‌ای، این پیام را نادیده بگیر."), []
 
 
 # ================================================================== search

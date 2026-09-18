@@ -12,11 +12,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
-from ...modules.books.models import BookType, Role
+from ...modules.books.models import BookType, Permission, Role
 from ...modules.books.service import BookService
+from ...modules.books.invitations import InvitationService
+from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.ledger.models import Flow, Scope
 from ...modules.ledger.service import LedgerService
+from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
@@ -27,6 +30,11 @@ from ..schemas import (
     TransactionPage,
     TransactionRequest,
     TransactionResponse,
+    TransactionUpdate,
+    CategoryRequest,
+    CategoryResponse,
+    TeamInviteRequest,
+    InvitationResponse,
 )
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -107,6 +115,7 @@ async def add_member(
     book_id: uuid.UUID, body: InviteRequest, user: CurrentUser, session: SessionDep
 ) -> MemberResponse:
     """Add someone who already has an account, by email or phone."""
+    await BookService(session).require(book_id, user.id, Permission.MANAGE_MEMBERS)
     invitee = await IdentityService(session).find_by_identifier(body.identifier)
     if invitee is None:
         raise NotFound("no account with those details")
@@ -123,6 +132,36 @@ async def remove_member(
     book_id: uuid.UUID, member_user_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> None:
     await BookService(session).deactivate_member(user.id, book_id, member_user_id)
+
+
+@router.get("/{book_id}/categories", response_model=List[CategoryResponse])
+async def list_categories(book_id: uuid.UUID, user: CurrentUser, session: SessionDep):
+    return await CategoryService(session).list(book_id, user.id)
+
+
+@router.post("/{book_id}/categories", response_model=CategoryResponse, status_code=201)
+async def create_category(book_id: uuid.UUID, body: CategoryRequest, user: CurrentUser, session: SessionDep):
+    return await CategoryService(session).create(book_id, user.id, body.name)
+
+
+@router.patch("/{book_id}/categories/{category_id}", response_model=CategoryResponse)
+async def rename_category(book_id: uuid.UUID, category_id: uuid.UUID, body: CategoryRequest,
+                          user: CurrentUser, session: SessionDep):
+    return await CategoryService(session).rename(book_id, user.id, category_id, body.name)
+
+
+@router.delete("/{book_id}/categories/{category_id}", status_code=204)
+async def delete_category(book_id: uuid.UUID, category_id: uuid.UUID, user: CurrentUser, session: SessionDep):
+    await CategoryService(session).delete(book_id, user.id, category_id)
+
+
+@router.post("/{book_id}/invitations", response_model=InvitationResponse, status_code=201)
+async def invite_teammate(book_id: uuid.UUID, body: TeamInviteRequest, user: CurrentUser, session: SessionDep):
+    provider = _as_enum(Provider, body.provider, "provider")
+    if provider not in MESSENGERS:
+        raise ValidationError("پیام‌رسان معتبر انتخاب کن.")
+    return await InvitationService(session).create(book_id, user.id, provider, body.identifier,
+                                                   _as_enum(Role, body.role, "role"))
 
 
 # ---------------------------------------------------------- transactions
@@ -164,6 +203,8 @@ async def record_transaction(
     book_id: uuid.UUID, body: TransactionRequest, user: CurrentUser, session: SessionDep
 ) -> TransactionResponse:
     books = BookService(session)
+    flow = _as_enum(Flow, body.flow, "flow")
+    await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
     book = await books.get_book(book_id)
 
     scope = (
@@ -173,7 +214,7 @@ async def record_transaction(
     transaction = await LedgerService(session).record(
         book_id=book_id,
         actor_user_id=user.id,
-        flow=_as_enum(Flow, body.flow, "flow"),
+        flow=flow,
         scope=scope,
         category=body.category,
         amount=body.amount,
@@ -199,6 +240,14 @@ async def delete_transaction(
     book_id: uuid.UUID, transaction_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> None:
     await LedgerService(session).delete(book_id, user.id, transaction_id)
+
+
+@router.patch("/{book_id}/transactions/{transaction_id}", response_model=TransactionResponse)
+async def edit_transaction(book_id: uuid.UUID, transaction_id: uuid.UUID, body: TransactionUpdate,
+                            user: CurrentUser, session: SessionDep):
+    changes = body.model_dump(exclude_unset=True)
+    row = await LedgerService(session).update(book_id, user.id, transaction_id, **changes)
+    return _transaction(row)
 
 
 def _transaction(row) -> TransactionResponse:

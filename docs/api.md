@@ -245,3 +245,35 @@ the path is doing there.
 
 A process that cannot reach its database is up but not useful, and those are
 the deploys that look fine and are not.
+# Categories, transaction editing, invitations and account switching
+
+Book categories are shared by all transaction flows. `GET/POST
+/api/v1/books/{book_id}/categories`, `PATCH/DELETE
+/api/v1/books/{book_id}/categories/{category_id}` use `CategoryService`.
+Reading requires transaction visibility; mutations require transaction editing.
+A category with any transaction cannot be deleted. Renaming also updates the
+existing category budget, recurring and treasury filters without merging them.
+
+`PATCH /api/v1/books/{book_id}/transactions/{transaction_id}` accepts `category`,
+`amount` and `description`. Money is a string. Amount means the original
+currency amount and retains the stored conversion rate. `description: null`
+clears it; null category/amount and empty patches are refused. Financial dates
+with calculated payslips or a non-open payroll period are protected. Loan
+payment amounts must be changed through their own workflow.
+
+`POST /api/v1/books/{book_id}/invitations` accepts a supported messenger provider,
+username or numeric `identifier`, and a non-owner `role`. The recipient must
+already have started that provider's bot. Delivery is queued durably for that
+provider's poller, webhook activity or reminder loop. `GET /api/v1/invitations`
+lists the current user's pending invitations; `POST
+/api/v1/invitations/{invitation_id}/respond` accepts `{"accept": true}` or false.
+Invitations expire after seven days. Membership is granted only on acceptance,
+while the inviter still has member-management permission.
+
+`POST /api/v1/identities/account-login/request` accepts an owned `identity_id`
+and destination email/phone `identifier`. It returns only `challenge_id` and
+`expires_in`. Proof goes to an existing identity on the same messenger; no
+email or SMS delivery is implied. `POST /api/v1/identities/account-login/complete`
+accepts the identity, challenge and code. Invalid proof returns `success: false`
+so failed attempts are committed. Successful switching invalidates both
+accounts' existing access/refresh sessions; authenticate again afterward.

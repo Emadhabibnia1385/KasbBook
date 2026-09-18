@@ -196,6 +196,7 @@ class BookService:
         must not vanish under normal circumstances. This is the one place that
         is allowed to say the circumstances are not normal.
         """
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
         book = await self.get_book(book_id)
         if book.owner_user_id != actor_user_id:
             raise PermissionDenied("only the owner may delete a book")
@@ -231,6 +232,7 @@ class BookService:
     async def transfer_ownership(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID, to_user_id: uuid.UUID
     ) -> None:
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
         book = await self.get_book(book_id)
         if book.owner_user_id != actor_user_id:
             raise PermissionDenied("only the owner may hand a book over")

@@ -264,6 +264,9 @@ class RubikaAdapter:
         return UpdateBatch(updates=data.get("updates", []))
 
     async def send_message(self, message: OutgoingMessage) -> Optional[str]:
+        if message.forward_file_id:
+            return await self.send_stored_file(message.chat_id, message.forward_file_id,
+                message.forward_file_kind, caption=message.text, buttons=message.buttons)
         params: Dict[str, Any] = {"chat_id": message.chat_id, "text": message.text}
         keypad = self.build_buttons(message.buttons)
         if keypad:
@@ -273,6 +276,8 @@ class RubikaAdapter:
         return str(result.get("message_id")) if result else None
 
     async def edit_message(self, message: OutgoingMessage) -> Optional[str]:
+        if message.forward_file_id:
+            return await self.send_message(message)
         if not message.edit_message_id:
             return await self.send_message(message)
 
@@ -331,10 +336,20 @@ class RubikaAdapter:
         return str(result.get("message_id")) if result else None
 
     async def send_stored_file(
-        self, chat_id: str, file_id: str, kind: Optional[str] = None
+        self, chat_id: str, file_id: str, kind: Optional[str] = None,
+        *, caption: Optional[str] = None, buttons=(),
     ) -> Optional[str]:
         """Rubika has one method for every file, so the kind changes nothing."""
-        result = await self._call("sendFile", chat_id=chat_id, file_id=file_id)
+        params = {"chat_id": chat_id, "file_id": file_id}
+        if caption is not None:
+            params["text"] = caption
+        if buttons:
+            params["inline_keypad"] = self.build_buttons(buttons)
+        result = await self._call("sendFile", **params)
+        if result is None and caption is not None:
+            return await self.send_message(OutgoingMessage(
+                chat_id, caption + "\n\n⚠️ ارسال پیوست انجام نشد؛ دوباره پیوست را ارسال کن.", buttons
+            ))
         return str(result.get("message_id")) if result else None
 
     async def send_plain(self, chat_id: str, text: str) -> Optional[str]:

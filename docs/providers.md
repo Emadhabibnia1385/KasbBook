@@ -151,3 +151,14 @@ OTP sent to a real phone. No unofficial client library as a core dependency.
 A bot posts as a bot. Anything else is one terms-of-service change away from
 taking every deployment down at once, and it puts a real person's account at
 risk to save writing an adapter.
+# Transaction descriptions and receipt presentation
+
+Normal entry asks for a description after the amount, with an explicit skip
+button. A photo/document/voice attachment and its caption can complete the entry
+atomically through `LedgerService.record`. The current transaction model stores
+one provider-scoped attachment. Opening a receipt on its original messenger sends
+the media with the transaction summary and edit buttons. Telegram/Bale summaries
+exceeding the 1024 UTF-16 caption budget are sent untruncated as a reply to the
+media. A refused media resend falls back to the summary with a visible warning.
+Another provider displays the summary and identifies the original messenger
+instead of forwarding that provider's opaque file ID.

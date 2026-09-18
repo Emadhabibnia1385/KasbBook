@@ -192,3 +192,19 @@ at it, the row is deleted outright.
 
 Both paths free the messenger, so somebody who closes an account and comes back
 starts genuinely fresh.
+# Managed categories and consent records
+
+`categories` has a book-scoped unique name. Transactions retain their historical
+category text and also reference `category_id` through a deferred composite
+foreign key including `book_id`. Migration `bba3bba99101` backfills one category
+per distinct existing book/name pair without changing descriptions, receipts,
+rates or amounts. Nullable IDs preserve compatibility with legacy raw rows;
+all service-created transactions populate the reference. The deferred key
+rejects cross-book references and deletion of a used category while permitting
+whole-book cascades. Category renaming keeps name-based planning filters aligned.
+
+`team_invitations` stores recipient user and messenger identity, offered role,
+expiry, consent status and successful delivery timestamp. `account_login_challenges`
+stores source, requester identity, destination user/identity, identifier/code
+hashes, expiry, attempts and consumption time. Neither table transfers financial
+ownership. All mutations remain inside caller-owned transactions.

@@ -93,10 +93,9 @@ async def receive(
     else:
         await adapter.send_message(reply)
 
-    if reply.forward_file_id:
-        await adapter.send_stored_file(
-            reply.chat_id, reply.forward_file_id, reply.forward_file_kind
-        )
+    from ...bot.delivery import deliver_invitations, deliver_notifications
+    await deliver_notifications(adapter, reply)
+    await deliver_invitations(session, adapter)
 
     if reply.document is not None:
         await adapter.send_file(
