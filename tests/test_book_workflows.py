@@ -133,12 +133,13 @@ async def test_member_can_add_category_from_menu_but_cannot_rename_or_delete(ses
     reply = await convo.handle(event("200", callback_data=f"cg:new:{book.id}"))
     assert "⚠️" not in reply.text
     await convo.handle(event("200", text="دسته عضو"))
+    await convo.handle(event("200", callback_data="cg:type:income"))
     service = CategoryService(session)
     (category,) = await service.list(book.id, owner.id)
     assert category.name == "دسته عضو"
     for operation in (lambda: service.rename(book.id, member.id, category.id, "تغییر"),
                       lambda: service.delete(book.id, member.id, category.id),
-                      lambda: service.create(book.id, viewer.id, "ممنوع")):
+                      lambda: service.create(book.id, viewer.id, "ممنوع", Flow.INCOME)):
         with pytest.raises(PermissionDenied):
             await operation()
     reply = await viewer_convo.handle(event("300", callback_data=f"cg:new:{book.id}"))
@@ -146,7 +147,7 @@ async def test_member_can_add_category_from_menu_but_cannot_rename_or_delete(ses
     assert not await viewer_convo.state.get(conversation_key("telegram", "300"))
     await books.deactivate_member(owner.id, book.id, member.id)
     with pytest.raises(NotFound):
-        await service.create(book.id, member.id, "غیرفعال")
+        await service.create(book.id, member.id, "غیرفعال", Flow.INCOME)
     assert await LedgerService(session).trial_balance(book.id) == (Decimal("0"), Decimal("0"))
 
 
@@ -157,13 +158,15 @@ async def test_category_management_is_reachable_and_used_categories_cannot_be_de
     assert any(b.data == f"cg:list:{book.id}" for row in menu.buttons for b in row)
     await convo.handle(event(callback_data=f"cg:new:{book.id}"))
     await convo.handle(event(text="اجاره"))
+    await convo.handle(event(callback_data="cg:type:expense"))
     service = CategoryService(session)
     (category,) = await service.list(book.id, user.id)
     listing = await convo.handle(event(callback_data=f"cg:list:{book.id}"))
     assert "افزودن" in listing.buttons[0][0].text
-    assert [b.text for b in listing.buttons[1]] == ["اجاره", "ویرایش", "حذف"]
+    assert [b.text for b in listing.buttons[1]] == ["اجاره · هزینه", "ویرایش", "حذف"]
     await convo.handle(event(callback_data=f"cg:edit:{category.id}"))
     await convo.handle(event(text="کرایه"))
+    await convo.handle(event(callback_data="cg:type:expense"))
     assert category.name == "کرایه"
     tx = await LedgerService(session).record(book.id, user.id, Flow.EXPENSE, Scope.WORK, category.name, "125.15", occurred_on=DAY)
     reply = await convo.handle(event(callback_data=f"cg:delok:{category.id}"))
@@ -174,14 +177,78 @@ async def test_category_management_is_reachable_and_used_categories_cannot_be_de
     assert await LedgerService(session).trial_balance(book.id) == (Decimal("0"), Decimal("0"))
 
 
+async def test_category_type_edit_filters_future_choices_without_rewriting_history(session):
+    user, convo = await account(session)
+    book = await BookService(session).create_book(user.id, "دفتر", BookType.BUSINESS)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "10.15", occurred_on=DAY)
+    categories = CategoryService(session)
+    (category,) = await categories.list(book.id, user.id)
+    await convo.handle(event(callback_data=f"cg:edit:{category.id}"))
+    reply = await convo.handle(event(callback_data="cg:keep"))
+    assert {b.data for row in reply.buttons for b in row} >= {"cg:type:income", "cg:type:expense"}
+    await convo.handle(event(callback_data="cg:type:expense"))
+    assert category.flow is Flow.EXPENSE
+    assert tx.flow is Flow.INCOME and tx.converted_amount == Decimal("10.15")
+    assert await ledger.trial_balance(book.id) == (Decimal("10.15"), Decimal("10.15"))
+    assert await categories.list(book.id, user.id, Flow.INCOME) == []
+    assert [r.name for r in await categories.list(book.id, user.id, Flow.EXPENSE)] == ["فروش"]
+    await convo.handle(event(callback_data=f"tx:book:{book.id}"))
+    reply = await convo.handle(event(callback_data="tx:flow:income"))
+    assert "فروش" not in [b.text for row in reply.buttons for b in row]
+    with pytest.raises(ValidationError):
+        await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "20", occurred_on=DAY)
+    await ledger.update(book.id, user.id, tx.id, description="شرح تاریخی")
+    assert tx.description == "شرح تاریخی"
+    with pytest.raises(ValidationError):
+        await categories.update(book.id, user.id, category.id, flow="wrong", name="خراب")
+    assert category.name == "فروش" and category.flow is Flow.EXPENSE
+
+
+async def test_stale_type_buttons_cannot_create_a_category_without_a_name(session):
+    user, convo = await account(session)
+    book = await BookService(session).create_book(user.id, "دفتر", BookType.PERSONAL)
+    assert "⚠️" in (await convo.handle(event(callback_data="cg:type:income"))).text
+    await convo.handle(event(callback_data=f"cg:new:{book.id}"))
+    assert "⚠️" in (await convo.handle(event(callback_data="cg:type:income"))).text
+    await convo.handle(event(text="دسته"))
+    assert await CategoryService(session).list(book.id, user.id) == []
+    await convo.handle(event(callback_data="nav:home"))
+    assert "⚠️" in (await convo.handle(event(callback_data="cg:type:income"))).text
+    assert await CategoryService(session).list(book.id, user.id) == []
+
+
+async def test_api_category_type_edit_and_filter_share_service_rules(api, session):
+    owner, user_id = await api_user(api, "owner@example.com")
+    outsider, _ = await api_user(api, "outsider@example.com")
+    book = (await api.post("/api/v1/books", headers=owner, json={"name": "دفتر", "type": "business"})).json()
+    path = f"/api/v1/books/{book['id']}/categories"
+    assert (await api.post(path, headers=owner, json={"name": "بدون نوع"})).status_code == 422
+    response = await api.post(path, headers=owner, json={"name": "فروش", "flow": "income"})
+    assert response.status_code == 201 and response.json()["flow"] == "income"
+    category_id = response.json()["id"]
+    assert (await api.get(path + "?flow=expense", headers=owner)).json() == []
+    tx = await LedgerService(session).record(uuid.UUID(book["id"]), user_id, Flow.INCOME, Scope.WORK, "فروش", "12.25", occurred_on=DAY)
+    await session.commit()
+    assert (await api.patch(path + "/" + category_id, headers=outsider, json={"flow": "expense"})).status_code == 404
+    assert (await api.patch(path + "/" + category_id, headers=owner, json={"flow": "wrong"})).status_code == 422
+    edited = await api.patch(path + "/" + category_id, headers=owner, json={"flow": "expense"})
+    assert edited.status_code == 200 and edited.json()["flow"] == "expense"
+    assert (await api.get(path + "?flow=income", headers=owner)).json() == []
+    assert (await api.get(path + "?flow=expense", headers=owner)).json()[0]["id"] == category_id
+    await session.refresh(tx)
+    assert tx.flow is Flow.INCOME and tx.converted_amount == Decimal("12.25")
+    assert await LedgerService(session).trial_balance(uuid.UUID(book["id"])) == (Decimal("12.25"), Decimal("12.25"))
+
+
 async def test_category_duplicates_and_cross_book_callbacks_are_refused(session):
     owner, _ = await account(session)
     stranger, convo = await account(session, "200")
     book = await BookService(session).create_book(owner.id, "راز دفتر", BookType.BUSINESS)
     service = CategoryService(session)
-    category = await service.create(book.id, owner.id, "راز دسته")
+    category = await service.create(book.id, owner.id, "راز دسته", Flow.INCOME)
     with pytest.raises(ValidationError):
-        await service.create(book.id, owner.id, " راز دسته ")
+        await service.create(book.id, owner.id, " راز دسته ", Flow.INCOME)
     for callback in (f"book:open:{book.id}", f"cg:list:{book.id}", f"cg:new:{book.id}", f"cg:edit:{category.id}", f"cg:delok:{category.id}"):
         reply = await convo.handle(event("200", callback_data=callback))
         assert "⚠️" in reply.text and "راز دفتر" not in reply.text and "راز دسته" not in reply.text
@@ -448,7 +515,7 @@ async def test_api_categories_and_transaction_edits_share_bot_state_and_exact_mo
     headers, user_id = await api_user(api, "owner@example.com")
     book = (await api.post("/api/v1/books", headers=headers, json={"name": "دفتر", "type": "business"})).json()
     path = f"/api/v1/books/{book['id']}"
-    category = await api.post(path + "/categories", headers=headers, json={"name": "فروش"})
+    category = await api.post(path + "/categories", headers=headers, json={"name": "فروش", "flow": "income"})
     assert category.status_code == 201
     tx = (await api.post(path + "/transactions", headers=headers, json={
         "flow": "income", "category": "فروش", "amount": "12345678.9999", "currency": "IRR", "occurred_on": DAY.isoformat()})).json()
@@ -473,10 +540,10 @@ async def test_api_cross_user_book_and_transaction_changes_return_not_found(api)
     stranger, _ = await api_user(api, "stranger@example.com")
     book = (await api.post("/api/v1/books", headers=owner, json={"name": "راز", "type": "business"})).json()
     path = f"/api/v1/books/{book['id']}"
-    category = (await api.post(path + "/categories", headers=owner, json={"name": "فروش"})).json()
+    category = (await api.post(path + "/categories", headers=owner, json={"name": "فروش", "flow": "income"})).json()
     tx = (await api.post(path + "/transactions", headers=owner, json={"flow": "income", "category": "فروش", "amount": "1"})).json()
     assert (await api.get(path + "/categories", headers=stranger)).status_code == 404
-    assert (await api.post(path + "/categories", headers=stranger, json={"name": "x"})).status_code == 404
+    assert (await api.post(path + "/categories", headers=stranger, json={"name": "x", "flow": "income"})).status_code == 404
     assert (await api.patch(path + f"/categories/{category['id']}", headers=stranger, json={"name": "x"})).status_code == 404
     assert (await api.delete(path + f"/categories/{category['id']}", headers=stranger)).status_code == 404
     assert (await api.patch(path + f"/transactions/{tx['id']}", headers=stranger, json={"amount": "2"})).status_code == 404
@@ -492,12 +559,12 @@ async def test_api_member_category_creation_keeps_edit_and_viewer_boundaries(api
     await BookService(session).add_member(owner_id, book.id, viewer_id, Role.VIEWER)
     await session.commit()
     path = f"/api/v1/books/{book.id}/categories"
-    response = await api.post(path, headers=member, json={"name": "دسته عضو"})
+    response = await api.post(path, headers=member, json={"name": "دسته عضو", "flow": "income"})
     assert response.status_code == 201
     category_id = response.json()["id"]
     assert (await api.patch(path + "/" + category_id, headers=member, json={"name": "تغییر"})).status_code == 403
     assert (await api.delete(path + "/" + category_id, headers=member)).status_code == 403
-    assert (await api.post(path, headers=viewer, json={"name": "ممنوع"})).status_code == 403
+    assert (await api.post(path, headers=viewer, json={"name": "ممنوع", "flow": "expense"})).status_code == 403
     assert [row["name"] for row in (await api.get(path, headers=owner)).json()] == ["دسته عضو"]
 
 

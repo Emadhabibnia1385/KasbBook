@@ -424,8 +424,8 @@ async def test_categories_already_used_are_offered_as_buttons(session):
         assert category in labels
 
 
-async def test_managed_book_categories_are_available_for_either_flow(session):
-    """A category belongs to the book; its first transaction does not fix a flow."""
+async def test_managed_book_categories_are_filtered_by_flow(session):
+    """Expense entry offers only the book's expense categories."""
     user = await linked_user(session)
     book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
     ledger = LedgerService(session)
@@ -438,7 +438,7 @@ async def test_managed_book_categories_are_available_for_either_flow(session):
 
     labels = [b.text for row in reply.buttons for b in row]
     assert "اجاره" in labels
-    assert "فروش" in labels
+    assert "فروش" not in labels
 
 
 async def test_pressing_a_suggestion_skips_straight_to_the_amount(session):

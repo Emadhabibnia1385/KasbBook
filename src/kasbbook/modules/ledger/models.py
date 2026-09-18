@@ -98,6 +98,8 @@ class Category(UUIDPrimaryKey, Timestamped, Base):
         Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(80), nullable=False)
+    # None is an unclassified legacy category, never an inferred money flow.
+    flow: Mapped[Optional[Flow]] = mapped_column(Enum(Flow, native_enum=False, length=12), nullable=True)
 
 
 class Transaction(UUIDPrimaryKey, Timestamped, Base):

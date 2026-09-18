@@ -256,6 +256,16 @@ deletion still require transaction editing. Viewers cannot create categories.
 A category with any transaction cannot be deleted. Renaming also updates the
 existing category budget, recurring and treasury filters without merging them.
 
+Category creation requires `flow: "income"` or `flow: "expense"`. Category PATCH
+accepts name, flow, or both. `GET .../categories?flow=income` (or expense) uses
+the same service filter as the bot's transaction picker. A classified category
+cannot be used for the opposite transaction flow, including free-text/API
+entries. Category type changes affect future recording only: historical
+transaction flows, frozen amounts and journal lines remain unchanged.
+Legacy categories have `flow: null` and appear as unclassified in management;
+choose their type explicitly. They are excluded from the filtered picker until
+classified. Their existing transactions remain usable without rewriting history.
+
 `PATCH /api/v1/books/{book_id}/transactions/{transaction_id}` accepts `category`,
 `amount` and `description`. Money is a string. Amount means the original
 currency amount and retains the stored conversion rate. `description: null`

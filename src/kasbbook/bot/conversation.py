@@ -374,7 +374,7 @@ class Conversation:
         # Kept in the draft so a press can name one by position. The callback
         # payload has sixty-four bytes; a Persian category does not reliably
         # fit, and a button that overflows it fails silently.
-        recent = [row.name for row in await self.categories.list(uuid.UUID(draft["book_id"]), user.id)]
+        recent = [row.name for row in await self.categories.list(uuid.UUID(draft["book_id"]), user.id, flow)]
         draft["recent"] = recent
         await self.state.set(key, draft)
         return screens.ask_category(flow, recent)
@@ -554,7 +554,7 @@ class Conversation:
                                       "tx_id": str(tx.id), "field": field, "origin": origin})
             if field == "category":
                 draft = await self.state.get(key)
-                draft["recent"] = [row.name for row in await self.categories.list(book.id, user.id)]
+                draft["recent"] = [row.name for row in await self.categories.list(book.id, user.id, tx.flow)]
                 await self.state.set(key, draft)
                 return screens.ask_category(tx.flow, draft["recent"])
             if field == "amount":
@@ -1558,13 +1558,10 @@ class Conversation:
         text = (event.text or "").strip()
 
         if draft.get("flow") == "category_manage":
-            book_id = uuid.UUID(draft["book_id"])
-            if draft.get("category_id"):
-                await self.categories.rename(book_id, user.id, uuid.UUID(draft["category_id"]), text)
-            else:
-                await self.categories.create(book_id, user.id, text)
-            await self.state.clear(key)
-            return await self._category_screen(book_id, user)
+            draft["name"] = self.categories.name(text)
+            draft["stage"] = "type"
+            await self.state.set(key, draft)
+            return screens.ask_category_flow()
 
         if draft.get("flow") == "tx_edit":
             return await self._edit_tx_text(text, draft, user, key)
@@ -1888,6 +1885,26 @@ class Conversation:
         return screens.category_list(await self.books.get_book(book_id), rows)
 
     async def _category_callback(self, action, argument, user, key):
+        if action in ("keep", "type"):
+            draft = await self.state.get(key)
+            if draft.get("flow") != "category_manage":
+                return screens.error("ابتدا افزودن یا ویرایش دسته‌بندی را انتخاب کن.")
+            if action == "keep":
+                if not draft.get("category_id") or not draft.get("name"):
+                    return screens.error("نام دسته‌بندی را بفرست.")
+                draft["stage"] = "type"
+                await self.state.set(key, draft)
+                return screens.ask_category_flow()
+            if draft.get("stage") != "type":
+                return screens.error("ابتدا نام دسته‌بندی را بفرست.")
+            book_id = uuid.UUID(draft["book_id"])
+            if draft.get("category_id"):
+                await self.categories.update(book_id, user.id, uuid.UUID(draft["category_id"]),
+                                             name=draft["name"], flow=argument)
+            else:
+                await self.categories.create(book_id, user.id, draft["name"], argument)
+            await self.state.clear(key)
+            return await self._category_screen(book_id, user)
         if action in ("list", "new"):
             book_id = uuid.UUID(argument)
             if action == "list":
@@ -1909,8 +1926,8 @@ class Conversation:
             if action == "edit":
                 await self.books.require(book.id, user.id, Permission.EDIT_TRANSACTION)
                 await self.state.set(key, {"flow": "category_manage", "book_id": str(book.id),
-                                          "category_id": str(row.id)})
-                return screens.ask_category_name()
+                                          "category_id": str(row.id), "name": row.name})
+                return screens.ask_category_name(row.name)
             return await self._category_screen(book.id, user)
         return screens.error("این دسته‌بندی پیدا نشد.")
 

@@ -194,12 +194,19 @@ class InviteRequest(Model):
 
 class CategoryRequest(Model):
     name: str = Field(min_length=1, max_length=80)
+    flow: str
+
+
+class CategoryUpdate(Model):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    flow: Optional[str] = None
 
 
 class CategoryResponse(Model):
     id: uuid.UUID
     book_id: uuid.UUID
     name: str
+    flow: Optional[str]
 
 
 class TeamInviteRequest(Model):

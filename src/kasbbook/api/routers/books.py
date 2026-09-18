@@ -32,6 +32,7 @@ from ..schemas import (
     TransactionResponse,
     TransactionUpdate,
     CategoryRequest,
+    CategoryUpdate,
     CategoryResponse,
     TeamInviteRequest,
     InvitationResponse,
@@ -135,19 +136,19 @@ async def remove_member(
 
 
 @router.get("/{book_id}/categories", response_model=List[CategoryResponse])
-async def list_categories(book_id: uuid.UUID, user: CurrentUser, session: SessionDep):
-    return await CategoryService(session).list(book_id, user.id)
+async def list_categories(book_id: uuid.UUID, user: CurrentUser, session: SessionDep, flow: Optional[str] = None):
+    return await CategoryService(session).list(book_id, user.id, flow)
 
 
 @router.post("/{book_id}/categories", response_model=CategoryResponse, status_code=201)
 async def create_category(book_id: uuid.UUID, body: CategoryRequest, user: CurrentUser, session: SessionDep):
-    return await CategoryService(session).create(book_id, user.id, body.name)
+    return await CategoryService(session).create(book_id, user.id, body.name, body.flow)
 
 
 @router.patch("/{book_id}/categories/{category_id}", response_model=CategoryResponse)
-async def rename_category(book_id: uuid.UUID, category_id: uuid.UUID, body: CategoryRequest,
+async def rename_category(book_id: uuid.UUID, category_id: uuid.UUID, body: CategoryUpdate,
                           user: CurrentUser, session: SessionDep):
-    return await CategoryService(session).rename(book_id, user.id, category_id, body.name)
+    return await CategoryService(session).update(book_id, user.id, category_id, **body.model_dump(exclude_unset=True))
 
 
 @router.delete("/{book_id}/categories/{category_id}", status_code=204)

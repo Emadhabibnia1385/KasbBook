@@ -35,6 +35,10 @@ def rehearse_categories(engine, config):
                 converted_amount=Decimal("125.3078"), rate_mode="MANUAL", receipt_file_id=f"FILE{index}",
                 receipt_provider="telegram", receipt_kind="photo"))
         before = connection.execute(select(transactions).order_by(transactions.c.id)).mappings().all()
+    command.upgrade(config, "bba3bba99101")
+    legacy_categories = Table("categories", MetaData(), autoload_with=engine)
+    with engine.connect() as connection:
+        original_categories = connection.execute(select(legacy_categories).order_by(legacy_categories.c.id)).mappings().all()
     command.upgrade(config, "head")
     current = Table("transactions", MetaData(), autoload_with=engine)
     categories = Table("categories", MetaData(), autoload_with=engine)
@@ -42,6 +46,10 @@ def rehearse_categories(engine, config):
         after = connection.execute(select(current).order_by(current.c.id)).mappings().all()
         category_rows = connection.execute(select(categories)).mappings().all()
         assert len(category_rows) == 2
+        assert all(row["flow"] is None for row in category_rows)
+        assert [dict(row) for row in original_categories] == sorted(
+            [{key: value for key, value in row.items() if key != "flow"} for row in category_rows],
+            key=lambda row: row["id"])
         assert [dict(row) for row in before] == [
             {key: value for key, value in row.items() if key != "category_id"} for row in after]
         for transaction in after:

@@ -194,6 +194,12 @@ Both paths free the messenger, so somebody who closes an account and comes back
 starts genuinely fresh.
 # Managed categories and consent records
 
+Migration `cce4cce99202` adds nullable income/expense `categories.flow`.
+Existing categories stay unclassified because historical names can span both
+directions. New categories require an explicit type; automatic categories created
+by ledger recording receive that transaction's type. Classification changes do
+not change transaction flow, balances, payroll snapshots or journal lines.
+
 `categories` has a book-scoped unique name. Transactions retain their historical
 category text and also reference `category_id` through a deferred composite
 foreign key including `book_id`. Migration `bba3bba99101` backfills one category

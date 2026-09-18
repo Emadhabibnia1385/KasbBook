@@ -1268,7 +1268,8 @@ def ask_description(editing=False) -> Screen:
 def category_list(book, categories) -> Screen:
     rows = [[Button("➕ افزودن دسته‌بندی", data=f"cg:new:{book.id}")]]
     for category in categories:
-        rows.append([Button(category.name[:24], data=f"cg:open:{category.id}"),
+        kind = "درآمد" if category.flow is Flow.INCOME else "هزینه" if category.flow is Flow.EXPENSE else "تعیین‌نشده"
+        rows.append([Button(f"{category.name[:18]} · {kind}", data=f"cg:open:{category.id}"),
                      Button("ویرایش", data=f"cg:edit:{category.id}"),
                      Button("حذف", data=f"cg:del:{category.id}")])
     rows.append([Button("⬅️ دفتر", data=f"book:open:{book.id}")])
@@ -1276,8 +1277,16 @@ def category_list(book, categories) -> Screen:
                ("یک دسته‌بندی انتخاب کن." if categories else "هنوز دسته‌بندی نداری؛ از دکمهٔ بالا اضافه کن.")), rows
 
 
-def ask_category_name() -> Screen:
-    return rtl("نام دسته‌بندی را بفرست (۱ تا ۸۰ حرف)."), [[Button("↩️ انصراف", data="nav:home")]]
+def ask_category_name(current_name=None) -> Screen:
+    rows = [[Button("حفظ نام و ویرایش نوع", data="cg:keep")]] if current_name else []
+    rows.append([Button("↩️ انصراف", data="nav:home")])
+    return rtl("نام دسته‌بندی را بفرست (۱ تا ۸۰ حرف)."), rows
+
+
+def ask_category_flow() -> Screen:
+    return rtl("این دسته‌بندی برای درآمد است یا هزینه؟"), [
+        [Button("درآمد", data="cg:type:income"), Button("هزینه", data="cg:type:expense")],
+        [Button("↩️ انصراف", data="nav:home")]]
 
 
 def ask_teammate() -> Screen:

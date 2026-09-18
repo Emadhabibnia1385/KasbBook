@@ -29,6 +29,7 @@ from .models import (
     DEBIT_POSITIVE,
     Account,
     AccountType,
+    Category,
     Flow,
     JournalEntry,
     JournalLine,
@@ -156,7 +157,7 @@ class LedgerService:
         converted = quantize(original * rate)
         if converted <= ZERO:
             raise BalanceError("an entry of zero moves nothing")
-        category_row = await self.categories._ensure(book_id, category)
+        category_row = await self.categories._ensure(book_id, category, flow)
         transaction = Transaction(
             book_id=book_id,
             actor_user_id=actor_user_id,
@@ -432,7 +433,9 @@ class LedgerService:
         if amount is not UNSET:
             cash = await self.account(book_id, CASH)
             other = await self.account(book_id, INCOME if tx.flow is Flow.INCOME else EXPENSE)
-        category_row = await self.categories._ensure(book_id, new_category)
+        category_row = (await self.categories._ensure(book_id, new_category, tx.flow)
+                        if category is not UNSET or tx.category_id is None
+                        else await self.session.get(Category, tx.category_id))
         tx.category, tx.category_id = category_row.name, category_row.id
         tx.description = new_description
         if amount is not UNSET:
