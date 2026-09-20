@@ -15,6 +15,7 @@ import pytest
 from kasbbook.modules.books.models import BookType, Permission, Role
 from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.service import IdentityService
+from kasbbook.modules.exchange.service import ExchangeService
 from kasbbook.modules.ledger.models import Flow, RateMode, Scope
 from kasbbook.modules.ledger.service import CASH, INCOME, LedgerService
 from kasbbook.shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
@@ -271,6 +272,7 @@ async def test_a_negative_amount_is_refused(session):
 async def test_a_foreign_amount_keeps_both_sides_and_its_rate(session):
     books, user = await setup_owner(session)
     book = await books.create_book(user.id, "کسب‌وکار", BookType.BUSINESS, "IRT")
+    await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
     ledger = LedgerService(session)
 
     tx = await ledger.record(
@@ -291,6 +293,7 @@ async def test_a_foreign_amount_keeps_both_sides_and_its_rate(session):
 async def test_a_foreign_amount_without_a_rate_is_refused(session):
     books, user = await setup_owner(session)
     book = await books.create_book(user.id, "کسب‌وکار", BookType.BUSINESS, "IRT")
+    await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
     ledger = LedgerService(session)
 
     with pytest.raises(ValidationError):
@@ -303,6 +306,7 @@ async def test_a_past_report_does_not_move_when_the_rate_moves(session):
     """The whole point of storing the rate: history is not rewritten."""
     books, user = await setup_owner(session)
     book = await books.create_book(user.id, "کسب‌وکار", BookType.BUSINESS, "IRT")
+    await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
     ledger = LedgerService(session)
 
     old = await ledger.record(
@@ -324,6 +328,7 @@ async def test_a_past_report_does_not_move_when_the_rate_moves(session):
 async def test_the_ledger_balances_with_mixed_currencies(session):
     books, user = await setup_owner(session)
     book = await books.create_book(user.id, "کسب‌وکار", BookType.BUSINESS, "IRT")
+    await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
     ledger = LedgerService(session)
 
     await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "ریالی", "500000")

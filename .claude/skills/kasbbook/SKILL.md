@@ -184,8 +184,8 @@ fails, it is almost certainly right and you are almost certainly wrong.
 | `test_the_runner_loads_when_executed_as_a_script` | code that breaks when systemd runs it |
 | `test_the_two_dependency_lists_agree` | pyproject and requirements drifting |
 
-**Callback prefixes currently taken:** `acc bg book dl dt ln nav noop pf pr qk rep
-rm rr sh sr td tf tx` (and `rb`/`rc` for report periods). Pick a free one; the
+**Callback prefixes currently taken:** `acc bg book cg cu dl dt iv ln nav noop pf
+pr qk rep rm rr sh sr td tf tx` (and `rb`/`rc` for report periods). Pick a free one; the
 guard will tell you if you did not.
 
 ---
@@ -206,6 +206,19 @@ cause in any of these.
   type change for money columns, `migrations/comparators.py` is broken. Those
   diffs are not cosmetic — each is an `ALTER COLUMN TYPE` that rewrites a table
   to the type it already has.
+
+- **A book holds what it received, in that currency.** `ExchangeService`
+  derives every wallet balance from the transactions and conversions rather
+  than storing it, because a stored balance is a second copy that drifts the
+  first time a row is edited. An expense in a token the book does not hold is
+  refused; the base currency is exempt, because its "balance" is income minus
+  expense rather than a bank balance, and enforcing it would refuse the first
+  expense of every new book.
+
+- **A conversion is not a transaction.** `compute_distribution` sums income and
+  expense to decide what everyone is paid, so a swap recorded as both would
+  inflate the pie and move every member's share. Conversions live in their own
+  table for exactly that reason.
 
 - **A percentage is not an amount.** `parse_amount("۵۰م")` is fifty million.
   For percentages and weights (treasury rules, member shares) parse plain

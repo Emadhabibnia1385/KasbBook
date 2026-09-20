@@ -99,6 +99,42 @@ wear the rejection before reaching `sendDocument`. All three are nullable —
 every receipt attached before they existed has them empty, and the code falls
 back to guessing for those.
 
+## Currencies and the wallet
+
+A book may hold more than one currency. `BookCurrency` lists the ones it is
+allowed to hold; the base currency is never a row there, so it is always
+allowed and cannot be switched off.
+
+```
+BookCurrency          book_id, code, is_active
+CurrencyConversion    from_currency/from_amount  →  to_currency/to_amount
+                      base_value, base_currency   what the swap was worth here
+```
+
+**Balances are derived, never stored.** What a book holds of a currency is its
+income minus its expenses in that currency, plus and minus what conversions
+moved. A stored balance is a second copy of a number the transactions already
+contain, and the two drift the first time a row is edited.
+
+What arrives stays in the currency it arrived in. Ten tethers received are ten
+tethers held; the toman figure is frozen on the transaction as the valuation,
+not as the holding.
+
+An expense in a currency the book does not hold enough of is **refused**. The
+base currency is exempt: its balance here is income minus expense rather than a
+bank balance — nothing records an opening balance or a transfer in from
+outside — so enforcing it would refuse the first expense of every new book.
+
+A conversion is deliberately **not** a transaction. Payroll decides what
+everyone is paid by summing income and expense, so a swap recorded as both
+would inflate the pie and move every member's share for a trade that earned
+the book nothing.
+
+Conversions do not post a journal entry. The journal is an income-and-expense
+journal in the base currency, and payroll payments and treasury allocations do
+not post to it either; a conversion is neither income nor expense, so the
+trial balance is unchanged by one.
+
 ## Planning
 
 | Model | What it holds |

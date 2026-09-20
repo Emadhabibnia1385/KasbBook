@@ -13,6 +13,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from ..adapters.base import Button
 from ..modules.books.models import Book, BookType, CostPolicy
+from ..modules.exchange.models import CURRENCY_NAMES
 from ..modules.identity.models import Identity, Provider
 from ..modules.ledger.models import Flow, Scope
 
@@ -44,6 +45,20 @@ def rtl(text: str) -> str:
 def fmt(amount: Decimal, currency: str = "") -> str:
     grouped = f"{Decimal(amount):,.0f}"
     return f"{grouped} {currency}".strip()
+
+
+# Currencies counted in whole units. Everything else is a token, where the
+# fractional part is real money: 229.19 USDT shown as "229" loses 0.19 of it.
+WHOLE_UNIT_CURRENCIES = ("IRT", "IRR")
+
+
+def fmt_currency(amount: Decimal, code: str) -> str:
+    """Format an amount in its own currency, keeping a token's decimals."""
+    name = CURRENCY_NAMES.get(code, code)
+    if code in WHOLE_UNIT_CURRENCIES:
+        return f"{Decimal(amount):,.0f} {name}"
+    text = f"{Decimal(amount):,.4f}".rstrip("0").rstrip(".")
+    return f"{text or '0'} {name}"
 
 
 # ------------------------------------------------------------------ welcome
@@ -925,6 +940,7 @@ def book_menu(book: Book) -> Screen:
          Button("🤝 طلب و بدهی", data=f"dt:list:{book.id}")],
         [Button("📄 وام و اقساط", data=f"ln:list:{book.id}"),
          Button("🔁 تکرارشونده", data=f"rr:list:{book.id}")],
+        [Button("👛 کیف پول و ارزها", data=f"cu:home:{book.id}")],
         # Only where there is more than one person to pay. On a personal book
         # the whole idea is noise, so it is not offered.
         *([[Button("👥 حقوق و سهم", data=f"pr:list:{book.id}")]]
@@ -2021,3 +2037,132 @@ def no_shares_defined(book: Book, period) -> Screen:
         [Button("🧾 سهم اعضا", data="sh:list")],
         [Button("⬅️ بازگشت", data=f"pr:open:{period.id}")],
     ]
+
+
+# ------------------------------------------------------- wallet & currencies
+def currency_home(book: Book, balances, has_extra: bool) -> Screen:
+    """What the book holds, in the currencies it holds it in."""
+    lines = [f"👛 کیف پول {book.name}", ""]
+    if not has_extra:
+        lines += [
+            "این دفتر فقط با "
+            f"{CURRENCY_NAMES.get(book.base_currency, book.base_currency)} کار می‌کند.",
+            "",
+            "اگر تتر، تون یا ترون هم می‌گیری، از «ارزهای دفتر» فعالش کن تا هنگام "
+            "ثبت تراکنش ازت بپرسد و موجودی هر کدام جدا نگه داشته شود.",
+        ]
+    else:
+        for balance in balances:
+            mark = " (پایه)" if balance.is_base else ""
+            lines.append(f"• {fmt_currency(balance.amount, balance.code)}{mark}")
+        lines += ["", "هر ارز همان ارز می‌ماند تا وقتی تبدیلش کنی."]
+
+    buttons = [[Button("⚙️ ارزهای دفتر", data=f"cu:set:{book.id}")]]
+    if has_extra:
+        buttons.append([Button("🔄 تبدیل ارز", data=f"cu:conv:{book.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def currency_settings(book: Book, options) -> Screen:
+    """Tick the currencies this book is allowed to hold."""
+    lines = [
+        f"⚙️ ارزهای {book.name}",
+        "",
+        "هر ارزی که تیک بخورد، هنگام ثبت تراکنش پیشنهاد می‌شود و موجودی‌اش "
+        "جدا نگه داشته می‌شود.",
+        "",
+    ]
+    buttons = []
+    for option in options:
+        if option.is_base:
+            lines.append(f"✅ {option.name} — ارز پایه، همیشه فعال")
+            continue
+        mark = "✅" if option.enabled else "⬜️"
+        lines.append(f"{mark} {option.name}")
+        buttons.append([Button(f"{mark} {option.name}", data=f"cu:tog:{option.code}")])
+
+    buttons.append([Button("⬅️ کیف پول", data=f"cu:home:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def conversion_pick_source(book: Book, balances) -> Screen:
+    lines = ["🔄 از کدام ارز تبدیل می‌کنی؟", ""]
+    buttons = []
+    for balance in balances:
+        lines.append(f"• {fmt_currency(balance.amount, balance.code)}")
+        buttons.append([Button(balance.name, data=f"cu:from:{balance.code}")])
+    buttons.append([Button("⬅️ انصراف", data=f"cu:home:{book.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def conversion_ask_amount(code: str, held) -> Screen:
+    name = CURRENCY_NAMES.get(code, code)
+    return rtl(
+        f"🔄 چقدر {name} تبدیل می‌کنی؟\n\n"
+        f"موجودی: {fmt_currency(held, code)}"
+    ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def conversion_pick_target(from_code: str, codes) -> Screen:
+    name = CURRENCY_NAMES.get(from_code, from_code)
+    buttons = [
+        [Button(CURRENCY_NAMES.get(code, code), data=f"cu:to:{code}")]
+        for code in codes if code != from_code
+    ]
+    buttons.append([Button("⬅️ انصراف", data="nav:home")])
+    return rtl(f"🔄 {name} به کدام ارز تبدیل شود؟"), buttons
+
+
+def conversion_ask_target_amount(from_code: str, from_amount, to_code: str) -> Screen:
+    return rtl(
+        f"🔄 {fmt_currency(from_amount, from_code)} تبدیل می‌شود به چقدر "
+        f"{CURRENCY_NAMES.get(to_code, to_code)}؟\n\n"
+        "همان عددی را بنویس که واقعاً گرفتی."
+    ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def conversion_ask_base_value(base_code: str) -> Screen:
+    name = CURRENCY_NAMES.get(base_code, base_code)
+    return rtl(
+        f"🔄 ارزش این تبدیل به {name} چقدر بود؟\n\n"
+        f"چون هیچ سمت این تبدیل {name} نیست، برای ثبت در دفتر به ارزش "
+        f"{name} آن نیاز است."
+    ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def conversion_saved(book: Book, conversion) -> Screen:
+    return rtl(
+        "✅ تبدیل ثبت شد\n\n"
+        f"{fmt_currency(conversion.from_amount, conversion.from_currency)}"
+        f"  ←  {fmt_currency(conversion.to_amount, conversion.to_currency)}\n"
+        f"ارزش دفتری: {fmt(conversion.base_value, conversion.base_currency)}"
+    ), [
+        [Button("👛 کیف پول", data=f"cu:home:{book.id}")],
+        [Button("🏠 خانه", data="nav:home")],
+    ]
+
+
+def pick_currency(codes, balances_by_code) -> Screen:
+    """Which currency is this transaction in? Only asked when there is a choice."""
+    buttons = [
+        [Button(CURRENCY_NAMES.get(code, code), data=f"tx:cur:{code}")]
+        for code in codes
+    ]
+    buttons.append([Button("⬅️ انصراف", data="nav:home")])
+    lines = ["💱 این مبلغ به چه ارزی است؟", ""]
+    for code in codes:
+        held = balances_by_code.get(code)
+        if held is not None:
+            lines.append(f"• {fmt_currency(held, code)}")
+    return rtl("\n".join(lines)), buttons
+
+
+def ask_rate(code: str, base_code: str) -> Screen:
+    """A foreign amount needs a rate, because the book reports in its own currency."""
+    name = CURRENCY_NAMES.get(code, code)
+    base = CURRENCY_NAMES.get(base_code, base_code)
+    return rtl(
+        f"💱 نرخ هر {name} به {base} چند است؟\n\n"
+        f"همین عدد در تراکنش ثبت و قفل می‌شود، تا گزارش این ماه با نرخ فردا عوض نشود."
+    ), [[Button("⬅️ انصراف", data="nav:home")]]

@@ -170,7 +170,10 @@ class AccountLoginResult(Model):
 class BookRequest(Model):
     name: str = Field(min_length=1, max_length=120)
     type: str
-    currency: str = "IRR"
+    # None means the service's own default, so a book made here and a book made
+    # in the bot agree. Hardcoding "IRR" gave the API rial books while the bot
+    # made toman ones, and nothing ever compared the two.
+    currency: Optional[str] = None
     cost_policy: Optional[str] = None
 
 
@@ -233,11 +236,60 @@ class InvitationReply(Model):
 
 
 # --------------------------------------------------------- transactions
+class CurrencyOptionResponse(Model):
+    code: str
+    name: str
+    enabled: bool
+    is_base: bool
+
+
+class CurrencyToggleRequest(Model):
+    enabled: bool
+
+
+class CurrencyBalanceResponse(MoneyModel):
+    code: str
+    name: str
+    amount: Decimal
+    is_base: bool
+
+
+class ConversionRequest(MoneyModel):
+    from_currency: str
+    from_amount: Decimal = Field(gt=0)
+    to_currency: str
+    to_amount: Decimal = Field(gt=0)
+    # Only needed when neither side is the book's own currency; the service
+    # says so rather than guessing a rate.
+    base_value: Optional[Decimal] = Field(default=None, gt=0)
+    occurred_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class ConversionResponse(MoneyModel):
+    id: uuid.UUID
+    occurred_on: date
+    from_currency: str
+    from_amount: Decimal
+    to_currency: str
+    to_amount: Decimal
+    base_value: Decimal
+    base_currency: str
+    note: Optional[str] = None
+
+
 class TransactionRequest(MoneyModel):
     flow: str
     category: str = Field(min_length=1, max_length=80)
     amount: Decimal = Field(gt=0)
-    currency: str = "IRR"
+    # None means "whatever this book counts in". The old default of "IRR" was
+    # not the base currency of a book the bot had created, so every plain
+    # transaction posted over HTTP to one was refused.
+    currency: Optional[str] = None
+    # Without this the API could name a foreign currency but never price it,
+    # so every non-base amount was refused for want of a rate the caller had
+    # no way to send.
+    conversion_rate: Optional[Decimal] = Field(default=None, gt=0)
     description: Optional[str] = Field(default=None, max_length=500)
     occurred_on: Optional[date] = None
     scope: Optional[str] = None

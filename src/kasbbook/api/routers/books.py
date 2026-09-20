@@ -18,13 +18,19 @@ from ...modules.books.invitations import InvitationService
 from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.ledger.models import Flow, Scope
+from ...modules.exchange.service import ExchangeService
 from ...modules.ledger.service import LedgerService
 from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
     BookRequest,
+    ConversionRequest,
+    ConversionResponse,
     CostPolicyRequest,
+    CurrencyBalanceResponse,
+    CurrencyOptionResponse,
+    CurrencyToggleRequest,
     BookResponse,
     InviteRequest,
     MemberResponse,
@@ -74,7 +80,8 @@ async def create_book(
     body: BookRequest, user: CurrentUser, session: SessionDep
 ) -> BookResponse:
     book = await BookService(session).create_book(
-        user.id, body.name, _as_enum(BookType, body.type, "type"), body.currency,
+        user.id, body.name, _as_enum(BookType, body.type, "type"),
+        body.currency or "IRT",
         _as_enum(CostPolicy, body.cost_policy, "cost_policy")
         if body.cost_policy else CostPolicy.BEFORE_SPLIT,
     )
@@ -111,6 +118,86 @@ async def set_cost_policy(
                         currency=book.base_currency,
                         cost_policy=book.cost_policy.value,
                         created_at=book.created_at)
+
+
+# ------------------------------------------------------ wallet & currencies
+@router.get("/{book_id}/currencies", response_model=List[CurrencyOptionResponse])
+async def list_currencies(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[CurrencyOptionResponse]:
+    """Every currency this book could hold, and whether it is ticked."""
+    options = await ExchangeService(session).options(user.id, book_id)
+    return [
+        CurrencyOptionResponse(code=o.code, name=o.name, enabled=o.enabled,
+                               is_base=o.is_base)
+        for o in options
+    ]
+
+
+@router.put("/{book_id}/currencies/{code}", response_model=List[CurrencyOptionResponse])
+async def set_currency(
+    book_id: uuid.UUID, code: str, body: CurrencyToggleRequest,
+    user: CurrentUser, session: SessionDep,
+) -> List[CurrencyOptionResponse]:
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(user.id, book_id, code, body.enabled)
+    return [
+        CurrencyOptionResponse(code=o.code, name=o.name, enabled=o.enabled,
+                               is_base=o.is_base)
+        for o in await exchange.options(user.id, book_id)
+    ]
+
+
+@router.get("/{book_id}/wallet", response_model=List[CurrencyBalanceResponse])
+async def wallet(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[CurrencyBalanceResponse]:
+    """What the book holds, in the currency it holds it in."""
+    balances = await ExchangeService(session).balances(user.id, book_id)
+    return [
+        CurrencyBalanceResponse(code=b.code, name=b.name, amount=b.amount,
+                                is_base=b.is_base)
+        for b in balances
+    ]
+
+
+@router.get("/{book_id}/conversions", response_model=List[ConversionResponse])
+async def list_conversions(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    limit: int = Query(20, ge=1, le=100),
+) -> List[ConversionResponse]:
+    rows = await ExchangeService(session).conversions(user.id, book_id, limit)
+    return [_conversion(row) for row in rows]
+
+
+@router.post("/{book_id}/conversions", response_model=ConversionResponse,
+             status_code=201)
+async def convert(
+    book_id: uuid.UUID, body: ConversionRequest, user: CurrentUser, session: SessionDep
+) -> ConversionResponse:
+    """Move value from one of the book's currencies into another."""
+    row = await ExchangeService(session).convert(
+        actor_user_id=user.id,
+        book_id=book_id,
+        from_currency=body.from_currency,
+        from_amount=body.from_amount,
+        to_currency=body.to_currency,
+        to_amount=body.to_amount,
+        base_value=body.base_value,
+        occurred_on=body.occurred_on,
+        note=body.note,
+    )
+    return _conversion(row)
+
+
+def _conversion(row) -> ConversionResponse:
+    return ConversionResponse(
+        id=row.id, occurred_on=row.occurred_on,
+        from_currency=row.from_currency, from_amount=row.from_amount,
+        to_currency=row.to_currency, to_amount=row.to_amount,
+        base_value=row.base_value, base_currency=row.base_currency,
+        note=row.note,
+    )
 
 
 # --------------------------------------------------------------- members
@@ -246,6 +333,7 @@ async def record_transaction(
         occurred_on=body.occurred_on,
         description=body.description,
         currency=body.currency,
+        conversion_rate=body.conversion_rate,
     )
     activity = (await LedgerService(session).activities(user.id, [transaction]))[transaction.id]
     return _transaction(transaction, activity)

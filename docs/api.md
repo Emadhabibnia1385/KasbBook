@@ -151,6 +151,9 @@ prefix, never the key.
 | `GET /books/{id}/transactions` | `?since=&until=&page=&per_page=`, newest first |
 | `POST /books/{id}/transactions` | see below |
 | `GET`/`DELETE /books/{id}/transactions/{tx}` | one transaction |
+| `GET /books/{id}/currencies` · `PUT /{code}` | which currencies this book may hold |
+| `GET /books/{id}/wallet` | what it holds, per currency |
+| `GET`/`POST /books/{id}/conversions` | move value between two of them |
 
 ```bash
 curl -X POST /api/v1/books/$BOOK/transactions \
@@ -165,8 +168,14 @@ what a leak exposes. Attaching a receipt is a bot flow — there is no upload
 endpoint yet.
 
 `scope` is optional and defaults from the book type. `currency` defaults to the
-book's base currency; a different one captures a conversion rate at that moment
-and never re-applies it.
+book's own, and a different one must be a currency the book has enabled and
+must carry `conversion_rate` — that rate is frozen on the transaction and never
+re-applied. An expense in a currency the book does not hold enough of is
+refused; the base currency is exempt.
+
+`POST /books` also takes `currency`, and omitting it now means the same default
+the bot uses. It used to mean `IRR`, which is why a book created in the bot
+refused every transaction posted to it here.
 
 Adding a member requires that person to already have an account; they are found
 by email or phone.

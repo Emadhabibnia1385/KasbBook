@@ -22,6 +22,7 @@ from ...shared.errors import BalanceError, NotFound, PermissionDenied, Validatio
 from ...shared.money import ZERO, quantize, to_decimal
 from ...shared.security import utcnow
 from ..books.models import Permission
+from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent, User
 from ..loans.models import LoanPayment
@@ -153,9 +154,18 @@ class LedgerService:
             raise ValidationError("an amount is never negative; use the other flow")
 
         original_currency = (currency or book.base_currency).upper()
+        exchange = ExchangeService(self.session)
         if original_currency == book.base_currency:
             rate = Decimal("1")
         else:
+            # A currency the book never ticked is a typo, not a holding. Left
+            # unchecked, "FOO" with a rate was accepted and became a balance
+            # nobody could explain.
+            if original_currency not in await exchange.allowed(book_id):
+                raise ValidationError(
+                    f"این دفتر {original_currency} را پشتیبانی نمی‌کند؛ "
+                    "اول از تنظیمات ارزها فعالش کن."
+                )
             if conversion_rate is None:
                 raise ValidationError(
                     f"a {original_currency} amount needs a rate into {book.base_currency}"
@@ -163,6 +173,11 @@ class LedgerService:
             rate = to_decimal(conversion_rate)
             if rate <= ZERO:
                 raise ValidationError("a conversion rate must be positive")
+
+        if flow is Flow.EXPENSE:
+            # You cannot spend a token you do not hold. Exempt for the base
+            # currency — see ExchangeService.require_funds for why.
+            await exchange.require_funds(book_id, original_currency, original)
 
         converted = quantize(original * rate)
         if converted <= ZERO:

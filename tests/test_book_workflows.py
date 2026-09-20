@@ -21,6 +21,7 @@ from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.login import AccountLoginService
 from kasbbook.modules.identity.models import AccountLoginChallenge, Provider
 from kasbbook.modules.identity.service import IdentityService
+from kasbbook.modules.exchange.service import ExchangeService
 from kasbbook.modules.ledger.categories import CategoryService
 from kasbbook.modules.ledger.models import Flow, JournalEntry, Scope
 from kasbbook.modules.ledger.service import LedgerService
@@ -369,9 +370,10 @@ async def test_loan_payment_amount_cannot_be_changed_as_an_ordinary_transaction(
 async def test_transaction_edits_preserve_id_rate_receipt_and_balanced_journal(session):
     user, convo = await account(session)
     book = await BookService(session).create_book(user.id, "دفتر", BookType.BUSINESS)
+    await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
     ledger = LedgerService(session)
     tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "قدیمی", "10.15",
-                             occurred_on=DAY, currency="USD", conversion_rate="123.4567",
+                             occurred_on=DAY, currency="USDT", conversion_rate="123.4567",
                              receipt_file_id="PHOTO", receipt_provider="telegram", receipt_kind="photo")
     await convo.handle(event(callback_data=f"td:ec:{tx.id}"))
     await convo.handle(event(text="جدید"))
@@ -396,9 +398,10 @@ async def test_transaction_edits_preserve_id_rate_receipt_and_balanced_journal(s
 async def test_amount_rounding_to_zero_never_leaves_a_partial_financial_write(session):
     user, _ = await account(session)
     book = await BookService(session).create_book(user.id, "دفتر", BookType.BUSINESS)
+    await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
     ledger = LedgerService(session)
     tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "10",
-                             currency="USD", conversion_rate="0.0001", occurred_on=DAY)
+                             currency="USDT", conversion_rate="0.0001", occurred_on=DAY)
     before = await ledger.trial_balance(book.id)
     with pytest.raises(ValidationError):
         await ledger.update(book.id, user.id, tx.id, amount="0.0001", category="جدید")
@@ -596,7 +599,7 @@ async def test_api_categories_and_transaction_edits_share_bot_state_and_exact_mo
     category = await api.post(path + "/categories", headers=headers, json={"name": "فروش", "flow": "income"})
     assert category.status_code == 201
     tx = (await api.post(path + "/transactions", headers=headers, json={
-        "flow": "income", "category": "فروش", "amount": "12345678.9999", "currency": "IRR", "occurred_on": DAY.isoformat()})).json()
+        "flow": "income", "category": "فروش", "amount": "12345678.9999", "occurred_on": DAY.isoformat()})).json()
     changed = await api.patch(path + f"/transactions/{tx['id']}", headers=headers,
                               json={"amount": "0.15", "description": "شرح"})
     assert changed.status_code == 200
