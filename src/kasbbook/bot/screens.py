@@ -1707,7 +1707,8 @@ def period_list(book: Book, periods, month_label: str) -> Screen:
     return rtl("\n".join(lines)), buttons
 
 
-def period_detail(book: Book, period, distribution, slip_count: int) -> Screen:
+def period_detail(book: Book, period, distribution, slip_count: int,
+                  has_payments: bool = False) -> Screen:
     """The whole arithmetic, shown rather than asserted.
 
     Every line of it is here on purpose: someone about to be paid a share of a
@@ -1744,7 +1745,10 @@ def period_detail(book: Book, period, distribution, slip_count: int) -> Screen:
         lines += ["", f"{slip_count} فیش صادر شده."]
 
     buttons = []
-    if period.status.value not in ("locked", "paid"):
+    if period.status.value not in ("locked", "paid") and not has_payments:
+        # Recalculating replaces the payslips, and payments cascade with them.
+        # Once money has changed hands the service refuses; not offering the
+        # button is the honest version of the same rule.
         buttons.append([Button("🧮 محاسبهٔ فیش‌ها", data=f"pr:calc:{period.id}")])
     if period.status.value not in ("locked", "paid") and not slip_count:
         # Only while it has paid nobody. Two periods covering the same day

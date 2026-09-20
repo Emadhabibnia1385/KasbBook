@@ -392,3 +392,25 @@ async def test_a_member_cannot_be_paid_in_a_currency_the_book_never_ticked(sessi
         await payroll.pay(owner.id, slip.id, "5", paid_on=DAY, currency="TON",
                           conversion_rate="300000")
     assert slip.paid_total == Decimal("0")
+
+
+async def test_a_period_with_payments_is_not_recalculated(session):
+    """Payments cascade with payslips, so replacing one erased the payment.
+
+    The wallet sprang back up too: the book forgot it had handed the money
+    over, and nothing said so.
+    """
+    from sqlalchemy import func
+
+    from kasbbook.modules.payroll.models import Payment
+    from kasbbook.shared.errors import PermissionDenied
+
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
+    await session.flush()
+
+    with pytest.raises(PermissionDenied):
+        await payroll.calculate(owner.id, slip.period_id)
+
+    assert (await session.execute(select(func.count(Payment.id)))).scalar() == 1
+    assert await ExchangeService(session).balance_of(book.id, "IRT") == Decimal("6000000.0000")

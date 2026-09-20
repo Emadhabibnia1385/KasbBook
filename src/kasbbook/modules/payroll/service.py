@@ -595,6 +595,22 @@ class PayrollService:
         ).scalars().all():
             adjustments_by_user.setdefault(adjustment.user_id, []).append(adjustment)
 
+        # Payments hang off payslips and cascade with them, so replacing a
+        # payslip that has been paid deletes the record that money changed
+        # hands — and the wallet springs back up as if it never had. Corrections
+        # to a period that has paid out belong in a later one, which is what the
+        # period model has said all along.
+        if await self.session.scalar(
+            select(Payment.id)
+            .join(Payslip, Payslip.id == Payment.payslip_id)
+            .where(Payslip.period_id == period_id)
+            .limit(1)
+        ):
+            raise PermissionDenied(
+                "این دوره پرداخت ثبت‌شده دارد و محاسبهٔ دوباره سابقهٔ آن را پاک "
+                "می‌کند؛ اصلاح را در دورهٔ بعد ثبت کن."
+            )
+
         # Recalculating replaces the previous run rather than doubling it.
         for stale in (
             await self.session.execute(

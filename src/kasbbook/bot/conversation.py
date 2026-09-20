@@ -1348,7 +1348,8 @@ class Conversation:
     async def _period_detail(self, book, user, period):
         distribution = await self.payroll.compute_distribution(period.id)
         slips = await self.payroll.payslips(user.id, period.id)
-        return screens.period_detail(book, period, distribution, len(slips))
+        paid = any(slip.paid_total > Decimal("0") for slip in slips)
+        return screens.period_detail(book, period, distribution, len(slips), paid)
 
     async def _payroll_callback(self, action: str, argument: str, user, key: str):
         if action == "list":
