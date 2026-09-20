@@ -22,6 +22,11 @@ income
 Every line of that is shown on the period screen. Somebody about to be paid a
 share of a number should be able to see how the number was reached.
 
+A treasury rule may name a category, and is then charged on that category's
+income alone — which is how one kind of income can be set aside in full while
+everything else is divided normally. A category carries one flow, so gross and
+net agree for such a rule.
+
 ### Who carries the costs
 
 The chain above is one of two arrangements, and a book chooses between them

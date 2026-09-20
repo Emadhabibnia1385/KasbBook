@@ -51,6 +51,11 @@ class Distribution:
     treasury_total: Decimal = ZERO
     treasury_by_fund: Dict[uuid.UUID, Decimal] = field(default_factory=dict)
     cost_policy: CostPolicy = CostPolicy.BEFORE_SPLIT
+    # Kept so a treasury rule written for one category can be charged on that
+    # category alone, which is what such a rule says it does. Only income is
+    # tracked: a category is either an income one or an expense one, never
+    # both, so a category's "net" is its income.
+    income_by_category: Dict[str, Decimal] = field(default_factory=dict)
 
     @property
     def net_profit(self) -> Decimal:
@@ -409,6 +414,9 @@ class PayrollService:
         for tx in rows:
             if tx.flow is Flow.INCOME:
                 result.gross_income += tx.converted_amount
+                result.income_by_category[tx.category] = (
+                    result.income_by_category.get(tx.category, ZERO) + tx.converted_amount
+                )
             else:
                 result.direct_costs += tx.converted_amount
 
@@ -426,11 +434,22 @@ class PayrollService:
             if not rule.applies_on(period.ends_on):
                 continue
 
-            if rule.basis is RuleBasis.GROSS_PERCENT:
+            # A rule naming a category is charged on that category alone. The
+            # column said so from the start and nothing read it, so a rule
+            # meant for one kind of income quietly took a cut of all of it.
+            if rule.category:
+                # Charged on that category's income alone. Gross and net agree
+                # here because a category carries one flow, so a category has
+                # no costs of its own to net off.
+                cut = (result.income_by_category.get(rule.category, ZERO)
+                       * rule.value / HUNDRED)
+            elif rule.basis is RuleBasis.GROSS_PERCENT:
                 cut = result.gross_income * rule.value / HUNDRED
             elif rule.basis is RuleBasis.NET_PERCENT:
                 cut = result.net_profit * rule.value / HUNDRED
             else:
+                # A flat amount does not scale with anything, so a category
+                # cannot change it.
                 cut = rule.value
 
             cut = quantize(max(cut, ZERO))

@@ -904,3 +904,90 @@ async def test_another_accounts_calculation_cannot_be_discarded(session):
     with pytest.raises(NotFound):
         await payroll.discard_calculation(stranger.id, period.id)
     assert len(await payroll.payslips(owner.id, period.id)) == 1
+
+
+# ------------------------------------------- a treasury rule for one category
+async def test_a_rule_named_for_a_category_takes_only_that_category(session):
+    """The column said so from the start and nothing read it.
+
+    A rule meant for one kind of income quietly took a cut of all of it.
+    """
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=""
+    )
+    ledger = LedgerService(session)
+    await ledger.record(book.id, owner.id, Flow.INCOME, Scope.TEAM, "مشاوره",
+                        "4000000", occurred_on=START)
+
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("100"), effective_from=START, category="مشاوره")
+    await session.flush()
+
+    d = await payroll.compute_distribution(period.id)
+    assert d.gross_income == Decimal("14000000")
+    # The whole of the consultancy income, and none of the project income.
+    assert d.treasury_total == Decimal("4000000")
+    assert d.distributable == Decimal("10000000")
+
+
+async def test_a_category_rule_takes_nothing_when_that_income_is_absent(session):
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=""
+    )
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("50"), effective_from=START, category="چیزی که نیست")
+    await session.flush()
+
+    assert (await payroll.compute_distribution(period.id)).treasury_total == ZERO_INCOME
+
+
+async def test_a_category_rule_charges_that_income_whichever_basis(session):
+    """A category carries one flow, so it has no costs of its own to net off.
+
+    Gross and net therefore agree for a category rule, and both charge that
+    category's income rather than the whole book's.
+    """
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs="2000000"
+    )
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "مشاوره", "4000000", occurred_on=START)
+
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.NET_PERCENT,
+                            Decimal("50"), effective_from=START, category="مشاوره")
+    await session.flush()
+
+    # Half of the consultancy income; the book's other 10m and its costs are
+    # not this rule's business.
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("2000000")
+
+
+async def test_a_rule_with_no_category_still_takes_everything(session):
+    """The behaviour every existing book depends on must not move."""
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=""
+    )
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("50"), effective_from=START)
+    await session.flush()
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("5000000")
