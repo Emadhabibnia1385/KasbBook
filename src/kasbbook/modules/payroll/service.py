@@ -376,7 +376,11 @@ class PayrollService:
                 # A rule that had not taken effect yet is a mistake being
                 # corrected, not history worth keeping.
                 existing.is_active = False
-            else:
+            elif existing.effective_to is None or existing.effective_to >= starts_on:
+                # Only a rule still in force on the new start date needs an end.
+                # Closing every active rule instead widened the ones already
+                # finished: set a share three times and the first claimed to
+                # have been in force through the second period.
                 existing.effective_to = starts_on - timedelta(days=1)
 
         rule = ShareRule(

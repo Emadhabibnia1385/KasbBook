@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from kasbbook.modules.books.models import BookType, CostPolicy, Role
 from kasbbook.modules.books.service import BookService
@@ -635,3 +636,33 @@ async def test_another_accounts_period_cannot_be_removed(session):
     with pytest.raises(NotFound):
         await payroll.delete_period(stranger.id, period.id)
     assert len(await payroll.periods(book.id, owner.id)) == 1
+
+
+async def test_setting_a_share_a_third_time_leaves_the_first_window_alone(session):
+    """Closing every active rule widened the ones that had already ended.
+
+    Three changes in a row left the first rule claiming to have been in force
+    through the second period — history rewritten by a later decision, which
+    is the one thing effective dating exists to prevent.
+    """
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT,
+                            Decimal("8"), effective_from=date(2026, 6, 15))
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT,
+                            Decimal("40"), effective_from=date(2026, 7, 7))
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT,
+                            Decimal("33"), effective_from=date(2026, 8, 1))
+    await session.flush()
+
+    rules = sorted(
+        (await session.execute(
+            select(ShareRule).where(ShareRule.book_id == book.id,
+                                    ShareRule.is_active.is_(True))
+        )).scalars().all(),
+        key=lambda r: r.effective_from,
+    )
+    assert [r.value for r in rules] == [Decimal("8"), Decimal("40"), Decimal("33")]
+    assert rules[0].effective_to == date(2026, 7, 6)
+    assert rules[1].effective_to == date(2026, 7, 31)
+    assert rules[2].effective_to is None
