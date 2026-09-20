@@ -795,11 +795,12 @@ async def test_another_accounts_period_cannot_be_moved(session):
 
 
 # ------------------------------------------------- undoing a period's payroll
-async def test_discarding_a_calculation_unfreezes_the_period(session):
-    """Calculating freezes a period's transactions; a running period must thaw.
+async def test_a_calculated_period_still_takes_entries(session):
+    """A live book cannot stop taking entries because a payslip was issued.
 
-    With payslips issued for a period that covers today, recording today's
-    expense was refused and there was no way back.
+    Calculating a period that is still running used to refuse everything dated
+    inside it — including today. A payslip is a snapshot; when the numbers move
+    under it, it is recalculated.
     """
     from kasbbook.modules.ledger.models import Flow, Scope
     from kasbbook.modules.ledger.service import LedgerService
@@ -810,19 +811,44 @@ async def test_discarding_a_calculation_unfreezes_the_period(session):
     await payroll.calculate(owner.id, period.id)
 
     ledger = LedgerService(session)
+    tx = await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "سرور",
+                             "5000", occurred_on=START)
+    assert tx.converted_amount == Decimal("5000.0000")
+    debit, credit = await ledger.trial_balance(book.id)
+    assert debit == credit
+
+    # And recalculating picks the new cost up.
+    again = await payroll.calculate(owner.id, period.id)
+    assert again[0].net_pay == Decimal("7995000")      # 10m − 2m − 5k
+
+
+async def test_a_paid_period_stops_taking_entries(session):
+    """Money handed over is the line. After that, corrections go in a later one."""
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, "1000000", paid_on=START)
+    await session.flush()
+
+    ledger = LedgerService(session)
     with pytest.raises(PermissionDenied):
         await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "سرور",
                             "5000", occurred_on=START)
 
+
+async def test_discarding_a_calculation_removes_its_payslips(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+
     assert await payroll.discard_calculation(owner.id, period.id) == 1
     await session.flush()
-
-    tx = await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "سرور",
-                             "5000", occurred_on=START)
-    assert tx.converted_amount == Decimal("5000.0000")
     assert await payroll.payslips(owner.id, period.id) == []
-    debit, credit = await ledger.trial_balance(book.id)
-    assert debit == credit
 
 
 async def test_discarding_also_releases_the_treasury_allocation(session):

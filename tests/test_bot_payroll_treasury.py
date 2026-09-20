@@ -779,3 +779,28 @@ async def test_a_member_pressing_the_dates_button_is_refused(session):
     assert "تاریخ‌های" not in reply.text
     await session.refresh(period)
     assert period.ends_on == date(2026, 8, 31)
+
+
+async def test_the_period_says_when_its_payslips_went_stale(session):
+    """Recording after a calculation leaves the payslips behind. Say so."""
+    from kasbbook.modules.ledger.service import LedgerService
+    from kasbbook.modules.payroll.models import ShareBasis, ShareRule
+
+    owner, _, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    session.add(ShareRule(book_id=book.id, user_id=owner.id, basis=ShareBasis.PERCENT,
+                          value=Decimal("100"), effective_from=date(2026, 1, 1)))
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+
+    fresh = await convo.handle(press(f"pr:open:{period.id}"))
+    assert "نمی‌خوانند" not in fresh.text
+
+    await LedgerService(session).record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM,
+                                        "سرور", "1000000", occurred_on=date(2026, 8, 5))
+    await session.flush()
+
+    now = await convo.handle(press(f"pr:open:{period.id}"))
+    assert "نمی‌خوانند" in now.text

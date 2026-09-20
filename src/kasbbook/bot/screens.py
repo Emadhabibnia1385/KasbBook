@@ -1744,7 +1744,7 @@ def period_list(book: Book, periods, month_label: str) -> Screen:
 
 
 def period_detail(book: Book, period, distribution, slip_count: int,
-                  has_payments: bool = False) -> Screen:
+                  has_payments: bool = False, stale: bool = False) -> Screen:
     """The whole arithmetic, shown rather than asserted.
 
     Every line of it is here on purpose: someone about to be paid a share of a
@@ -1782,6 +1782,11 @@ def period_detail(book: Book, period, distribution, slip_count: int,
 
     if slip_count:
         lines += ["", f"{slip_count} فیش صادر شده."]
+        if stale:
+            lines.append(
+                "⚠️ بعد از صدور فیش‌ها چیزی در این دوره ثبت یا عوض شده؛ "
+                "اعداد بالا با فیش‌ها نمی‌خوانند. دوباره حساب کن."
+            )
 
     buttons = []
     if period.status.value not in ("locked", "paid") and not has_payments:

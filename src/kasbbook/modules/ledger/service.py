@@ -26,7 +26,7 @@ from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent, User
 from ..loans.models import LoanPayment
-from ..payroll.models import FinancialPeriod, PeriodStatus, Payslip
+from ..payroll.models import FinancialPeriod, Payment, PeriodStatus, Payslip
 from .categories import CategoryService
 from .models import (
     DEBIT_POSITIVE,
@@ -77,10 +77,25 @@ class LedgerService:
             FinancialPeriod.ends_on >= on
         ))).all()
         for period in periods:
-            if period.status is not PeriodStatus.OPEN or await self.session.scalar(
-                select(Payslip.id).where(Payslip.period_id == period.id).limit(1)
+            if period.status is not PeriodStatus.OPEN:
+                raise PermissionDenied(
+                    "این دوره بسته یا در حال محاسبه است؛ اصلاح را در دورهٔ باز ثبت کن."
+                )
+            # Only money already handed over freezes a period. Having merely
+            # calculated it used to be enough, which meant that calculating a
+            # period still running blocked every entry dated today — a live
+            # book cannot stop taking entries because a provisional payslip
+            # exists. A payslip is a snapshot and says so; when the numbers
+            # under it move, it is recalculated.
+            if await self.session.scalar(
+                select(Payment.id)
+                .join(Payslip, Payslip.id == Payment.payslip_id)
+                .where(Payslip.period_id == period.id)
+                .limit(1)
             ):
-                raise PermissionDenied("این تاریخ در دورهٔ محاسبه‌شده یا بسته است؛ اصلاح را در دورهٔ باز ثبت کن.")
+                raise PermissionDenied(
+                    "این دوره پرداخت ثبت‌شده دارد؛ اصلاح را در دورهٔ بعد ثبت کن."
+                )
 
     @staticmethod
     def _description(value):

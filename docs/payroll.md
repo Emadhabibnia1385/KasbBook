@@ -51,6 +51,12 @@ the treasury and the people.
 
 ## Periods
 
+Issuing a payslip does **not** freeze a period. Only money actually handed over
+does: after a payment, that period stops taking entries and corrections belong
+in a later one. A period that has merely been calculated keeps taking entries,
+and the period screen says when its payslips no longer match the numbers under
+them, so a stale figure is not read as a current one.
+
 Calculating a period freezes its transactions: a payslip is a snapshot and its
 inputs must not move underneath it. **Do not calculate a period that is still
 running** — while it covers today, nothing dated today can be recorded. A
