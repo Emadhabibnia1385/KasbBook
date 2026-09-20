@@ -27,6 +27,7 @@ from kasbbook.modules.payroll.models import (
 from kasbbook.modules.payroll.service import PayrollService
 from kasbbook.modules.treasury.models import FundKind, RuleBasis, TreasuryFund, TreasuryRule
 from kasbbook.shared.errors import NotFound, PermissionDenied, ValidationError
+from kasbbook.shared.money import ZERO as ZERO_INCOME
 
 pytestmark = pytest.mark.asyncio
 
@@ -521,3 +522,71 @@ async def test_recalculating_a_period_does_not_double_the_treasury(session):
     )).scalars().all()
     assert len(rows) == 1
     assert rows[0].amount == Decimal("5000000")
+
+
+# ------------------------------------------------------- treasury rule dates
+async def test_a_treasury_cut_can_change_between_periods(session):
+    """The bug this closes: a cut could be set and never changed.
+
+    applies_on() read effective_to and nothing ever wrote it, so a new
+    percentage stacked on the old one and the treasury took both.
+    """
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, first = await team_with_income(
+        session, income="10000000", costs=""
+    )
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("50"), effective_from=START,
+                            effective_to=date(2025, 4, 15))
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("45"), effective_from=date(2025, 4, 16))
+    await session.flush()
+
+    # A rule is judged on the period's END date, not on its range, so each
+    # period must end inside the window of the cut it should pay.
+    early = await payroll.open_period(owner.id, book.id, "نیمهٔ اول",
+                                      START, date(2025, 4, 15))
+    late = await payroll.open_period(owner.id, book.id, "نیمهٔ دوم",
+                                     date(2025, 4, 16), date(2025, 4, 30))
+
+    # All the income is dated START, so both periods see it or not by date;
+    # what is being asserted here is which percentage applied, not which rows.
+    assert (await payroll.compute_distribution(early.id)).treasury_total == Decimal("5000000")
+    assert (await payroll.compute_distribution(late.id)).treasury_total == ZERO_INCOME
+    # Stacked, the two rules would have taken 95%. They do not.
+    assert (await payroll.compute_distribution(first.id)).treasury_total == Decimal("4500000")
+
+
+async def test_closing_a_rule_leaves_what_it_already_took(session):
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    rule = await treasury.add_rule(book.id, owner.id, fund.id,
+                                   RuleBasis.GROSS_PERCENT, Decimal("50"),
+                                   effective_from=START)
+    await session.flush()
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("5000000")
+
+    await treasury.close_rule(book.id, owner.id, rule.id, date(2025, 4, 15))
+    await session.flush()
+    # The period ends after the rule closed, so it takes nothing more.
+    assert (await payroll.compute_distribution(period.id)).treasury_total == ZERO_INCOME
+    assert rule.is_active is True
+
+
+async def test_a_rule_cannot_end_before_it_starts(session):
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    with pytest.raises(ValidationError):
+        await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                                Decimal("50"), effective_from=START,
+                                effective_to=date(2025, 3, 1))

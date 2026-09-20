@@ -128,6 +128,7 @@ class TreasuryService:
         value,
         effective_from: Optional[date] = None,
         category: Optional[str] = None,
+        effective_to: Optional[date] = None,
     ) -> TreasuryRule:
         await self.books.require(book_id, user_id, Permission.MANAGE_PAYROLL)
         await self.get_fund(book_id, user_id, fund_id)
@@ -138,15 +139,41 @@ class TreasuryService:
         if basis is not RuleBasis.FIXED and amount > MAX_PERCENT:
             raise ValidationError("درصد نمی‌تواند بیشتر از ۱۰۰ باشد")
 
+        starts_on = effective_from or date.today()
+        if effective_to is not None and effective_to < starts_on:
+            raise ValidationError("پایان قاعده نمی‌تواند قبل از شروعش باشد")
+
         rule = TreasuryRule(
             book_id=book_id,
             fund_id=fund_id,
             basis=basis,
             value=amount,
             category=(category or "").strip()[:80] or None,
-            effective_from=effective_from or date.today(),
+            effective_from=starts_on,
+            # Without this a cut could be set and never changed: applies_on()
+            # reads effective_to, nothing wrote it, so a new percentage stacked
+            # on the old one and the treasury quietly took both.
+            effective_to=effective_to,
         )
         self.session.add(rule)
+        await self.session.flush()
+        return rule
+
+    async def close_rule(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, rule_id: uuid.UUID, on: date
+    ) -> TreasuryRule:
+        """Stop a rule taking anything after `on`, without deleting what it took.
+
+        Deactivating would hide it from history; the allocations it already
+        produced stay, and so does the reason they exist.
+        """
+        await self.books.require(book_id, user_id, Permission.MANAGE_PAYROLL)
+        rule = await self.session.get(TreasuryRule, rule_id)
+        if rule is None or rule.book_id != book_id:
+            raise NotFound("قاعده پیدا نشد")
+        if on < rule.effective_from:
+            raise ValidationError("پایان قاعده نمی‌تواند قبل از شروعش باشد")
+        rule.effective_to = on
         await self.session.flush()
         return rule
 

@@ -564,6 +564,13 @@ class TreasuryRuleRequest(MoneyModel):
     value: Decimal = Field(gt=0)
     effective_from: Optional[date] = None
     category: Optional[str] = Field(default=None, max_length=80)
+    # A cut that changes between periods needs the old one to stop, or both
+    # apply and the treasury takes the sum of them.
+    effective_to: Optional[date] = None
+
+
+class CloseRuleRequest(Model):
+    effective_to: date
 
 
 class TreasuryRuleResponse(MoneyModel):
@@ -573,4 +580,5 @@ class TreasuryRuleResponse(MoneyModel):
     value: Decimal
     category: Optional[str] = None
     effective_from: date
+    effective_to: Optional[date] = None
     is_active: bool

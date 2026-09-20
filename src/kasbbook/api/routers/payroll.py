@@ -40,6 +40,7 @@ from ..schemas import (
     PerformanceResponse,
     ShareRequest,
     ShareResponse,
+    CloseRuleRequest,
     TreasuryRuleRequest,
     TreasuryRuleResponse,
 )
@@ -380,10 +381,7 @@ async def list_rules(
 ) -> List[TreasuryRuleResponse]:
     rows = await TreasuryService(session).rules(book_id, user.id, fund_id)
     return [
-        TreasuryRuleResponse(
-            id=r.id, fund_id=r.fund_id, basis=r.basis.value, value=r.value,
-            category=r.category, effective_from=r.effective_from, is_active=r.is_active,
-        )
+        _rule(r)
         for r in rows
     ]
 
@@ -395,12 +393,29 @@ async def add_rule(
 ) -> TreasuryRuleResponse:
     rule = await TreasuryService(session).add_rule(
         book_id, user.id, fund_id, _as_enum(RuleBasis, body.basis, "basis"),
-        body.value, body.effective_from, body.category,
+        body.value, body.effective_from, body.category, body.effective_to,
     )
+    return _rule(rule)
+
+
+@router.post("/funds/{fund_id}/rules/{rule_id}/close",
+             response_model=TreasuryRuleResponse)
+async def close_rule(
+    book_id: uuid.UUID, fund_id: uuid.UUID, rule_id: uuid.UUID,
+    body: CloseRuleRequest, user: CurrentUser, session: SessionDep,
+) -> TreasuryRuleResponse:
+    """Stop a cut taking anything after a date, without erasing what it took."""
+    rule = await TreasuryService(session).close_rule(
+        book_id, user.id, rule_id, body.effective_to
+    )
+    return _rule(rule)
+
+
+def _rule(rule) -> TreasuryRuleResponse:
     return TreasuryRuleResponse(
         id=rule.id, fund_id=rule.fund_id, basis=rule.basis.value, value=rule.value,
         category=rule.category, effective_from=rule.effective_from,
-        is_active=rule.is_active,
+        effective_to=rule.effective_to, is_active=rule.is_active,
     )
 
 
