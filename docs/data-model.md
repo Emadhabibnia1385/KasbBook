@@ -135,6 +135,26 @@ journal in the base currency, and payroll payments and treasury allocations do
 not post to it either; a conversion is neither income nor expense, so the
 trial balance is unchanged by one.
 
+### Live prices
+
+`kasbbook.rates.swapwallet` reads SwapWallet's public market endpoint, which
+needs no key. The bot fills in the rate when a foreign amount is entered, and
+shows it with a button to override — an OTC deal is often not the market price.
+
+It lives outside `modules/` on purpose: every service here talks to the
+database and nothing else, and a rule that depends on a third party being
+reachable fails at the worst moment. The source is passed in; a service without
+one has no quote and asks the person instead. A dead feed never raises.
+
+Only prices are read. The same API can execute swaps and withdraw funds, and
+nothing here can reach that.
+
+**Recorded rates are never revalued.** A transaction keeps the rate it was
+recorded at for ever, so last month's report does not move when the market
+does. What is revalued is the *holding*: the wallet shows what today's prices
+say the tokens are worth, which is a different question from what they were
+worth when they arrived.
+
 ## Planning
 
 | Model | What it holds |

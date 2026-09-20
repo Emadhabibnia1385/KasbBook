@@ -17,9 +17,14 @@ import logging
 
 from fastapi import APIRouter, Request, Response, status
 
+from ...rates.swapwallet import SwapWalletRates
 from ...adapters.base import EventKind
 from ...modules.identity.models import Provider
 from ..deps import SessionDep
+
+# One per process: the cache inside it is the point, and a webhook
+# handler that built a fresh client per update would never use it.
+_RATES = SwapWalletRates()
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("kasbbook.api.webhooks")
@@ -68,7 +73,8 @@ async def receive(
     from ...bot.conversation import Conversation
 
     try:
-        conversation = Conversation(session, runtime.state_store, Provider(provider))
+        conversation = Conversation(session, runtime.state_store, Provider(provider),
+                                    rates=_RATES)
         reply = await conversation.handle(event)
         await session.commit()
     except Exception:

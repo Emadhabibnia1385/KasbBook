@@ -1285,6 +1285,21 @@ def ask_description(editing=False) -> Screen:
                        [Button("↩️ انصراف", data="nav:home")]]
 
 
+def ask_description_with_rate(code: str, rate, base_code: str, converted) -> Screen:
+    """The live rate was applied; say so, and offer to change it."""
+    name = CURRENCY_NAMES.get(code, code)
+    return rtl(
+        f"💱 نرخ امروز {name}: {fmt(rate, CURRENCY_NAMES.get(base_code, base_code))}\n"
+        f"معادل: {fmt(converted, CURRENCY_NAMES.get(base_code, base_code))}\n\n"
+        "توضیحات تراکنش را بفرست (حداکثر ۵۰۰ حرف).\n"
+        "اگر رسید، عکس یا فایلی داری، همراه توضیحات بفرست."
+    ), [
+        [Button("ثبت بدون توضیحات", data="tx:skip")],
+        [Button("✏️ نرخ دیگری دارم", data="tx:rate:x")],
+        [Button("↩️ انصراف", data="nav:home")],
+    ]
+
+
 def category_list(book, categories) -> Screen:
     rows = [[Button("➕ افزودن دسته‌بندی", data=f"cg:new:{book.id}")]]
     for category in categories:
@@ -2040,7 +2055,7 @@ def no_shares_defined(book: Book, period) -> Screen:
 
 
 # ------------------------------------------------------- wallet & currencies
-def currency_home(book: Book, balances, has_extra: bool) -> Screen:
+def currency_home(book: Book, balances, has_extra: bool, total=None) -> Screen:
     """What the book holds, in the currencies it holds it in."""
     lines = [f"👛 کیف پول {book.name}", ""]
     if not has_extra:
@@ -2052,9 +2067,15 @@ def currency_home(book: Book, balances, has_extra: bool) -> Screen:
             "ثبت تراکنش ازت بپرسد و موجودی هر کدام جدا نگه داشته شود.",
         ]
     else:
+        base_name = CURRENCY_NAMES.get(book.base_currency, book.base_currency)
         for balance in balances:
-            mark = " (پایه)" if balance.is_base else ""
-            lines.append(f"• {fmt_currency(balance.amount, balance.code)}{mark}")
+            line = f"• {fmt_currency(balance.amount, balance.code)}"
+            worth = getattr(balance, "value", None)
+            if worth is not None and not balance.is_base:
+                line += f"  ≈ {fmt(worth, base_name)}"
+            lines.append(line)
+        if total is not None:
+            lines += ["", f"ارزش کل به نرخ امروز: {fmt(total, base_name)}"]
         lines += ["", "هر ارز همان ارز می‌ماند تا وقتی تبدیلش کنی."]
 
     buttons = [[Button("⚙️ ارزهای دفتر", data=f"cu:set:{book.id}")]]

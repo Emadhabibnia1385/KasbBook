@@ -47,10 +47,28 @@ class CurrencyOption:
         return CURRENCY_NAMES.get(self.code, self.code)
 
 
+@dataclass(frozen=True)
+class CurrencyValue:
+    """A holding, and what it is worth today — if a price was available."""
+
+    code: str
+    amount: Decimal
+    rate: Optional[Decimal]
+    value: Optional[Decimal]
+    is_base: bool
+
+    @property
+    def name(self) -> str:
+        return CURRENCY_NAMES.get(self.code, self.code)
+
+
 class ExchangeService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, rates=None) -> None:
         self.session = session
         self.books = BookService(session)
+        # Optional on purpose: without one there is simply no quote, and the
+        # person is asked. A rule must not depend on a third party answering.
+        self.rates = rates
 
     # ------------------------------------------------------------ currencies
     async def allowed(self, book_id: uuid.UUID) -> List[str]:
@@ -207,6 +225,42 @@ class ExchangeService:
             raise ValidationError(
                 f"موجودی {name} کافی نیست: {held} در کیف پول هست و {amount} خواسته شد."
             )
+
+    async def quote(self, code: str, base: str) -> Optional[Decimal]:
+        """Today's price of one unit of `code` in `base`, if anyone knows it."""
+        if self.rates is None:
+            return None
+        return await self.rates.quote(code, base)
+
+    async def valuation(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID
+    ) -> tuple[List[CurrencyValue], Optional[Decimal]]:
+        """What the wallet holds and what it is worth at today's prices.
+
+        This values the holding, and only the holding. Transactions keep the
+        rate they were recorded at for ever — otherwise last month's report
+        would change every time the market moved, which is not a report.
+        """
+        balances = await self.balances(actor_user_id, book_id)
+        book = await self.books.get_book(book_id)
+
+        rows: List[CurrencyValue] = []
+        total: Optional[Decimal] = ZERO
+        for balance in balances:
+            if balance.is_base:
+                rate, value = Decimal("1"), balance.amount
+            else:
+                rate = await self.quote(balance.code, book.base_currency)
+                value = quantize(balance.amount * rate) if rate is not None else None
+            if value is None and balance.amount != ZERO:
+                # One unknown price makes the total a guess, so there is no
+                # total rather than a wrong one.
+                total = None
+            elif total is not None and value is not None:
+                total = total + value
+            rows.append(CurrencyValue(code=balance.code, amount=balance.amount,
+                                      rate=rate, value=value, is_base=balance.is_base))
+        return rows, (quantize(total) if total is not None else None)
 
     # ----------------------------------------------------------- conversions
     async def convert(

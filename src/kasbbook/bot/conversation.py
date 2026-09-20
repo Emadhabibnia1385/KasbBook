@@ -67,10 +67,12 @@ class Conversation:
         session: AsyncSession,
         state: StateStore,
         provider: Provider,
+        rates=None,
     ) -> None:
         self.session = session
         self.state = state
         self.provider = provider
+        self.rates = rates
         self.identity = IdentityService(session)
         self.books = BookService(session)
         self.ledger = LedgerService(session)
@@ -81,7 +83,7 @@ class Conversation:
         self.recurring = RecurringService(session)
         self.payroll = PayrollService(session)
         self.treasury = TreasuryService(session)
-        self.exchange = ExchangeService(session)
+        self.exchange = ExchangeService(session, rates=rates)
         self.categories = CategoryService(session)
         self.invitations = InvitationService(session)
         self.account_login = AccountLoginService(session)
@@ -354,9 +356,31 @@ class Conversation:
                 await self.state.set(key, draft)
                 return screens.ask_description()
 
+            live = await self.exchange.quote(argument, book.base_currency)
+            if live is not None:
+                # Today's market price, applied so the person does not have to
+                # type it. It is shown rather than hidden, and overridable,
+                # because an OTC deal is often not the market price.
+                draft["rate"] = str(live)
+                draft["awaiting"] = "description"
+                await self.state.set(key, draft)
+                return screens.ask_description_with_rate(
+                    argument, live, book.base_currency,
+                    Decimal(draft["amount"]) * live,
+                )
+
             draft["awaiting"] = "rate"
             await self.state.set(key, draft)
             return screens.ask_rate(argument, book.base_currency)
+
+        if action == "rate":
+            draft = await self.state.get(key)
+            if not draft.get("currency") or not draft.get("book_id"):
+                return screens.welcome(user.display_name)
+            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+            draft["awaiting"] = "rate"
+            await self.state.set(key, draft)
+            return screens.ask_rate(draft["currency"], book.base_currency)
 
         if action == "cat":
             draft = await self.state.get(key)
@@ -1106,7 +1130,7 @@ class Conversation:
                 await self.state.set(key, {"flow": "currency", "book_id": argument})
                 return screens.currency_settings(book, options)
 
-            balances = await self.exchange.balances(user.id, book.id)
+            balances, worth = await self.exchange.valuation(user.id, book.id)
             if action == "conv":
                 # Nothing you do not hold can be converted, so the picker only
                 # offers what has a balance.
@@ -1117,7 +1141,7 @@ class Conversation:
                 return screens.conversion_pick_source(book, holdings)
 
             await self.state.clear(key)
-            return screens.currency_home(book, balances, len(balances) > 1)
+            return screens.currency_home(book, balances, len(balances) > 1, worth)
 
         # Everything below reads the book from conversation state, where it was
         # put after a permission check, rather than from the button.
