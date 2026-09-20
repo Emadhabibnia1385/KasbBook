@@ -95,6 +95,18 @@ async def open_period(
     return _period(period)
 
 
+@router.delete("/periods/{period_id}", status_code=204)
+async def delete_period(
+    book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    """Remove a period that has not paid anyone."""
+    payroll = PayrollService(session)
+    period = await payroll.get_period(period_id)
+    if period.book_id != book_id:
+        raise NotFound("period")
+    await payroll.delete_period(user.id, period_id)
+
+
 @router.get("/periods/{period_id}/distribution", response_model=DistributionResponse)
 async def distribution(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep

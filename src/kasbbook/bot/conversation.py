@@ -1367,6 +1367,13 @@ class Conversation:
             await self.state.clear(key)
             return await self._period_detail(book, user, period)
 
+        if action == "del":
+            period = await self.payroll.get_period(uuid.UUID(argument))
+            book = await self.books.get_book(period.book_id)
+            await self.payroll.delete_period(user.id, period.id)
+            await self.state.clear(key)
+            return await self._period_list_screen(book, user)
+
         if action in ("slip", "pay", "payall"):
             return await self._payslip_action(action, argument, user, key)
 

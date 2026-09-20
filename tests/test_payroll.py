@@ -590,3 +590,48 @@ async def test_a_rule_cannot_end_before_it_starts(session):
         await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
                                 Decimal("50"), effective_from=START,
                                 effective_to=date(2025, 3, 1))
+
+
+# ---------------------------------------------------------- removing a period
+async def test_a_period_that_paid_nobody_can_be_removed(session):
+    """Two periods covering the same day divide that day's income twice."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    await payroll.delete_period(owner.id, period.id)
+    await session.flush()
+    assert await payroll.periods(book.id, owner.id) == []
+
+
+async def test_a_period_that_produced_a_payslip_stays(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+
+    with pytest.raises(ValidationError):
+        await payroll.delete_period(owner.id, period.id)
+    assert len(await payroll.periods(book.id, owner.id)) == 1
+
+
+async def test_a_locked_period_is_never_removed(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    for to in (PeriodStatus.CALCULATING, PeriodStatus.AWAITING_APPROVAL,
+               PeriodStatus.APPROVED, PeriodStatus.PAID, PeriodStatus.LOCKED):
+        await payroll.advance_period(owner.id, period.id, to)
+    with pytest.raises(PermissionDenied):
+        await payroll.delete_period(owner.id, period.id)
+
+
+async def test_a_member_cannot_remove_a_period(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "عضو")
+    with pytest.raises(PermissionDenied):
+        await payroll.delete_period(member.id, period.id)
+    assert len(await payroll.periods(book.id, owner.id)) == 1
+
+
+async def test_another_accounts_period_cannot_be_removed(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    stranger = await identity.create_user("غریبه")
+    with pytest.raises(NotFound):
+        await payroll.delete_period(stranger.id, period.id)
+    assert len(await payroll.periods(book.id, owner.id)) == 1

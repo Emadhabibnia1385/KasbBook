@@ -1746,6 +1746,11 @@ def period_detail(book: Book, period, distribution, slip_count: int) -> Screen:
     buttons = []
     if period.status.value not in ("locked", "paid"):
         buttons.append([Button("🧮 محاسبهٔ فیش‌ها", data=f"pr:calc:{period.id}")])
+    if period.status.value not in ("locked", "paid") and not slip_count:
+        # Only while it has paid nobody. Two periods covering the same day
+        # divide that day's income twice, so a period made by mistake needs a
+        # way out.
+        buttons.append([Button("🗑 حذف دوره", data=f"pr:del:{period.id}")])
     if slip_count:
         buttons.append([Button("💵 فیش‌ها", data=f"pr:slips:{period.id}")])
     buttons.append([

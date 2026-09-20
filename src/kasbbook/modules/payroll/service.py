@@ -160,6 +160,42 @@ class PayrollService:
         await self.session.flush()
         return period
 
+    async def delete_period(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID
+    ) -> None:
+        """Remove a period that has not paid anyone yet.
+
+        The bot's "new period" button creates one for the current month, and
+        until now nothing could undo that. An unwanted period is not harmless:
+        two periods covering the same day both count that day's income, so the
+        same money can be divided twice.
+
+        A period that has produced a payslip is history and stays. So does one
+        that is paid or locked, whatever its payslips say.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        if period.status in (PeriodStatus.PAID, PeriodStatus.LOCKED):
+            raise PermissionDenied("این دوره پرداخت یا قفل شده و حذف نمی‌شود.")
+        if await self.session.scalar(
+            select(Payslip.id).where(Payslip.period_id == period_id).limit(1)
+        ):
+            raise ValidationError(
+                "این دوره فیش صادر کرده؛ اول محاسبه را باطل کن یا دوره را نگه دار."
+            )
+
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="period.deleted",
+                subject=period.label,
+                detail=f"{period.starts_on}..{period.ends_on}",
+            )
+        )
+        await self.session.delete(period)
+        await self.session.flush()
+
     async def _require_editable(self, period: FinancialPeriod) -> None:
         if period.status is PeriodStatus.LOCKED:
             raise PermissionDenied(
