@@ -58,6 +58,10 @@ A payment can be taken back while its period is still open, which puts the
 payslip and the wallet back where they were. A figure typed wrongly, or against
 the wrong person, was otherwise permanent.
 
+A member can be paid in any currency the book holds. The payment carries the
+rate it was made at, and the payslip counts it in its own currency — forty
+tethers is what forty tethers were worth, not forty toman.
+
 ## Periods
 
 Issuing a payslip does **not** freeze a period. Only money actually handed over

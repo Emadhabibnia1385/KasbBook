@@ -242,7 +242,15 @@ class Payslip(UUIDPrimaryKey, Timestamped, Base):
 
     @property
     def paid_total(self) -> Decimal:
-        return sum((p.amount for p in self.payments), Decimal("0"))
+        """What has been handed over, in the currency this payslip is written in.
+
+        A payment may be made in another currency, and carries the rate it was
+        made at. Summing the raw amounts counted forty tethers as forty toman
+        and left the payslip all but unpaid.
+        """
+        return sum(
+            (p.amount * p.conversion_rate for p in self.payments), Decimal("0")
+        )
 
     @property
     def remaining(self) -> Decimal:

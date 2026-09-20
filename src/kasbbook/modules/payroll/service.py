@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
@@ -921,20 +921,35 @@ class PayrollService:
         # Summed in SQL rather than through the relationship: the payslip may
         # already be in the identity map from a calculate() in the same session,
         # in which case its `payments` collection was never loaded.
-        already = to_decimal(
+        already = sum(
             (
-                await self.session.execute(
-                    select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                        Payment.payslip_id == payslip_id
+                to_decimal(amount) * to_decimal(at_rate)
+                for amount, at_rate in (
+                    await self.session.execute(
+                        select(Payment.amount, Payment.conversion_rate).where(
+                            Payment.payslip_id == payslip_id
+                        )
                     )
-                )
-            ).scalar_one()
+                ).all()
+            ),
+            ZERO,
         )
         owed = quantize(slip.net_pay - already)
-        if value > owed:
-            raise ValidationError(f"only {owed} is still owed on this payslip")
 
         paid_in = (currency or slip.currency).upper()
+        rate = to_decimal(conversion_rate) if conversion_rate else Decimal("1")
+        if paid_in != slip.currency and conversion_rate is None:
+            raise ValidationError(
+                f"پرداخت به {paid_in} نرخ تبدیل به {slip.currency} می‌خواهد."
+            )
+        if rate <= ZERO:
+            raise ValidationError("نرخ تبدیل باید مثبت باشد.")
+
+        # Compared in the payslip's own currency. Summing raw amounts counted
+        # forty tethers as forty toman and left the payslip all but unpaid.
+        if quantize(value * rate) > owed:
+            raise ValidationError(f"only {owed} is still owed on this payslip")
+
         book = await self.books.get_book(slip.book_id)
         exchange = ExchangeService(self.session)
         if paid_in not in await exchange.allowed(slip.book_id):
@@ -946,7 +961,7 @@ class PayrollService:
             payslip_id=payslip_id,
             amount=value,
             currency=paid_in,
-            conversion_rate=to_decimal(conversion_rate) if conversion_rate else Decimal("1"),
+            conversion_rate=rate,
             # The book's day, not the server's: a payment made in the evening
             # in Tehran is not yesterday because the server runs on UTC.
             paid_on=paid_on or jalali.today_in(book.timezone),

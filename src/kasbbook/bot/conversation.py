@@ -46,6 +46,7 @@ from ..modules.treasury.service import TreasuryService
 from ..modules.reports.service import ReportService
 from ..shared.errors import KasbBookError
 from ..shared import jalali
+from ..shared.money import quantize
 from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
 from . import quick, screens
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
@@ -1439,6 +1440,14 @@ class Conversation:
             await self.state.clear(key)
             return screens.payslip_detail(book, slip, person.display_name)
 
+        if action == "pcur":
+            # Carries a currency code rather than a payslip id, so it is
+            # answered before anything tries to read one.
+            draft = await self.state.get(key)
+            if draft.get("flow") != "payslip":
+                return screens.welcome(user.display_name)
+            return await self._pay_in(draft, argument, user, key)
+
         if action in ("slip", "pay", "payall"):
             return await self._payslip_action(action, argument, user, key)
 
@@ -1497,16 +1506,23 @@ class Conversation:
             await self.state.clear(key)
             return screens.payslip_detail(book, slip, name)
 
-        if action == "payall":
-            # The common case by a long way: someone was paid what they were
-            # owed, and typing the number again is a chance to mistype it.
+        if action in ("payall", "pay"):
+            # "Pay all" is the common case by a long way: someone was paid what
+            # they were owed, and typing the number again is a chance to
+            # mistype it.
+            draft = {"flow": "payslip", "slip_id": argument,
+                     "owed": str(outstanding), "whole": action == "payall"}
+            codes = await self.exchange.allowed(book.id)
+            if action == "pay":
+                await self.state.set(key, draft)
+                return screens.payslip_ask_amount(name, outstanding, book.base_currency)
+            if len(codes) > 1:
+                await self.state.set(key, draft)
+                return screens.payslip_pick_currency(name, outstanding,
+                                                     book.base_currency, codes)
             await self.payroll.pay(user.id, slip.id, outstanding)
             await self.session.refresh(slip)
             return screens.payslip_detail(book, slip, name)
-
-        if action == "pay":
-            await self.state.set(key, {"flow": "payslip", "slip_id": argument})
-            return screens.payslip_ask_amount(name, outstanding, book.base_currency)
 
         return screens.welcome(user.display_name)
 
@@ -1611,6 +1627,37 @@ class Conversation:
         await self.state.clear(key)
         return await self._fund_detail(book, user, fund)
 
+    async def _pay_in(self, draft: dict, code: str, user, key: str, rate=None):
+        """Settle a payslip in one of the book's currencies."""
+        from ..modules.payroll.models import Payslip
+
+        slip = await self.session.get(Payslip, uuid.UUID(draft["slip_id"]))
+        book = await self.books.get_book(slip.book_id)
+        names = await self._member_names(book.id)
+        name = names.get(slip.user_id, "—")
+
+        if code == book.base_currency:
+            rate = Decimal("1")
+        elif rate is None:
+            rate = await self.exchange.quote(code, book.base_currency)
+            if rate is None:
+                # No live price, so the person supplies one rather than the
+                # book inventing a rate for money that changed hands.
+                draft["currency"] = code
+                draft["awaiting"] = "rate"
+                await self.state.set(key, draft)
+                return screens.payslip_ask_rate(code, book.base_currency)
+
+        owed = Decimal(draft["owed"])
+        base = owed if draft.get("whole") else Decimal(draft["amount"])
+        amount = base if code == book.base_currency else quantize(base / rate)
+
+        await self.payroll.pay(user.id, slip.id, amount, currency=code,
+                               conversion_rate=rate)
+        await self.state.clear(key)
+        await self.session.refresh(slip, attribute_names=["payments"])
+        return screens.payslip_detail(book, slip, name)
+
     async def _payslip_text(self, text: str, draft: dict, user, key: str):
         from ..modules.payroll.models import Payslip
 
@@ -1625,8 +1672,21 @@ class Conversation:
         name = names.get(slip.user_id, "—")
         outstanding = slip.net_pay - sum((p.amount for p in slip.payments), Decimal("0"))
 
+        if draft.get("awaiting") == "rate":
+            rate = parse_amount(text)
+            if rate is None or rate <= 0:
+                return screens.payslip_ask_rate(draft["currency"], book.base_currency)
+            return await self._pay_in(draft, draft["currency"], user, key, rate)
+
         if amount is None or amount <= 0:
             return screens.payslip_ask_amount(name, outstanding, book.base_currency)
+
+        codes = await self.exchange.allowed(book.id)
+        if len(codes) > 1:
+            draft["amount"] = str(amount)
+            draft["whole"] = False
+            await self.state.set(key, draft)
+            return screens.payslip_pick_currency(name, amount, book.base_currency, codes)
 
         await self.payroll.pay(user.id, slip.id, amount)
         await self.session.refresh(slip)

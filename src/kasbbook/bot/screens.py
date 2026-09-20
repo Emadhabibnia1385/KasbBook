@@ -2251,3 +2251,25 @@ def ask_rate(code: str, base_code: str) -> Screen:
         f"💱 نرخ هر {name} به {base} چند است؟\n\n"
         f"همین عدد در تراکنش ثبت و قفل می‌شود، تا گزارش این ماه با نرخ فردا عوض نشود."
     ), [[Button("⬅️ انصراف", data="nav:home")]]
+
+
+def payslip_pick_currency(name: str, amount: Decimal, base_code: str, codes) -> Screen:
+    """Which currency is this person being paid in?"""
+    base = CURRENCY_NAMES.get(base_code, base_code)
+    buttons = [[Button(CURRENCY_NAMES.get(code, code), data=f"pr:pcur:{code}")]
+               for code in codes]
+    buttons.append([Button("↩️ انصراف", data="nav:home")])
+    return rtl(
+        f"💵 پرداخت به {name}\n\n"
+        f"مبلغ: {fmt(amount, base)}\n\n"
+        "به چه ارزی پرداخت شد؟ اگر ارز دیگری باشد، معادلش به نرخ امروز حساب می‌شود."
+    ), buttons
+
+
+def payslip_ask_rate(code: str, base_code: str) -> Screen:
+    name = CURRENCY_NAMES.get(code, code)
+    base = CURRENCY_NAMES.get(base_code, base_code)
+    return rtl(
+        f"💱 نرخ هر {name} به {base} چند بود؟\n\n"
+        "نرخ لحظه‌ای در دسترس نیست، و دفتر برای پولی که جابه‌جا شده نرخ نمی‌سازد."
+    ), [[Button("↩️ انصراف", data="nav:home")]]

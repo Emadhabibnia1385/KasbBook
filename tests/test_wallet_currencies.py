@@ -459,3 +459,97 @@ async def test_another_account_cannot_void_a_payment(session):
     with pytest.raises(_NotFound):
         await payroll.void_payment(stranger.id, payment.id)
     assert slip.paid_total == Decimal("4000000")
+
+
+# ------------------------------------------- paying a member in another currency
+async def test_a_payslip_paid_in_a_token_is_measured_in_its_own_currency(session):
+    """Summing raw amounts counted forty tethers as forty toman.
+
+    The payslip then read as all but unpaid, and the wallet and the payroll
+    told two different stories about the same money.
+    """
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(owner.id, book.id, "USDT", True)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "100", currency="USDT",
+                                        conversion_rate="230000", occurred_on=DAY)
+    await session.flush()
+
+    await payroll.pay(owner.id, slip.id, "40", paid_on=DAY, currency="USDT",
+                      conversion_rate="230000")
+    await session.refresh(slip, attribute_names=["payments"])
+
+    # 40 × 230,000 = 9,200,000 against a 10,000,000 payslip.
+    assert slip.paid_total == Decimal("9200000.0000")
+    assert slip.remaining == Decimal("800000.0000")
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("60.0000")
+
+
+async def test_a_token_payment_beyond_what_is_owed_is_refused(session):
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(owner.id, book.id, "USDT", True)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "100", currency="USDT",
+                                        conversion_rate="230000", occurred_on=DAY)
+    await session.flush()
+
+    # 50 × 230,000 = 11,500,000, more than the 10,000,000 owed.
+    with pytest.raises(ValidationError):
+        await payroll.pay(owner.id, slip.id, "50", paid_on=DAY, currency="USDT",
+                          conversion_rate="230000")
+    assert slip.paid_total == Decimal("0")
+
+
+async def test_a_foreign_payment_without_a_rate_is_refused(session):
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    await ExchangeService(session).set_enabled(owner.id, book.id, "USDT", True)
+    await session.flush()
+
+    with pytest.raises(ValidationError):
+        await payroll.pay(owner.id, slip.id, "5", paid_on=DAY, currency="USDT")
+    assert slip.paid_total == Decimal("0")
+
+
+async def test_the_bot_pays_a_whole_payslip_in_tether(session):
+    """What the person asked for: settle somebody in a currency that is not toman."""
+    from kasbbook.adapters.base import ChannelIdentity, EventKind, IncomingEvent
+    from kasbbook.bot.conversation import Conversation
+    from kasbbook.bot.state import MemoryStateStore
+    import httpx
+    from kasbbook.rates.swapwallet import SwapWalletRates
+
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(owner.id, book.id, "USDT", True)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "100", currency="USDT",
+                                        conversion_rate="200000", occurred_on=DAY)
+    identity = IdentityService(session)
+    issued = await identity.start_link_from_web(owner.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "940001")
+    await session.flush()
+
+    rates = SwapWalletRates(client=httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _r: httpx.Response(200, json={"status": "OK", "result": {"USDT/IRT": "200000"}}))))
+    convo = Conversation(session, MemoryStateStore(), TG, rates=rates)
+
+    def press(data):
+        return IncomingEvent(kind=EventKind.CALLBACK,
+                             identity=ChannelIdentity(TG, "940001", "emad", "عماد"),
+                             chat_id="940001", message_id="1",
+                             callback_data=data, callback_id="cb")
+
+    picker = await convo.handle(press(f"pr:payall:{slip.id}"))
+    assert "به چه ارزی پرداخت شد" in picker.text
+
+    await convo.handle(press("pr:pcur:USDT"))
+    await session.refresh(slip, attribute_names=["payments"])
+
+    # 10,000,000 owed at 200,000 is 50 tethers, and the payslip is settled.
+    assert slip.payments[0].amount == Decimal("50.0000")
+    assert slip.payments[0].currency == "USDT"
+    assert slip.paid_total == Decimal("10000000.0000")
+    assert slip.is_settled
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("50.0000")
