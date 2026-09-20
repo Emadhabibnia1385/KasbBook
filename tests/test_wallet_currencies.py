@@ -414,3 +414,48 @@ async def test_a_period_with_payments_is_not_recalculated(session):
 
     assert (await session.execute(select(func.count(Payment.id)))).scalar() == 1
     assert await ExchangeService(session).balance_of(book.id, "IRT") == Decimal("6000000.0000")
+
+
+async def test_voiding_a_payment_puts_the_money_back(session):
+    """A payment was permanent once written, with no way to correct one."""
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    payment = await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
+    await session.flush()
+    assert await exchange.balance_of(book.id, "IRT") == Decimal("6000000.0000")
+
+    await payroll.void_payment(owner.id, payment.id)
+    await session.flush()
+
+    assert await exchange.balance_of(book.id, "IRT") == Decimal("10000000.0000")
+    assert slip.paid_total == Decimal("0")
+    # And the period takes entries again, because nothing has been paid.
+    assert (await payroll.calculate(owner.id, slip.period_id))[0].net_pay == slip.net_pay
+
+
+async def test_a_member_cannot_void_a_payment(session):
+    from kasbbook.modules.books.models import Role
+    from kasbbook.shared.errors import PermissionDenied
+
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    payment = await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
+    member = await IdentityService(session).create_user("عضو")
+    await BookService(session).add_member(owner.id, book.id, member.id, Role.MEMBER)
+    await session.flush()
+
+    with pytest.raises(PermissionDenied):
+        await payroll.void_payment(member.id, payment.id)
+    assert slip.paid_total == Decimal("4000000")
+
+
+async def test_another_account_cannot_void_a_payment(session):
+    from kasbbook.shared.errors import NotFound as _NotFound
+
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    payment = await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
+    stranger = await IdentityService(session).create_user("غریبه")
+    await session.flush()
+
+    with pytest.raises(_NotFound):
+        await payroll.void_payment(stranger.id, payment.id)
+    assert slip.paid_total == Decimal("4000000")

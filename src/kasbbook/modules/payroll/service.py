@@ -844,6 +844,41 @@ class PayrollService:
         await self.session.flush()
         return slips
 
+    async def void_payment(
+        self, actor_user_id: uuid.UUID, payment_id: uuid.UUID
+    ) -> Payslip:
+        """Take back a payment that should not have been recorded.
+
+        A payment was permanent once written: there was no way to correct a
+        wrong figure, a duplicate, or one entered against the wrong person.
+        Removing it puts the payslip back where it was, which is what a
+        correction means before the period is closed.
+
+        A locked or paid-off period is history and keeps what it has.
+        """
+        payment = await self.session.get(Payment, payment_id)
+        if payment is None:
+            raise NotFound("پرداخت پیدا نشد.")
+        slip = await self.session.get(Payslip, payment.payslip_id)
+        await self.books.require(slip.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        period = await self.get_period(slip.period_id)
+        if period.status in (PeriodStatus.PAID, PeriodStatus.LOCKED):
+            raise PermissionDenied("این دوره پرداخت‌شده یا قفل است و اصلاح نمی‌شود.")
+
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="payment.voided",
+                subject=str(slip.user_id),
+                detail=f"{payment.amount} {payment.currency}",
+            )
+        )
+        await self.session.delete(payment)
+        await self.session.flush()
+        await self.session.refresh(slip, attribute_names=["payments"])
+        return slip
+
     async def payslips(
         self, actor_user_id: uuid.UUID, period_id: uuid.UUID
     ) -> Sequence[Payslip]:

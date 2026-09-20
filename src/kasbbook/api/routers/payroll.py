@@ -362,6 +362,20 @@ async def calculate(
     return [_payslip(slip, names) for slip in slips]
 
 
+@router.delete("/payslips/{payslip_id}/payments/{payment_id}",
+               response_model=PayslipResponse)
+async def void_payment(
+    book_id: uuid.UUID, payslip_id: uuid.UUID, payment_id: uuid.UUID,
+    user: CurrentUser, session: SessionDep,
+) -> PayslipResponse:
+    """Take back a payment that should not have been recorded."""
+    payroll = PayrollService(session)
+    slip = await payroll.void_payment(user.id, payment_id)
+    if slip.book_id != book_id or slip.id != payslip_id:
+        raise NotFound("payment")
+    return _payslip(slip, await _names(session, book_id))
+
+
 @router.get("/periods/{period_id}/payslips", response_model=List[PayslipResponse])
 async def list_payslips(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep

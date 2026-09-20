@@ -54,6 +54,10 @@ It is set with `PUT /books/{id}/cost-policy`, or in the bot from the treasury
 screen. Both need `MANAGE_TREASURY`, because the answer moves money between
 the treasury and the people.
 
+A payment can be taken back while its period is still open, which puts the
+payslip and the wallet back where they were. A figure typed wrongly, or against
+the wrong person, was otherwise permanent.
+
 ## Periods
 
 Issuing a payslip does **not** freeze a period. Only money actually handed over

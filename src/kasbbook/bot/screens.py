@@ -1892,6 +1892,11 @@ def payslip_detail(book: Book, slip, name: str) -> Screen:
                    data=f"pr:payall:{slip.id}")
         ])
         buttons.append([Button("✏️ پرداخت جزئی", data=f"pr:pay:{slip.id}")])
+    if slip.payments:
+        # A figure typed wrongly, or against the wrong person, was permanent.
+        last = slip.payments[-1]
+        buttons.append([Button(f"↩️ لغو آخرین پرداخت ({fmt(last.amount, currency)})",
+                               data=f"pr:unpay:{last.id}")])
     buttons.append([Button("⬅️ بازگشت", data=f"pr:slips:{slip.period_id}")])
     return rtl("\n".join(lines)), buttons
 

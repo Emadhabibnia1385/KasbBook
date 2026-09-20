@@ -804,3 +804,29 @@ async def test_the_period_says_when_its_payslips_went_stale(session):
 
     now = await convo.handle(press(f"pr:open:{period.id}"))
     assert "نمی‌خوانند" in now.text
+
+
+async def test_the_bot_can_take_back_the_last_payment(session):
+    """A figure typed wrongly, or against the wrong person, used to be permanent."""
+    from kasbbook.modules.payroll.models import ShareBasis, ShareRule
+
+    owner, _, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    session.add(ShareRule(book_id=book.id, user_id=owner.id, basis=ShareBasis.PERCENT,
+                          value=Decimal("100"), effective_from=date(2026, 1, 1)))
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+
+    await convo.handle(press(f"pr:payall:{slip.id}"))
+    await session.refresh(slip, attribute_names=["payments"])
+    assert slip.paid_total == slip.net_pay
+    assert len(slip.payments) == 1
+
+    detail = await convo.handle(press(f"pr:slip:{slip.id}"))
+    assert any("لغو آخرین پرداخت" in label for label in labels(detail))
+
+    await convo.handle(press(f"pr:unpay:{slip.payments[0].id}"))
+    await session.refresh(slip, attribute_names=["payments"])
+    assert slip.paid_total == Decimal("0")

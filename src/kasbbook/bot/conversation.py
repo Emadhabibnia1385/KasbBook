@@ -1432,6 +1432,13 @@ class Conversation:
             await self.state.clear(key)
             return await self._period_list_screen(book, user)
 
+        if action == "unpay":
+            slip = await self.payroll.void_payment(user.id, uuid.UUID(argument))
+            book = await self.books.get_book(slip.book_id)
+            person = await self.identity.get_user(slip.user_id)
+            await self.state.clear(key)
+            return screens.payslip_detail(book, slip, person.display_name)
+
         if action in ("slip", "pay", "payall"):
             return await self._payslip_action(action, argument, user, key)
 
