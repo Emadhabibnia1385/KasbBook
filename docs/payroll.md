@@ -51,6 +51,12 @@ the treasury and the people.
 
 ## Periods
 
+Calculating a period freezes its transactions: a payslip is a snapshot and its
+inputs must not move underneath it. **Do not calculate a period that is still
+running** — while it covers today, nothing dated today can be recorded. A
+calculation can be discarded again as long as the period has paid nobody, which
+releases both the payslips and the treasury allocation.
+
 A period's window can be moved, and its name changed, while it has paid
 nobody. Moving the window changes which transactions the period divides, so
 any payslips are recalculated rather than left stale. Two periods in a book

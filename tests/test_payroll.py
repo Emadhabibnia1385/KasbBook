@@ -792,3 +792,89 @@ async def test_another_accounts_period_cannot_be_moved(session):
     stranger = await identity.create_user("غریبه")
     with pytest.raises(NotFound):
         await payroll.reschedule_period(stranger.id, period.id, ends_on=END)
+
+
+# ------------------------------------------------- undoing a period's payroll
+async def test_discarding_a_calculation_unfreezes_the_period(session):
+    """Calculating freezes a period's transactions; a running period must thaw.
+
+    With payslips issued for a period that covers today, recording today's
+    expense was refused and there was no way back.
+    """
+    from kasbbook.modules.ledger.models import Flow, Scope
+    from kasbbook.modules.ledger.service import LedgerService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+
+    ledger = LedgerService(session)
+    with pytest.raises(PermissionDenied):
+        await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "سرور",
+                            "5000", occurred_on=START)
+
+    assert await payroll.discard_calculation(owner.id, period.id) == 1
+    await session.flush()
+
+    tx = await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "سرور",
+                             "5000", occurred_on=START)
+    assert tx.converted_amount == Decimal("5000.0000")
+    assert await payroll.payslips(owner.id, period.id) == []
+    debit, credit = await ledger.trial_balance(book.id)
+    assert debit == credit
+
+
+async def test_discarding_also_releases_the_treasury_allocation(session):
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("50"), effective_from=START)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+    assert await treasury.balance(book.id, owner.id, fund.id) == Decimal("5000000")
+
+    await payroll.discard_calculation(owner.id, period.id)
+    await session.flush()
+    assert await treasury.balance(book.id, owner.id, fund.id) == ZERO_INCOME
+
+
+async def test_a_period_that_paid_somebody_keeps_its_payslips(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, "1000000", paid_on=START)
+    await session.flush()
+
+    with pytest.raises(PermissionDenied):
+        await payroll.discard_calculation(owner.id, period.id)
+    assert len(await payroll.payslips(owner.id, period.id)) == 1
+
+
+async def test_a_member_cannot_discard_a_calculation(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+    member = await add_member(session, books, identity, book, owner, "عضو")
+
+    with pytest.raises(PermissionDenied):
+        await payroll.discard_calculation(member.id, period.id)
+    assert len(await payroll.payslips(owner.id, period.id)) == 1
+
+
+async def test_another_accounts_calculation_cannot_be_discarded(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+    stranger = await identity.create_user("غریبه")
+
+    with pytest.raises(NotFound):
+        await payroll.discard_calculation(stranger.id, period.id)
+    assert len(await payroll.payslips(owner.id, period.id)) == 1

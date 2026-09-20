@@ -1391,6 +1391,13 @@ class Conversation:
             await self.state.clear(key)
             return await self._period_detail(book, user, period)
 
+        if action == "uncalc":
+            period = await self.payroll.get_period(uuid.UUID(argument))
+            book = await self.books.get_book(period.book_id)
+            await self.payroll.discard_calculation(user.id, period.id)
+            await self.state.clear(key)
+            return await self._period_detail(book, user, period)
+
         if action in ("dates", "dstart", "dend", "dmonth"):
             period = await self.payroll.get_period(uuid.UUID(argument))
             book = await self.books.get_book(period.book_id)

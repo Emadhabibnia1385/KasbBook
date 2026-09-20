@@ -122,6 +122,18 @@ async def update_period(
     )
 
 
+@router.delete("/periods/{period_id}/payslips", status_code=204)
+async def discard_calculation(
+    book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    """Throw away a period's payslips so its transactions can be edited again."""
+    payroll = PayrollService(session)
+    period = await payroll.get_period(period_id)
+    if period.book_id != book_id:
+        raise NotFound("period")
+    await payroll.discard_calculation(user.id, period_id)
+
+
 @router.delete("/periods/{period_id}", status_code=204)
 async def delete_period(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep

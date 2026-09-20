@@ -257,6 +257,65 @@ class PayrollService:
             await self.calculate(actor_user_id, period_id)
         return period
 
+    async def discard_calculation(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID
+    ) -> int:
+        """Throw a period's payslips away so the period can be worked on again.
+
+        Calculating freezes a period's transactions, because a payslip is a
+        snapshot and its inputs must not move underneath it. That is right for
+        a period that has ended and wrong for one still running: a period
+        covering today would otherwise block today's bookkeeping entirely, and
+        there was no way back.
+
+        Refused once money has been handed over — payments cascade with
+        payslips, and a correction after payment belongs in a later period.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        if period.status in (PeriodStatus.PAID, PeriodStatus.LOCKED):
+            raise PermissionDenied("این دوره پرداخت یا قفل شده است.")
+        if await self.session.scalar(
+            select(Payment.id)
+            .join(Payslip, Payslip.id == Payment.payslip_id)
+            .where(Payslip.period_id == period_id)
+            .limit(1)
+        ):
+            raise PermissionDenied(
+                "این دوره پرداخت ثبت‌شده دارد؛ باطل‌کردن محاسبه سابقهٔ پرداخت را "
+                "پاک می‌کند. اصلاح را در دورهٔ بعد ثبت کن."
+            )
+
+        slips = (
+            await self.session.execute(
+                select(Payslip).where(Payslip.period_id == period_id)
+            )
+        ).scalars().all()
+        for slip in slips:
+            await self.session.delete(slip)
+        # The treasury allocation belongs to the run too, exactly as it does
+        # when a run is replaced.
+        for allocation in (
+            await self.session.execute(
+                select(TreasuryAllocation).where(
+                    TreasuryAllocation.period_id == period_id
+                )
+            )
+        ).scalars().all():
+            await self.session.delete(allocation)
+
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="period.calculation_discarded",
+                subject=period.label,
+                detail=str(len(slips)),
+            )
+        )
+        await self.session.flush()
+        return len(slips)
+
     async def rename_period(
         self, actor_user_id: uuid.UUID, period_id: uuid.UUID, label: str
     ) -> FinancialPeriod:

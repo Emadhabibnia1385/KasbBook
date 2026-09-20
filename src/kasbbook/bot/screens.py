@@ -1789,6 +1789,10 @@ def period_detail(book: Book, period, distribution, slip_count: int,
         # Once money has changed hands the service refuses; not offering the
         # button is the honest version of the same rule.
         buttons.append([Button("🧮 محاسبهٔ فیش‌ها", data=f"pr:calc:{period.id}")])
+    if slip_count and not has_payments and period.status.value not in ("locked", "paid"):
+        # A calculated period freezes its transactions. While it is still
+        # running that blocks today's bookkeeping, so there has to be a way back.
+        buttons.append([Button("♻️ باطل‌کردن محاسبه", data=f"pr:uncalc:{period.id}")])
     if period.status.value not in ("locked", "paid") and not has_payments:
         buttons.append([Button("📅 تاریخ‌های دوره", data=f"pr:dates:{period.id}")])
     if period.status.value not in ("locked", "paid") and not slip_count:
