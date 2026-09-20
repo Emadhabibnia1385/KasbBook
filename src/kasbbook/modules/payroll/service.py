@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
-from ...shared.money import ZERO, quantize, to_decimal
+from ...shared.money import SCALE, ZERO, quantize, to_decimal
 from ...shared.security import utcnow
 from ..books.models import CostPolicy, Permission
 from ..exchange.service import ExchangeService
@@ -947,7 +947,13 @@ class PayrollService:
 
         # Compared in the payslip's own currency. Summing raw amounts counted
         # forty tethers as forty toman and left the payslip all but unpaid.
-        if quantize(value * rate) > owed:
+        #
+        # The overshoot allowance is one unit of the currency being paid: a
+        # token is stored to four places, so the exact figure owed is usually
+        # not reachable in it, and settling a 27,000,000 payslip in tether
+        # otherwise left a few toman outstanding that no amount of tether
+        # could clear.
+        if quantize(value * rate) > owed + quantize(SCALE * rate):
             raise ValidationError(f"only {owed} is still owed on this payslip")
 
         book = await self.books.get_book(slip.book_id)

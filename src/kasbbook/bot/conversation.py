@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +46,7 @@ from ..modules.treasury.service import TreasuryService
 from ..modules.reports.service import ReportService
 from ..shared.errors import KasbBookError
 from ..shared import jalali
-from ..shared.money import quantize
+from ..shared.money import SCALE
 from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
 from . import quick, screens
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
@@ -1498,9 +1498,9 @@ class Conversation:
         book = await self.books.get_book(slip.book_id)
         names = await self._member_names(book.id)
         name = names.get(slip.user_id, "—")
-        outstanding = slip.net_pay - sum(
-            (p.amount for p in slip.payments), Decimal("0")
-        )
+        # The payslip owns this sum: a payment made in another currency is
+        # worth its amount times its rate, not its amount.
+        outstanding = slip.remaining
 
         if action == "slip":
             await self.state.clear(key)
@@ -1650,7 +1650,13 @@ class Conversation:
 
         owed = Decimal(draft["owed"])
         base = owed if draft.get("whole") else Decimal(draft["amount"])
-        amount = base if code == book.base_currency else quantize(base / rate)
+        if code == book.base_currency:
+            amount = base
+        else:
+            # Rounded up, not to nearest: rounding down left a payslip settled
+            # in tether a few toman short, and those few toman were not
+            # payable in tether at all.
+            amount = (base / rate).quantize(SCALE, rounding=ROUND_CEILING)
 
         await self.payroll.pay(user.id, slip.id, amount, currency=code,
                                conversion_rate=rate)
@@ -1670,7 +1676,7 @@ class Conversation:
         book = await self.books.get_book(slip.book_id)
         names = await self._member_names(book.id)
         name = names.get(slip.user_id, "—")
-        outstanding = slip.net_pay - sum((p.amount for p in slip.payments), Decimal("0"))
+        outstanding = slip.remaining
 
         if draft.get("awaiting") == "rate":
             rate = parse_amount(text)

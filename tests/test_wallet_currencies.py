@@ -553,3 +553,66 @@ async def test_the_bot_pays_a_whole_payslip_in_tether(session):
     assert slip.paid_total == Decimal("10000000.0000")
     assert slip.is_settled
     assert await exchange.balance_of(book.id, "USDT") == Decimal("50.0000")
+
+
+async def test_settling_a_payslip_in_a_token_actually_settles_it(session):
+    """Rounding the token down left a residue no amount of token could clear.
+
+    A 27,203,243 toman payslip settled in tether came out a few toman short,
+    and those few toman were worth a ten-thousandth of a tether — unpayable.
+    """
+    from kasbbook.adapters.base import ChannelIdentity, EventKind, IncomingEvent
+    from kasbbook.bot.conversation import Conversation
+    from kasbbook.bot.state import MemoryStateStore
+    import httpx
+    from kasbbook.rates.swapwallet import SwapWalletRates
+
+    owner, book, payroll, slip = await money_and_a_payslip(session, income="27203243")
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(owner.id, book.id, "USDT", True)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "200", currency="USDT",
+                                        conversion_rate="229789", occurred_on=DAY)
+    identity = IdentityService(session)
+    issued = await identity.start_link_from_web(owner.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "950001")
+    await session.flush()
+    # The payslip is what the period produced, whatever that works out to.
+    await payroll.pay(owner.id, slip.id, "9000000", paid_on=DAY)
+    await session.flush()
+
+    rates = SwapWalletRates(client=httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _r: httpx.Response(200, json={"status": "OK",
+                                             "result": {"USDT/IRT": "229789"}}))))
+    convo = Conversation(session, MemoryStateStore(), TG, rates=rates)
+
+    def press(data):
+        return IncomingEvent(kind=EventKind.CALLBACK,
+                             identity=ChannelIdentity(TG, "950001", "emad", "عماد"),
+                             chat_id="950001", message_id="1",
+                             callback_data=data, callback_id="cb")
+
+    await convo.handle(press(f"pr:payall:{slip.id}"))
+    reply = await convo.handle(press("pr:pcur:USDT"))
+
+    await session.refresh(slip, attribute_names=["payments"])
+    assert slip.is_settled, f"still owed {slip.remaining}"
+    assert "کامل پرداخت شده" in reply.text
+    # Overshoot is bounded by one unit of the currency paid in.
+    assert slip.paid_total - slip.net_pay < Decimal("229789") * Decimal("0.0001")
+
+
+async def test_a_payment_still_cannot_overshoot_by_a_real_amount(session):
+    """The allowance is one unit of the paid currency, not a free pass."""
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(owner.id, book.id, "USDT", True)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "100", currency="USDT",
+                                        conversion_rate="230000", occurred_on=DAY)
+    await session.flush()
+
+    with pytest.raises(ValidationError):
+        await payroll.pay(owner.id, slip.id, "43.5", paid_on=DAY, currency="USDT",
+                          conversion_rate="230000")     # 10,005,000 against 10,000,000
+    assert slip.paid_total == Decimal("0")

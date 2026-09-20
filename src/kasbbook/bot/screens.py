@@ -1833,7 +1833,7 @@ def payslip_list(book: Book, slips, names) -> Screen:
     total = Decimal("0")
     for slip in slips:
         total += slip.net_pay
-        paid = sum((p.amount for p in slip.payments), Decimal("0"))
+        paid = slip.paid_total
         mark = "✅" if paid >= slip.net_pay else ("🟡" if paid else "⚪️")
         lines.append(
             f"{mark} {names.get(slip.user_id, '—')}: {fmt(slip.net_pay, currency)}"
@@ -1851,8 +1851,7 @@ def payslip_list(book: Book, slips, names) -> Screen:
 def payslip_detail(book: Book, slip, name: str) -> Screen:
     """One person's slip, with every input that produced it."""
     currency = book.base_currency
-    paid = sum((p.amount for p in slip.payments), Decimal("0"))
-    outstanding = slip.net_pay - paid
+    outstanding = slip.remaining
 
     basis = {
         "percent": "درصدی",

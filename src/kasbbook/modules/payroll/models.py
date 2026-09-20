@@ -37,7 +37,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...shared.database import Base, Timestamped, UUIDPrimaryKey
-from ...shared.money import Money
+from ...shared.money import Money, quantize
 
 
 class PeriodStatus(str, enum.Enum):
@@ -248,8 +248,10 @@ class Payslip(UUIDPrimaryKey, Timestamped, Base):
         made at. Summing the raw amounts counted forty tethers as forty toman
         and left the payslip all but unpaid.
         """
-        return sum(
-            (p.amount * p.conversion_rate for p in self.payments), Decimal("0")
+        # Quantized: the multiplication is exact and carries more places than
+        # money is stored to, and this figure is serialised straight out.
+        return quantize(
+            sum((p.amount * p.conversion_rate for p in self.payments), Decimal("0"))
         )
 
     @property

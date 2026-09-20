@@ -322,14 +322,14 @@ async def approve_adjustment(
 
 # --------------------------------------------------------------- payslips
 def _payslip(row, names) -> PayslipResponse:
-    paid = sum((p.amount for p in row.payments), ZERO)
+    paid = row.paid_total
     return PayslipResponse(
         id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
         distributable_snapshot=row.distributable_snapshot,
         share_basis=row.share_basis_snapshot.value,
         share_value=row.share_value_snapshot,
         base_share=row.base_share, adjustments_total=row.adjustments_total,
-        net_pay=row.net_pay, paid=paid, outstanding=row.net_pay - paid,
+        net_pay=row.net_pay, paid=paid, outstanding=row.remaining,
         currency=row.currency,
         payments=[
             PaymentResponse(id=p.id, amount=p.amount, currency=p.currency,
