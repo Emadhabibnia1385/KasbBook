@@ -666,3 +666,32 @@ async def test_setting_a_share_a_third_time_leaves_the_first_window_alone(sessio
     assert rules[0].effective_to == date(2026, 7, 6)
     assert rules[1].effective_to == date(2026, 7, 31)
     assert rules[2].effective_to is None
+
+
+async def test_a_period_can_be_renamed_without_touching_its_payslips(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slips = await payroll.calculate(owner.id, period.id)
+
+    renamed = await payroll.rename_period(owner.id, period.id, "۱۰ مرداد تا ۹ شهریور ۱۴۰۵")
+    await session.flush()
+
+    assert renamed.label == "۱۰ مرداد تا ۹ شهریور ۱۴۰۵"
+    assert renamed.starts_on == START and renamed.ends_on == END
+    assert (await payroll.payslips(owner.id, period.id))[0].net_pay == slips[0].net_pay
+
+
+async def test_two_periods_in_one_book_cannot_share_a_name(session):
+    identity, books, payroll, owner, book, first = await team_with_income(session)
+    second = await payroll.open_period(owner.id, book.id, "اردیبهشت",
+                                       date(2025, 5, 1), date(2025, 5, 31))
+    with pytest.raises(ValidationError):
+        await payroll.rename_period(owner.id, second.id, first.label)
+
+
+async def test_a_member_cannot_rename_a_period(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "عضو")
+    with pytest.raises(PermissionDenied):
+        await payroll.rename_period(member.id, period.id, "هرچی")

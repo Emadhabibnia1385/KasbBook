@@ -321,3 +321,74 @@ async def test_the_bot_can_tick_a_currency_on_and_off(session):
 
     await convo.handle(press("cu:tog:TON"))
     assert "TON" not in await exchange.allowed(book.id)
+
+
+# ------------------------------------------------------- paying a member out
+async def money_and_a_payslip(session, income="10000000"):
+    """A team book with income, one member on a full share, and a payslip."""
+    from kasbbook.modules.payroll.models import ShareBasis, ShareRule
+    from kasbbook.modules.payroll.service import PayrollService
+
+    identity = IdentityService(session)
+    owner = await identity.create_user("عماد")
+    books = BookService(session)
+    book = await books.create_book(owner.id, "تیم", BookType.TEAM, "IRT")
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", income, occurred_on=DAY)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    session.add(ShareRule(book_id=book.id, user_id=owner.id,
+                          basis=ShareBasis.PERCENT, value=Decimal("100"),
+                          effective_from=date(2026, 1, 1)))
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    return owner, book, payroll, slip
+
+
+async def test_paying_a_member_takes_the_money_out_of_the_wallet(session):
+    """It used to settle the payslip and leave the wallet untouched.
+
+    The book then said, at the same time, that the money had been handed over
+    and that it still had it.
+    """
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    assert await exchange.balance_of(book.id, "IRT") == Decimal("10000000.0000")
+
+    await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
+    await session.flush()
+
+    assert await exchange.balance_of(book.id, "IRT") == Decimal("6000000.0000")
+    assert slip.remaining == Decimal("6000000.0000")
+
+
+async def test_a_payout_is_not_an_expense_of_the_business(session):
+    """Counted as a cost, last period's payouts would shrink this period's pie."""
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    before = await payroll.compute_distribution(slip.period_id)
+
+    await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
+    await session.flush()
+
+    after = await payroll.compute_distribution(slip.period_id)
+    assert after.direct_costs == before.direct_costs == Decimal("0.0000")
+    assert after.gross_income == before.gross_income
+
+
+async def test_a_member_cannot_be_paid_in_a_token_the_book_does_not_hold(session):
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    await ExchangeService(session).set_enabled(owner.id, book.id, "USDT", True)
+
+    with pytest.raises(ValidationError):
+        await payroll.pay(owner.id, slip.id, "5", paid_on=DAY, currency="USDT",
+                          conversion_rate="230000")
+    assert slip.paid_total == Decimal("0")
+
+
+async def test_a_member_cannot_be_paid_in_a_currency_the_book_never_ticked(session):
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    with pytest.raises(ValidationError):
+        await payroll.pay(owner.id, slip.id, "5", paid_on=DAY, currency="TON",
+                          conversion_rate="300000")
+    assert slip.paid_total == Decimal("0")

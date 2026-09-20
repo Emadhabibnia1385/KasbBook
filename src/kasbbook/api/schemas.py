@@ -434,6 +434,10 @@ class PeriodRequest(Model):
     ends_on: date
 
 
+class PeriodRenameRequest(Model):
+    label: str = Field(min_length=1, max_length=40)
+
+
 class PeriodResponse(Model):
     id: uuid.UUID
     label: str

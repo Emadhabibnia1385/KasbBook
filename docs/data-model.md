@@ -135,6 +135,12 @@ journal in the base currency, and payroll payments and treasury allocations do
 not post to it either; a conversion is neither income nor expense, so the
 trial balance is unchanged by one.
 
+Paying a member is the third kind of money movement, alongside income/expense
+and conversion. It leaves the wallet but is **not** an expense of the business:
+payroll decides shares by summing income and expense, so counting a payout
+there would take last period's payouts out of this period's pie. The `Payment`
+row is the record, and the wallet reads it.
+
 ### Live prices
 
 `kasbbook.rates.swapwallet` reads SwapWallet's public market endpoint, which

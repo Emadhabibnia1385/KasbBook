@@ -34,6 +34,7 @@ from ..schemas import (
     PayRequest,
     PaymentResponse,
     PayslipResponse,
+    PeriodRenameRequest,
     PeriodRequest,
     PeriodResponse,
     PerformanceRequest,
@@ -93,6 +94,24 @@ async def open_period(
         user.id, book_id, body.label, body.starts_on, body.ends_on
     )
     return _period(period)
+
+
+@router.patch("/periods/{period_id}", response_model=PeriodResponse)
+async def rename_period(
+    book_id: uuid.UUID, period_id: uuid.UUID, body: PeriodRenameRequest,
+    user: CurrentUser, session: SessionDep,
+) -> PeriodResponse:
+    """Change a period's name, leaving its dates and payslips alone."""
+    payroll = PayrollService(session)
+    period = await payroll.get_period(period_id)
+    if period.book_id != book_id:
+        raise NotFound("period")
+    period = await payroll.rename_period(user.id, period_id, body.label)
+    return PeriodResponse(
+        id=period.id, label=period.label, status=period.status.value,
+        starts_on=period.starts_on, ends_on=period.ends_on,
+        locked_at=period.locked_at,
+    )
 
 
 @router.delete("/periods/{period_id}", status_code=204)

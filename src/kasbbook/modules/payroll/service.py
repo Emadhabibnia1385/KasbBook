@@ -15,10 +15,12 @@ from typing import Dict, List, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...shared import jalali
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ...shared.security import utcnow
 from ..books.models import CostPolicy, Permission
+from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent
 from ..ledger.models import Flow, Transaction
@@ -157,6 +159,37 @@ class PayrollService:
                 detail=to.value,
             )
         )
+        await self.session.flush()
+        return period
+
+    async def rename_period(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID, label: str
+    ) -> FinancialPeriod:
+        """Change what a period is called. Its dates, and its payslips, stay.
+
+        The label is the only part of a period a person writes, and until now a
+        typo in one was permanent.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        name = label.strip()
+        if not name:
+            raise ValidationError("نام دوره نمی‌تواند خالی باشد.")
+        if len(name) > 40:
+            raise ValidationError("نام دوره حداکثر ۴۰ حرف است.")
+
+        clash = await self.session.scalar(
+            select(FinancialPeriod.id).where(
+                FinancialPeriod.book_id == period.book_id,
+                FinancialPeriod.label == name,
+                FinancialPeriod.id != period_id,
+            ).limit(1)
+        )
+        if clash:
+            raise ValidationError("دوره‌ای با همین نام در این دفتر هست.")
+
+        period.label = name
         await self.session.flush()
         return period
 
@@ -677,12 +710,22 @@ class PayrollService:
         if value > owed:
             raise ValidationError(f"only {owed} is still owed on this payslip")
 
+        paid_in = (currency or slip.currency).upper()
+        book = await self.books.get_book(slip.book_id)
+        exchange = ExchangeService(self.session)
+        if paid_in not in await exchange.allowed(slip.book_id):
+            raise ValidationError(f"این دفتر {paid_in} را پشتیبانی نمی‌کند.")
+        # You cannot hand over a token the book does not hold.
+        await exchange.require_funds(slip.book_id, paid_in, value)
+
         payment = Payment(
             payslip_id=payslip_id,
             amount=value,
-            currency=(currency or slip.currency).upper(),
+            currency=paid_in,
             conversion_rate=to_decimal(conversion_rate) if conversion_rate else Decimal("1"),
-            paid_on=paid_on or date.today(),
+            # The book's day, not the server's: a payment made in the evening
+            # in Tehran is not yesterday because the server runs on UTC.
+            paid_on=paid_on or jalali.today_in(book.timezone),
             reference=reference,
         )
         self.session.add(payment)

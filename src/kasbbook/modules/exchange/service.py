@@ -23,6 +23,7 @@ from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
 from ..books.service import BookService
 from ..ledger.models import Flow, Transaction
+from ..payroll.models import Payment, Payslip
 from .models import CURRENCY_NAMES, OFFERED, BookCurrency, CurrencyConversion
 
 @dataclass(frozen=True)
@@ -178,6 +179,21 @@ class ExchangeService:
         ).all()
         for code, amount, flow in rows:
             add(code, to_decimal(amount) if flow is Flow.INCOME else -to_decimal(amount))
+
+        # Paying a member hands real money over. It is not an expense of the
+        # business — payroll decides shares by summing income and expense, so
+        # counting it there would take last period's payouts out of this
+        # period's pie — but it does leave the wallet, and until this was here
+        # a book could pay everyone and still report holding the money.
+        payouts = (
+            await self.session.execute(
+                select(Payment.currency, Payment.amount)
+                .join(Payslip, Payslip.id == Payment.payslip_id)
+                .where(Payslip.book_id == book_id)
+            )
+        ).all()
+        for code, amount in payouts:
+            add(code, -to_decimal(amount))
 
         swaps = (
             await self.session.execute(
