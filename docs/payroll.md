@@ -51,6 +51,13 @@ the treasury and the people.
 
 ## Periods
 
+A period's window can be moved, and its name changed, while it has paid
+nobody. Moving the window changes which transactions the period divides, so
+any payslips are recalculated rather than left stale. Two periods in a book
+may never cover the same day: `compute_distribution` sums by date, so an
+overlap divides one day's income twice.
+
+
 A period is the window everything is measured over — normally a Jalali month.
 
 ```
