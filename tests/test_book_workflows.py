@@ -86,7 +86,8 @@ async def test_new_account_and_captioned_receipt_complete_one_balanced_transacti
     assert tx.receipt_file_id == "PHOTO-1" and tx.receipt_provider == provider.value
     assert tx.converted_amount == Decimal("250000") and tx.category_id is not None
     assert reply.forward_file_id == "PHOTO-1"
-    assert [b.text for b in reply.buttons[0]] == ["ویرایش دسته", "ویرایش مبلغ", "ویرایش توضیحات"]
+    assert [b.text for b in reply.buttons[0]] == ["ویرایش دسته", "ویرایش مبلغ",
+                                                  "ویرایش توضیحات", "ویرایش تاریخ"]
     debit, credit = await ledger.trial_balance(book.id)
     assert debit == credit == Decimal("250000")
     # A subsequent unrelated account must never inherit this receipt.

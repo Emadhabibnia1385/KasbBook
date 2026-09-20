@@ -465,13 +465,14 @@ class LedgerService:
 
     async def update(
         self, book_id, actor_user_id, transaction_id, *, category=UNSET,
-        amount=UNSET, description=UNSET,
+        amount=UNSET, description=UNSET, occurred_on=UNSET,
     ) -> Transaction:
         await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
-        if all(value is UNSET for value in (category, amount, description)):
+        if all(value is UNSET
+               for value in (category, amount, description, occurred_on)):
             raise ValidationError("یک تغییر معتبر بفرست.")
-        if category is None or amount is None:
-            raise ValidationError("دسته و مبلغ نمی‌تواند خالی باشد.")
+        if category is None or amount is None or occurred_on is None:
+            raise ValidationError("دسته، مبلغ و تاریخ نمی‌تواند خالی باشد.")
         await self.categories.lock_book(book_id)
         tx = await self.session.scalar(select(Transaction).where(
             Transaction.id == transaction_id, Transaction.book_id == book_id
@@ -479,6 +480,11 @@ class LedgerService:
         if tx is None:
             raise NotFound("این تراکنش پیدا نشد.")
         await self._require_open_date(book_id, tx.occurred_on)
+        moved_to = occurred_on if occurred_on is not UNSET else tx.occurred_on
+        if moved_to != tx.occurred_on:
+            # A transaction moving between periods has to be welcome where it
+            # lands, exactly as it had to be free to leave where it was.
+            await self._require_open_date(book_id, moved_to)
         new_category = self.categories.name(category) if category is not UNSET else tx.category
         new_description = self._description(description) if description is not UNSET else tx.description
         original = quantize(amount) if amount is not UNSET else tx.original_amount
@@ -505,6 +511,7 @@ class LedgerService:
                         else await self.session.get(Category, tx.category_id))
         tx.category, tx.category_id = category_row.name, category_row.id
         tx.description = new_description
+        tx.occurred_on = moved_to
         if amount is not UNSET:
             # Rebuild through the one ledger writer using the frozen conversion
             # rate; neither client is allowed to write individual journal lines.
@@ -518,6 +525,8 @@ class LedgerService:
                                   memo=f"{tx.flow.value}: {tx.category}", transaction_id=tx.id)
         else:
             entries[0].memo = f"{tx.flow.value}: {tx.category}"
+            # The journal mirrors the transaction, including when it happened.
+            entries[0].occurred_on = moved_to
         self._mark_edited(tx, actor_user_id)
         await self.session.flush()
         return tx

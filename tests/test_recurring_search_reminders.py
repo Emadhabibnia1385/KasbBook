@@ -385,3 +385,34 @@ async def test_one_persons_reminders_never_mention_another_persons_book(session)
     stranger = await IdentityService(session).create_user("غریبه")
 
     assert await ReminderService(session).for_user(stranger.id) == []
+
+
+async def test_the_digest_follows_the_books_day_not_the_servers(session):
+    """The server runs UTC and a book runs Tehran, 3.5 hours ahead.
+
+    Between midnight and 03:30 in Tehran the server is still on yesterday, and
+    asking it what day it is made the digest look at the wrong one and report a
+    busy evening as a quiet day.
+    """
+    from datetime import datetime, timezone as _tz
+    from unittest.mock import patch
+
+    from kasbbook.shared import jalali
+
+    user, book = await setup(session)
+    # 23:30 in Tehran on the 20th is 20:00 UTC on the 20th; half an hour later
+    # Tehran is on the 21st and the server is not.
+    tehran_day = jalali.today_in("Asia/Tehran",
+                                 now=datetime(2026, 9, 20, 21, 0, tzinfo=_tz.utc))
+    assert tehran_day == date(2026, 9, 21)
+
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 250_000,
+        occurred_on=tehran_day,
+    )
+
+    with patch("kasbbook.shared.jalali.today_in", return_value=tehran_day):
+        reminder = await ReminderService(session).daily_digest(user.id)
+
+    assert reminder is not None
+    assert "250,000" in reminder.text

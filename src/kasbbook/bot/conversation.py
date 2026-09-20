@@ -597,9 +597,10 @@ class Conversation:
         if action == "open":
             return await self._transaction_screen(book, tx, user, origin)
 
-        if action in ("ec", "ea", "ed"):
+        if action in ("ec", "ea", "ed", "eo"):
             await self.books.require(book.id, user.id, Permission.EDIT_TRANSACTION)
-            field = {"ec": "category", "ea": "amount", "ed": "description"}[action]
+            field = {"ec": "category", "ea": "amount", "ed": "description",
+                     "eo": "occurred_on"}[action]
             await self.state.set(key, {"flow": "tx_edit", "book_id": str(book.id),
                                       "tx_id": str(tx.id), "field": field, "origin": origin})
             if field == "category":
@@ -609,6 +610,8 @@ class Conversation:
                 return screens.ask_category(tx.flow, draft["recent"])
             if field == "amount":
                 return screens.ask_amount(tx.category, tx.original_currency)
+            if field == "occurred_on":
+                return screens.ask_date(f"td:open:{tx.id}{origin and ':' + origin}")
             return screens.ask_description(editing=True)
 
         if action == "rcp":
@@ -659,6 +662,10 @@ class Conversation:
             value = parse_amount(text or "")
             if value is None:
                 return screens.error("مبلغ معتبر وارد کن.")
+        if field == "occurred_on":
+            value = parse_date(text or "", self._today(user))
+            if value is None:
+                return screens.error("تاریخ معتبر وارد کن، مثل ۱۴۰۵/۰۶/۲۸.")
         tx = await self.ledger.update(uuid.UUID(draft["book_id"]), user.id,
                                       uuid.UUID(draft["tx_id"]), **{field: value})
         await self.state.clear(key)

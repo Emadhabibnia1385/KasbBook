@@ -299,6 +299,8 @@ class TransactionUpdate(MoneyModel):
     category: Optional[str] = Field(default=None, min_length=1, max_length=80)
     amount: Optional[Decimal] = Field(default=None, gt=0)
     description: Optional[str] = Field(default=None, max_length=500)
+    # A date typed wrongly decides which period pays whom, and was permanent.
+    occurred_on: Optional[date] = None
 
 
 class TransactionActivityResponse(Model):

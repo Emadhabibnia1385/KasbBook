@@ -11,12 +11,13 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from kasbbook.modules.books.models import BookType, Permission, Role
 from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.service import IdentityService
 from kasbbook.modules.exchange.service import ExchangeService
-from kasbbook.modules.ledger.models import Flow, RateMode, Scope
+from kasbbook.modules.ledger.models import Flow, JournalEntry, RateMode, Scope
 from kasbbook.modules.ledger.service import CASH, INCOME, LedgerService
 from kasbbook.shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
 
@@ -356,3 +357,75 @@ async def test_a_date_range_narrows_the_totals(session):
         book.id, user.id, since=date(2025, 6, 1), until=date(2025, 6, 30)
     )
     assert scoped["income"] == Decimal("200")
+
+
+# ------------------------------------------- correcting when a transaction happened
+async def test_a_transaction_can_be_moved_to_the_day_it_happened(session):
+    """A date typed wrongly was permanent, and a date decides which period pays."""
+    from datetime import date as _date
+
+    books, user = await setup_owner(session)
+    book = await books.create_book(user.id, "دفتر", BookType.BUSINESS, "IRT")
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش",
+                             "1000000", occurred_on=_date(2026, 10, 20))
+
+    moved = await ledger.update(book.id, user.id, tx.id,
+                                occurred_on=_date(2026, 9, 19))
+    await session.flush()
+
+    assert moved.occurred_on == _date(2026, 9, 19)
+    assert moved.converted_amount == Decimal("1000000.0000")
+    entry = (await session.scalars(select(JournalEntry).where(
+        JournalEntry.transaction_id == tx.id))).one()
+    # The journal mirrors the transaction, including when it happened.
+    assert entry.occurred_on == _date(2026, 9, 19)
+    debit, credit = await ledger.trial_balance(book.id)
+    assert debit == credit
+
+
+async def test_a_transaction_cannot_move_into_a_settled_period(session):
+    """Landing somewhere is as much a change as leaving somewhere."""
+    from datetime import date as _date
+
+    from kasbbook.modules.payroll.models import PeriodStatus
+    from kasbbook.modules.payroll.service import PayrollService
+
+    books, user = await setup_owner(session)
+    book = await books.create_book(user.id, "تیم", BookType.TEAM, "IRT")
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.TEAM, "فروش",
+                             "1000000", occurred_on=_date(2026, 10, 20))
+
+    payroll = PayrollService(session)
+    closed = await payroll.open_period(user.id, book.id, "شهریور",
+                                       _date(2026, 9, 1), _date(2026, 9, 30))
+    await payroll.advance_period(user.id, closed.id, PeriodStatus.CALCULATING)
+    await session.flush()
+
+    with pytest.raises(PermissionDenied):
+        await ledger.update(book.id, user.id, tx.id, occurred_on=_date(2026, 9, 19))
+    await session.refresh(tx)
+    assert tx.occurred_on == _date(2026, 10, 20)
+
+
+async def test_an_update_with_nothing_in_it_is_refused(session):
+    books, user = await setup_owner(session)
+    book = await books.create_book(user.id, "دفتر", BookType.BUSINESS, "IRT")
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "1000")
+    with pytest.raises(ValidationError):
+        await ledger.update(book.id, user.id, tx.id)
+
+
+async def test_another_account_cannot_move_a_transaction(session):
+    from datetime import date as _date
+
+    books, user = await setup_owner(session)
+    book = await books.create_book(user.id, "دفتر", BookType.BUSINESS, "IRT")
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "1000")
+    stranger = await IdentityService(session).create_user("غریبه")
+
+    with pytest.raises(NotFound):
+        await ledger.update(book.id, stranger.id, tx.id, occurred_on=_date(2026, 9, 1))

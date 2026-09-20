@@ -1252,6 +1252,7 @@ def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Scree
         Button("ویرایش دسته", data=f"td:ec:{tx.id}{tail}"),
         Button("ویرایش مبلغ", data=f"td:ea:{tx.id}{tail}"),
         Button("ویرایش توضیحات", data=f"td:ed:{tx.id}{tail}"),
+        Button("ویرایش تاریخ", data=f"td:eo:{tx.id}{tail}"),
     ])
     if tx.receipt_file_id:
         buttons.append([

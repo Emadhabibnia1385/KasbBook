@@ -170,3 +170,19 @@ async def test_a_book_made_over_http_counts_in_the_same_currency_as_one_made_in_
                            json={"name": "بی‌ارز", "type": "business"})).json()
     wallet = (await api.get(f"/api/v1/books/{book['id']}/wallet", headers=headers)).json()
     assert [b["code"] for b in wallet] == ["IRT"]
+
+
+async def test_a_transaction_date_can_be_corrected_over_http(api, db):
+    headers, book = await workspace(api)
+    tx = (await api.post(f"/api/v1/books/{book['id']}/transactions", headers=headers,
+                         json={"flow": "income", "category": "فروش", "amount": "1000000",
+                               "occurred_on": "2026-10-20"})).json()
+    assert tx["occurred_on"] == "2026-10-20"
+
+    fixed = await api.patch(
+        f"/api/v1/books/{book['id']}/transactions/{tx['id']}",
+        headers=headers, json={"occurred_on": "2026-09-19"},
+    )
+    assert fixed.status_code == 200
+    assert fixed.json()["occurred_on"] == "2026-09-19"
+    assert fixed.json()["converted_amount"] == "1000000.0000"

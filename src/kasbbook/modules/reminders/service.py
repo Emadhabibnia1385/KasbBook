@@ -57,19 +57,27 @@ class ReminderService:
     async def daily_digest(
         self, user_id: uuid.UUID, today: Optional[date] = None
     ) -> Optional[Reminder]:
-        """What happened today, across every book — or nothing if nothing did."""
-        when = today or date.today()
-        period = reports.Period("امروز", when, when, "d")
+        """What happened today, across every book — or nothing if nothing did.
 
+        Each book's own day, not the server's. A transaction is dated where the
+        person is; asking the server what day it is made the digest look at
+        tomorrow for the three and a half hours after midnight in Tehran, and
+        report a busy evening as a quiet one.
+        """
         lines: List[str] = []
         anything = False
+        header_day = today
 
         for book in await self._books_of(user_id):
+            when = today or jalali.today_in(book.timezone)
+            period = reports.Period("امروز", when, when, "d")
             summary = await self.reports.summary(book.id, user_id, period)
             if summary.income == ZERO and summary.expense == ZERO:
                 continue
 
             anything = True
+            if header_day is None:
+                header_day = when
             lines.append(
                 f"📚 {book.name}\n"
                 f"  💰 {summary.income:,.0f}  🧾 {summary.expense:,.0f}  "
@@ -79,7 +87,7 @@ class ReminderService:
         if not anything:
             return None
 
-        header = f"📊 خلاصهٔ {jalali.to_text(when)}"
+        header = f"📊 خلاصهٔ {jalali.to_text(header_day)}"
         return Reminder(user_id, "digest", "\n\n".join([header] + lines))
 
     async def due_installments(
