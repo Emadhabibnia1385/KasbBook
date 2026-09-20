@@ -660,3 +660,54 @@ async def test_a_stranger_cannot_set_shares_in_another_teams_book(session):
     await other.handle(says("۹۹", external_id="999"))
 
     assert await PayrollService(session).shares(book.id, owner.id) == {}
+
+
+# ------------------------------------------------------------- cost policy
+async def test_the_treasury_screen_offers_the_cost_policy(session):
+    owner, _, book, convo = await team(session)
+    reply = await convo.handle(press(f"tf:list:{book.id}"))
+
+    assert any("قاعدهٔ هزینه" in label for label in labels(reply))
+    assert "از کل درآمد، پیش از تقسیم" in reply.text
+
+
+async def test_choosing_from_treasury_changes_the_book_and_the_arithmetic(session):
+    """A button that does not reach the database is the bug this file is about."""
+    from kasbbook.modules.books.models import CostPolicy
+
+    owner, _, book, convo = await team(session)
+    await TreasuryService(session).create_fund(
+        book.id, owner.id, "خزانه", FundKind.MAIN
+    )
+    funds = await TreasuryService(session).funds(book.id, owner.id)
+    await TreasuryService(session).add_rule(
+        book.id, owner.id, funds[0].id, RuleBasis.GROSS_PERCENT,
+        Decimal("50"), effective_from=date(2026, 1, 1),
+    )
+    await session.flush()
+
+    await convo.handle(press(f"tf:cp:{book.id}"))
+    reply = await convo.handle(press("tf:cpset:from_treasury"))
+
+    await session.refresh(book)
+    assert book.cost_policy is CostPolicy.FROM_TREASURY
+    assert "از سهم خزانه" in reply.text
+
+    payroll = PayrollService(session)
+    period = await payroll.open_period(
+        owner.id, book.id, "مرداد", date(2026, 8, 1), date(2026, 8, 31)
+    )
+    distribution = await payroll.compute_distribution(period.id)
+    # 100,000,000 income, 20,000,000 costs, a 50% cut of gross.
+    assert distribution.distributable == Decimal("50000000")
+    assert distribution.treasury_net == Decimal("30000000")
+
+
+async def test_a_member_pressing_the_cost_policy_button_is_refused(session):
+    owner, colleague, book, convo = await team(session)
+    identity = IdentityService(session)
+    issued = await identity.start_link_from_web(colleague.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "555002")
+
+    reply = await convo.handle(press(f"tf:cp:{book.id}", external_id="555002"))
+    assert "قاعدهٔ هزینه" not in reply.text

@@ -17,7 +17,7 @@ from ...shared.security import utcnow
 from ..identity.models import AuditEvent
 from ..ledger.models import JournalEntry, JournalLine
 from ..treasury.models import TreasuryAllocation
-from .models import Book, BookType, Membership, Permission, Role
+from .models import Book, BookType, CostPolicy, Membership, Permission, Role
 
 
 class BookService:
@@ -31,12 +31,14 @@ class BookService:
         name: str,
         book_type: BookType,
         base_currency: str = "IRT",
+        cost_policy: CostPolicy = CostPolicy.BEFORE_SPLIT,
     ) -> Book:
         book = Book(
             name=name.strip(),
             type=book_type,
             owner_user_id=owner_user_id,
             base_currency=base_currency.upper(),
+            cost_policy=cost_policy,
         )
         self.session.add(book)
         await self.session.flush()
@@ -53,6 +55,30 @@ class BookService:
         )
         self.session.add(
             AuditEvent(user_id=owner_user_id, action="book.created", subject=name)
+        )
+        await self.session.flush()
+        return book
+
+    async def set_cost_policy(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, policy: CostPolicy
+    ) -> Book:
+        """Change who carries this book's costs.
+
+        Gated on MANAGE_TREASURY because that is whose money the answer moves:
+        under FROM_TREASURY the members are paid more and the treasury keeps
+        less. A period that has already been calculated keeps the figures
+        frozen on its payslips, so this only steers what is worked out next.
+        """
+        await self.require(book_id, actor_user_id, Permission.MANAGE_TREASURY)
+        book = await self.get_book(book_id)
+        book.cost_policy = policy
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="book.cost_policy_changed",
+                subject=str(book_id),
+                detail=policy.value,
+            )
         )
         await self.session.flush()
         return book

@@ -384,3 +384,50 @@ async def test_a_share_set_over_http_is_what_the_bot_reports(api, db, session):
 
     assert "سارا" in reply.text
     assert "35" in reply.text
+
+
+# --------------------------------------------------------------- cost policy
+async def test_the_cost_policy_is_set_over_http_and_changes_the_distribution(
+    api, session
+):
+    headers, book, _, _ = await workspace(api, session)
+    assert book["cost_policy"] == "before_split"
+
+    period = (await api.post(f"/api/v1/books/{book['id']}/periods", headers=headers,
+                             json={"label": "مرداد", "starts_on": "2026-08-01",
+                                   "ends_on": "2026-08-31"})).json()
+
+    changed = await api.put(f"/api/v1/books/{book['id']}/cost-policy",
+                            headers=headers, json={"cost_policy": "from_treasury"})
+    assert changed.status_code == 200
+    assert changed.json()["cost_policy"] == "from_treasury"
+
+    body = (await api.get(
+        f"/api/v1/books/{book['id']}/periods/{period['id']}/distribution",
+        headers=headers,
+    )).json()
+
+    assert body["cost_policy"] == "from_treasury"
+    # No treasury rule here, so the whole gross is distributable and the costs
+    # sit against a treasury that took nothing.
+    assert body["distributable"] == "100000000.0000"
+    assert body["treasury_net"] == "-20000000.0000"
+
+
+async def test_an_unknown_cost_policy_is_refused(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    reply = await api.put(f"/api/v1/books/{book['id']}/cost-policy",
+                          headers=headers, json={"cost_policy": "whatever"})
+    assert reply.status_code == 422
+
+
+async def test_a_member_cannot_set_the_cost_policy_over_http(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    colleague = (await api.post("/api/v1/auth/login", json={
+        "identifier": "sara@example.com", "password": "a-good-password",
+    })).json()
+    their_headers = {"Authorization": f"Bearer {colleague['access_token']}"}
+
+    reply = await api.put(f"/api/v1/books/{book['id']}/cost-policy",
+                          headers=their_headers, json={"cost_policy": "from_treasury"})
+    assert reply.status_code == 403

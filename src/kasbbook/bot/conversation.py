@@ -16,7 +16,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
-from ..modules.books.models import BookType, Permission
+from ..modules.books.models import BookType, CostPolicy, Permission
 from ..modules.books.service import BookService
 from ..modules.books.invitations import InvitationService
 from ..modules.budgets.models import BudgetKind
@@ -1081,6 +1081,25 @@ class Conversation:
         if action == "add":
             await self.state.set(key, {"flow": "fund", "book_id": argument})
             return screens.fund_ask_name()
+
+        if action == "cp":
+            book = await self.books.get_book(uuid.UUID(argument))
+            await self.books.require(book.id, user.id, Permission.MANAGE_TREASURY)
+            await self.state.set(key, {"flow": "costpolicy", "book_id": argument})
+            return screens.cost_policy_pick(book)
+
+        if action == "cpset":
+            # The book comes from state, not from the button: the permission
+            # was checked against that book when the picker was opened.
+            draft = await self.state.get(key)
+            if draft.get("flow") != "costpolicy":
+                return screens.welcome(user.display_name)
+
+            book = await self.books.set_cost_policy(
+                user.id, uuid.UUID(draft["book_id"]), CostPolicy(argument)
+            )
+            await self.state.clear(key)
+            return await self._fund_screen(book, user)
 
         if action == "kind":
             draft = await self.state.get(key)

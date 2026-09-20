@@ -111,7 +111,8 @@ async def distribution(
     return DistributionResponse(
         gross_income=result.gross_income, direct_costs=result.direct_costs,
         net_profit=result.net_profit, treasury_total=result.treasury_total,
-        distributable=result.distributable,
+        treasury_net=result.treasury_net, distributable=result.distributable,
+        cost_policy=result.cost_policy.value,
     )
 
 

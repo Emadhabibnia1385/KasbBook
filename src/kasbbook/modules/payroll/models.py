@@ -4,6 +4,10 @@ The chain the spec describes, as data:
 
     gross income − direct costs − fees − tax − treasury  =  distributable
     distributable × member share                          =  base share
+
+(That is the `before_split` cost policy. Under `from_treasury` the members are
+paid out of gross income and the treasury's own cut carries every cost — see
+books.CostPolicy.)
     base share + bonuses + overtime − shortfall − penalty − advance = net pay
 
 Every step is snapshotted onto the payslip. Once a period is locked, corrections

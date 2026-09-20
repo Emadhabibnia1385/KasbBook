@@ -35,6 +35,24 @@ class BookType(str, enum.Enum):
     ORGANIZATION = "organization"
 
 
+class CostPolicy(str, enum.Enum):
+    """Who carries a period's costs once the treasury has taken its cut.
+
+    BEFORE_SPLIT is the conventional arrangement: costs come off income first,
+    so what the treasury and the members divide is already net of them and a
+    bad month is felt by everyone.
+
+    FROM_TREASURY is what a partnership that pays its people off the top does:
+    members are paid their share of gross income, and every cost is drawn from
+    the treasury's own cut. On this policy the treasury can end a period
+    negative, when costs exceed the cut. That is the honest reading of what
+    happened, so it is reported rather than clamped to zero.
+    """
+
+    BEFORE_SPLIT = "before_split"
+    FROM_TREASURY = "from_treasury"
+
+
 class Role(str, enum.Enum):
     """Ordered from most to least authority."""
 
@@ -113,6 +131,17 @@ class Book(UUIDPrimaryKey, Timestamped, Base):
     locale: Mapped[str] = mapped_column(String(8), nullable=False, default="fa")
     calendar: Mapped[str] = mapped_column(String(16), nullable=False, default="jalali")
     treasury_percent: Mapped[Optional[object]] = mapped_column(Money, default=None)
+    # Books that existed before this column divided income the conventional
+    # way, and a migration must not quietly repay anyone differently, so the
+    # server default is the old behaviour rather than the newer option.
+    cost_policy: Mapped[CostPolicy] = mapped_column(
+        Enum(CostPolicy, native_enum=False, length=20),
+        nullable=False,
+        # SQLAlchemy persists an Enum member by NAME, so the server default
+        # has to be the name too; the value would not map back on read.
+        server_default=CostPolicy.BEFORE_SPLIT.name,
+        default=CostPolicy.BEFORE_SPLIT,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     memberships: Mapped[list["Membership"]] = relationship(

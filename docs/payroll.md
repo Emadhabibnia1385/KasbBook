@@ -22,6 +22,32 @@ income
 Every line of that is shown on the period screen. Somebody about to be paid a
 share of a number should be able to see how the number was reached.
 
+### Who carries the costs
+
+The chain above is one of two arrangements, and a book chooses between them
+with `cost_policy`:
+
+| policy | distributable | the treasury keeps |
+|---|---|---|
+| `before_split` (default) | income − costs − treasury | its cut |
+| `from_treasury` | income − treasury | its cut − costs |
+
+`before_split` is the conventional reading: costs come off first and a bad
+month is felt by everyone. `from_treasury` is what a partnership that pays its
+people off the top does — members take their share of gross income and every
+cost is drawn from the treasury's own cut.
+
+Under `from_treasury` the treasury can end a period negative, when costs
+exceed the cut. That is the honest reading of the month, so it is reported
+rather than clamped.
+
+Changing the policy steers the next calculation only. A period that has already
+been calculated keeps its figures frozen on its payslips.
+
+It is set with `PUT /books/{id}/cost-policy`, or in the bot from the treasury
+screen. Both need `MANAGE_TREASURY`, because the answer moves money between
+the treasury and the people.
+
 ## Periods
 
 A period is the window everything is measured over — normally a Jalali month.

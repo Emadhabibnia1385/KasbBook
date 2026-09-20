@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ...shared.security import utcnow
-from ..books.models import Permission
+from ..books.models import CostPolicy, Permission
 from ..books.service import BookService
 from ..identity.models import AuditEvent
 from ..ledger.models import Flow, Transaction
@@ -48,6 +48,7 @@ class Distribution:
     direct_costs: Decimal = ZERO
     treasury_total: Decimal = ZERO
     treasury_by_fund: Dict[uuid.UUID, Decimal] = field(default_factory=dict)
+    cost_policy: CostPolicy = CostPolicy.BEFORE_SPLIT
 
     @property
     def net_profit(self) -> Decimal:
@@ -55,7 +56,18 @@ class Distribution:
 
     @property
     def distributable(self) -> Decimal:
+        if self.cost_policy is CostPolicy.FROM_TREASURY:
+            # Members are paid out of gross income; the treasury's cut is what
+            # carries the costs. See CostPolicy.
+            return self.gross_income - self.treasury_total
         return self.net_profit - self.treasury_total
+
+    @property
+    def treasury_net(self) -> Decimal:
+        """What the treasury keeps once it has paid what this policy asks of it."""
+        if self.cost_policy is CostPolicy.FROM_TREASURY:
+            return self.treasury_total - self.direct_costs
+        return self.treasury_total
 
 
 class PayrollService:
@@ -158,6 +170,7 @@ class PayrollService:
     async def compute_distribution(self, period_id: uuid.UUID) -> Distribution:
         """Income minus costs minus whatever the treasury rules take."""
         period = await self.get_period(period_id)
+        book = await self.books.get_book(period.book_id)
 
         rows = (
             await self.session.execute(
@@ -169,7 +182,7 @@ class PayrollService:
             )
         ).scalars().all()
 
-        result = Distribution()
+        result = Distribution(cost_policy=book.cost_policy)
         for tx in rows:
             if tx.flow is Flow.INCOME:
                 result.gross_income += tx.converted_amount

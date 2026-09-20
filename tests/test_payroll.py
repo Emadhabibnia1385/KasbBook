@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from kasbbook.modules.books.models import BookType, Role
+from kasbbook.modules.books.models import BookType, CostPolicy, Role
 from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.service import IdentityService
 from kasbbook.modules.ledger.models import Flow, Scope
@@ -26,7 +26,7 @@ from kasbbook.modules.payroll.models import (
 )
 from kasbbook.modules.payroll.service import PayrollService
 from kasbbook.modules.treasury.models import FundKind, RuleBasis, TreasuryFund, TreasuryRule
-from kasbbook.shared.errors import PermissionDenied, ValidationError
+from kasbbook.shared.errors import NotFound, PermissionDenied, ValidationError
 
 pytestmark = pytest.mark.asyncio
 
@@ -410,3 +410,92 @@ async def test_the_payslip_freezes_the_inputs_it_was_built_from(session):
     assert slip.share_basis_snapshot is ShareBasis.PERCENT
     assert slip.share_value_snapshot == Decimal("40")
     assert slip.currency == "IRT"
+
+
+# --------------------------------------------------------------- cost policy
+async def gross_rule(session, book, percent="50"):
+    """A treasury that takes a flat percentage of gross income."""
+    fund = TreasuryFund(book_id=book.id, kind=FundKind.MAIN, name="خزانه")
+    session.add(fund)
+    await session.flush()
+    session.add(
+        TreasuryRule(book_id=book.id, fund_id=fund.id, basis=RuleBasis.GROSS_PERCENT,
+                     value=Decimal(percent), effective_from=START)
+    )
+    await session.flush()
+    return fund
+
+
+async def test_a_new_book_still_takes_costs_before_the_split(session):
+    """The default must not move: existing teams are paid by this arithmetic."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    assert book.cost_policy is CostPolicy.BEFORE_SPLIT
+
+    await gross_rule(session, book)
+    d = await payroll.compute_distribution(period.id)
+    # 10,000,000 income − 2,000,000 costs − 5,000,000 treasury
+    assert d.distributable == Decimal("3000000")
+    assert d.treasury_net == Decimal("5000000")
+
+
+async def test_a_treasury_bearing_book_pays_members_off_gross_income(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    await books.set_cost_policy(owner.id, book.id, CostPolicy.FROM_TREASURY)
+    await gross_rule(session, book)
+
+    d = await payroll.compute_distribution(period.id)
+    assert d.gross_income == Decimal("10000000")
+    assert d.direct_costs == Decimal("2000000")
+    # The members divide gross minus the cut; the costs never touch it.
+    assert d.distributable == Decimal("5000000")
+    # The treasury's own cut is what paid for them.
+    assert d.treasury_net == Decimal("3000000")
+
+
+async def test_a_treasury_that_cannot_cover_its_costs_is_reported_negative(session):
+    """Clamping this to zero would hide the month the team actually lost money."""
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, costs="6000000"
+    )
+    await books.set_cost_policy(owner.id, book.id, CostPolicy.FROM_TREASURY)
+    await gross_rule(session, book)
+
+    d = await payroll.compute_distribution(period.id)
+    assert d.distributable == Decimal("5000000")
+    assert d.treasury_net == Decimal("-1000000")
+
+
+async def test_the_cost_policy_reaches_the_payslips(session):
+    """The policy is worth nothing if it stops at the report."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    await gross_rule(session, book)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+
+    before = await payroll.calculate(owner.id, period.id)
+    assert before[0].base_share == Decimal("3000000")
+
+    await books.set_cost_policy(owner.id, book.id, CostPolicy.FROM_TREASURY)
+    after = await payroll.calculate(owner.id, period.id)
+    assert after[0].base_share == Decimal("5000000")
+
+
+async def test_a_plain_member_cannot_change_the_cost_policy(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "عضو")
+
+    with pytest.raises(PermissionDenied):
+        await books.set_cost_policy(member.id, book.id, CostPolicy.FROM_TREASURY)
+
+    await session.refresh(book)
+    assert book.cost_policy is CostPolicy.BEFORE_SPLIT
+
+
+async def test_the_cost_policy_of_another_teams_book_cannot_be_reached(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    stranger = await identity.create_user("غریبه")
+
+    # NotFound rather than PermissionDenied, so book ids cannot be probed.
+    with pytest.raises(NotFound):
+        await books.set_cost_policy(stranger.id, book.id, CostPolicy.FROM_TREASURY)
+

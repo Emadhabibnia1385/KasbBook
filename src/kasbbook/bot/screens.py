@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 from ..adapters.base import Button
-from ..modules.books.models import Book, BookType
+from ..modules.books.models import Book, BookType, CostPolicy
 from ..modules.identity.models import Identity, Provider
 from ..modules.ledger.models import Flow, Scope
 
@@ -1469,6 +1469,29 @@ def ask_days() -> Screen:
 
 
 # ---------------------------------------------------------------- treasury
+COST_POLICY_LABELS = {
+    "before_split": "از کل درآمد، پیش از تقسیم",
+    "from_treasury": "از سهم خزانه",
+}
+
+
+def cost_policy_pick(book: Book) -> Screen:
+    """Ask who carries the costs, in the words of what it does to people's pay."""
+    return rtl(
+        f"⚖️ هزینه‌های «{book.name}» از سهم چه کسی کم شود؟\n\n"
+        f"قاعدهٔ فعلی: {COST_POLICY_LABELS[book.cost_policy.value]}\n\n"
+        "• پیش از تقسیم: هزینه اول از درآمد کم می‌شود و باقی‌مانده بین خزانه "
+        "و اعضا تقسیم می‌شود؛ یک ماه بد را همه حس می‌کنند.\n"
+        "• از سهم خزانه: اعضا سهمشان را از کل درآمد می‌گیرند و هزینه‌ها همه "
+        "از سهم خزانه برداشته می‌شود.\n\n"
+        "دوره‌هایی که قبلاً محاسبه شده‌اند دست نمی‌خورند."
+    ), [
+        [Button("📉 پیش از تقسیم", data="tf:cpset:before_split")],
+        [Button("🏦 از سهم خزانه", data="tf:cpset:from_treasury")],
+        [Button("⬅️ انصراف", data=f"tf:list:{book.id}")],
+    ]
+
+
 FUND_LABELS = {
     "main": "🏦 خزانهٔ اصلی",
     "emergency": "🚨 ذخیرهٔ اضطراری",
@@ -1492,9 +1515,11 @@ def fund_list(book: Book, funds_with_balance) -> Screen:
             f"🏦 خزانهٔ {book.name}\n\n"
             "هنوز صندوقی ساخته نشده.\n"
             "صندوق جایی است که پیش از تقسیم سود، سهمی کنار گذاشته می‌شود — "
-            "مثل ذخیرهٔ اضطراری یا کنارگذاشتن مالیات."
+            "مثل ذخیرهٔ اضطراری یا کنارگذاشتن مالیات.\n\n"
+            f"قاعدهٔ هزینه: {COST_POLICY_LABELS[book.cost_policy.value]}"
         ), [
             [Button("➕ صندوق تازه", data=f"tf:add:{book.id}")],
+            [Button("⚖️ تغییر قاعدهٔ هزینه", data=f"tf:cp:{book.id}")],
             [Button("⬅️ بازگشت", data=f"pr:list:{book.id}")],
         ]
 
@@ -1507,7 +1532,10 @@ def fund_list(book: Book, funds_with_balance) -> Screen:
         lines.append(f"• {label} — {fund.name}{mark}\n  تاکنون: {fmt(balance, book.base_currency)}")
     lines += ["", f"مجموع کنارگذاشته‌شده: {fmt(total, book.base_currency)}"]
 
-    buttons = [[Button("➕ صندوق تازه", data=f"tf:add:{book.id}")]]
+    lines += ["", f"قاعدهٔ هزینه: {COST_POLICY_LABELS[book.cost_policy.value]}"]
+
+    buttons = [[Button("➕ صندوق تازه", data=f"tf:add:{book.id}")],
+               [Button("⚖️ تغییر قاعدهٔ هزینه", data=f"tf:cp:{book.id}")]]
     for fund, _ in funds_with_balance[:10]:
         buttons.append([Button(f"{fund.name[:20]}", data=f"tf:open:{fund.id}")])
     buttons.append([Button("⬅️ بازگشت", data=f"pr:list:{book.id}")])
@@ -1667,6 +1695,15 @@ def period_detail(book: Book, period, distribution, slip_count: int) -> Screen:
     ]
     if distribution.treasury_total:
         lines.append(f"سهم خزانه:     {fmt(distribution.treasury_total, currency)}")
+    if distribution.cost_policy is CostPolicy.FROM_TREASURY:
+        # On this policy the members are paid off gross, so "سود خالص" above is
+        # not what anyone divides. Saying where the cost went, and what the
+        # treasury is left with, is the difference between a number someone can
+        # check and a number they have to trust.
+        lines.append(
+            f"خالص خزانه:    {fmt(distribution.treasury_net, currency)}"
+            "  (هزینه از سهم خزانه)"
+        )
     lines += [
         "",
         f"قابل تقسیم:    {fmt(distribution.distributable, currency)}",

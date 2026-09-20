@@ -171,6 +171,11 @@ class BookRequest(Model):
     name: str = Field(min_length=1, max_length=120)
     type: str
     currency: str = "IRR"
+    cost_policy: Optional[str] = None
+
+
+class CostPolicyRequest(Model):
+    cost_policy: str
 
 
 class BookResponse(Model):
@@ -178,6 +183,7 @@ class BookResponse(Model):
     name: str
     type: str
     currency: str
+    cost_policy: str
     created_at: datetime
 
 
@@ -390,7 +396,11 @@ class DistributionResponse(MoneyModel):
     direct_costs: Decimal
     net_profit: Decimal
     treasury_total: Decimal
+    # What the treasury keeps after this book's cost policy is applied. Under
+    # FROM_TREASURY it can be negative, and saying so is the point.
+    treasury_net: Decimal
     distributable: Decimal
+    cost_policy: str
 
 
 class ShareRequest(MoneyModel):

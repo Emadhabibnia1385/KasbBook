@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
-from ...modules.books.models import BookType, Permission, Role
+from ...modules.books.models import BookType, CostPolicy, Permission, Role
 from ...modules.books.service import BookService
 from ...modules.books.invitations import InvitationService
 from ...modules.identity.models import MESSENGERS, Provider
@@ -24,6 +24,7 @@ from ...shared.errors import NotFound, ValidationError
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
     BookRequest,
+    CostPolicyRequest,
     BookResponse,
     InviteRequest,
     MemberResponse,
@@ -62,7 +63,8 @@ async def list_books(user: CurrentUser, session: SessionDep) -> List[BookRespons
     books = await BookService(session).books_for_user(user.id)
     return [
         BookResponse(id=b.id, name=b.name, type=b.type.value,
-                     currency=b.base_currency, created_at=b.created_at)
+                     currency=b.base_currency, cost_policy=b.cost_policy.value,
+                     created_at=b.created_at)
         for b in books
     ]
 
@@ -72,10 +74,14 @@ async def create_book(
     body: BookRequest, user: CurrentUser, session: SessionDep
 ) -> BookResponse:
     book = await BookService(session).create_book(
-        user.id, body.name, _as_enum(BookType, body.type, "type"), body.currency
+        user.id, body.name, _as_enum(BookType, body.type, "type"), body.currency,
+        _as_enum(CostPolicy, body.cost_policy, "cost_policy")
+        if body.cost_policy else CostPolicy.BEFORE_SPLIT,
     )
     return BookResponse(id=book.id, name=book.name, type=book.type.value,
-                        currency=book.base_currency, created_at=book.created_at)
+                        currency=book.base_currency,
+                        cost_policy=book.cost_policy.value,
+                        created_at=book.created_at)
 
 
 @router.get("/{book_id}", response_model=BookResponse)
@@ -88,7 +94,23 @@ async def get_book(
     await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
     book = await books.get_book(book_id)
     return BookResponse(id=book.id, name=book.name, type=book.type.value,
-                        currency=book.base_currency, created_at=book.created_at)
+                        currency=book.base_currency,
+                        cost_policy=book.cost_policy.value,
+                        created_at=book.created_at)
+
+
+@router.put("/{book_id}/cost-policy", response_model=BookResponse)
+async def set_cost_policy(
+    book_id: uuid.UUID, body: CostPolicyRequest, user: CurrentUser, session: SessionDep
+) -> BookResponse:
+    """Choose whether costs come off before the split or out of the treasury."""
+    book = await BookService(session).set_cost_policy(
+        user.id, book_id, _as_enum(CostPolicy, body.cost_policy, "cost_policy")
+    )
+    return BookResponse(id=book.id, name=book.name, type=book.type.value,
+                        currency=book.base_currency,
+                        cost_policy=book.cost_policy.value,
+                        created_at=book.created_at)
 
 
 # --------------------------------------------------------------- members
