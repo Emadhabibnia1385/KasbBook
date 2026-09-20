@@ -1345,6 +1345,29 @@ class Conversation:
         year, month, _ = jalali.to_parts(date.today())
         return screens.period_list(book, periods, f"{jalali.month_name(month)} {year}")
 
+    @staticmethod
+    def _month_end(day: date) -> date:
+        """The last day of the Jalali month the given day falls in."""
+        year, month, _ = jalali.to_parts(day)
+        return jalali.month_range(year, month)[1]
+
+    async def _period_date_text(self, text: str, draft: dict, user, key: str):
+        period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
+        book = await self.books.get_book(period.book_id)
+        which = draft["which"]
+
+        on = parse_date(text, self._today(user))
+        if on is None:
+            return screens.period_ask_date(period, which)
+
+        await self.payroll.reschedule_period(
+            user.id, period.id,
+            starts_on=on if which == "start" else None,
+            ends_on=on if which == "end" else None,
+        )
+        await self.state.clear(key)
+        return await self._period_detail(book, user, period)
+
     async def _period_detail(self, book, user, period):
         distribution = await self.payroll.compute_distribution(period.id)
         slips = await self.payroll.payslips(user.id, period.id)
@@ -1367,6 +1390,27 @@ class Conversation:
             )
             await self.state.clear(key)
             return await self._period_detail(book, user, period)
+
+        if action in ("dates", "dstart", "dend", "dmonth"):
+            period = await self.payroll.get_period(uuid.UUID(argument))
+            book = await self.books.get_book(period.book_id)
+            await self.books.require(book.id, user.id, Permission.MANAGE_PAYROLL)
+
+            if action == "dates":
+                await self.state.clear(key)
+                return screens.period_dates(book, period, self._month_end(period.starts_on))
+
+            if action == "dmonth":
+                await self.payroll.reschedule_period(
+                    user.id, period.id, ends_on=self._month_end(period.starts_on)
+                )
+                return await self._period_detail(book, user, period)
+
+            await self.state.set(key, {
+                "flow": "period_date", "period_id": argument,
+                "which": "start" if action == "dstart" else "end",
+            })
+            return screens.period_ask_date(period, "start" if action == "dstart" else "end")
 
         if action == "del":
             period = await self.payroll.get_period(uuid.UUID(argument))
@@ -1759,6 +1803,9 @@ class Conversation:
 
         if draft.get("flow") == "conversion":
             return await self._conversion_text(text, draft, user, key)
+
+        if draft.get("flow") == "period_date":
+            return await self._period_date_text(text, draft, user, key)
 
         if draft.get("flow") == "team_invite":
             row = await self.invitations.create(uuid.UUID(draft["book_id"]), user.id, self.provider,

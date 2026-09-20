@@ -90,6 +90,7 @@ class PayrollService:
         await CategoryService(self.session).lock_book(book_id)
         if ends_on < starts_on:
             raise ValidationError("a period cannot end before it starts")
+        await self._require_no_overlap(book_id, starts_on, ends_on)
 
         period = FinancialPeriod(
             book_id=book_id, label=label.strip(), starts_on=starts_on, ends_on=ends_on
@@ -160,6 +161,100 @@ class PayrollService:
             )
         )
         await self.session.flush()
+        return period
+
+    async def _require_no_overlap(
+        self,
+        book_id: uuid.UUID,
+        starts_on: date,
+        ends_on: date,
+        exclude_id: Optional[uuid.UUID] = None,
+    ) -> None:
+        """Two periods must not cover the same day.
+
+        compute_distribution sums a period's transactions by date, so a day in
+        two periods is counted in both — the same income divided twice, and two
+        people paid for it. Nothing stopped that until now, and a book picked
+        one up within minutes of somebody exploring the menu.
+        """
+        stmt = select(FinancialPeriod).where(
+            FinancialPeriod.book_id == book_id,
+            FinancialPeriod.starts_on <= ends_on,
+            FinancialPeriod.ends_on >= starts_on,
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(FinancialPeriod.id != exclude_id)
+
+        clash = (await self.session.execute(stmt.limit(1))).scalar_one_or_none()
+        if clash is not None:
+            raise ValidationError(
+                f"این بازه با دورهٔ «{clash.label}» "
+                f"({jalali.to_text(clash.starts_on)} تا {jalali.to_text(clash.ends_on)}) "
+                "هم‌پوشانی دارد."
+            )
+
+    async def reschedule_period(
+        self,
+        actor_user_id: uuid.UUID,
+        period_id: uuid.UUID,
+        starts_on: Optional[date] = None,
+        ends_on: Optional[date] = None,
+    ) -> FinancialPeriod:
+        """Move a period's start or end.
+
+        The window decides which transactions the period divides, so its
+        payslips are a snapshot of it. Moving the window makes that snapshot
+        stale, and stale beats nothing only if nobody looks — so any payslips
+        are recalculated here rather than left to be trusted.
+
+        A period that has paid somebody is refused: payments cascade with
+        payslips, and recalculating would erase the record that money moved.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+
+        if period.status in (PeriodStatus.PAID, PeriodStatus.LOCKED):
+            raise PermissionDenied("این دوره پرداخت یا قفل شده و تاریخش عوض نمی‌شود.")
+        # Checked here rather than left to calculate(): by the time that
+        # refused, the new dates were already written.
+        if await self.session.scalar(
+            select(Payment.id)
+            .join(Payslip, Payslip.id == Payment.payslip_id)
+            .where(Payslip.period_id == period_id)
+            .limit(1)
+        ):
+            raise PermissionDenied(
+                "این دوره پرداخت ثبت‌شده دارد؛ تغییر بازه فیش‌ها را دوباره حساب "
+                "می‌کند و سابقهٔ پرداخت را پاک می‌کند."
+            )
+
+        new_start = starts_on or period.starts_on
+        new_end = ends_on or period.ends_on
+        if new_end < new_start:
+            raise ValidationError("پایان دوره نمی‌تواند قبل از شروعش باشد.")
+        if (new_start, new_end) == (period.starts_on, period.ends_on):
+            return period
+
+        await self._require_no_overlap(period.book_id, new_start, new_end, period.id)
+
+        had_payslips = await self.session.scalar(
+            select(Payslip.id).where(Payslip.period_id == period_id).limit(1)
+        )
+        period.starts_on, period.ends_on = new_start, new_end
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="period.rescheduled",
+                subject=period.label,
+                detail=f"{new_start}..{new_end}",
+            )
+        )
+        await self.session.flush()
+
+        if had_payslips:
+            # calculate() refuses a period that has paid out, which is the
+            # check this method already made.
+            await self.calculate(actor_user_id, period_id)
         return period
 
     async def rename_period(

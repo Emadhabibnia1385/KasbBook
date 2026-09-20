@@ -711,3 +711,71 @@ async def test_a_member_pressing_the_cost_policy_button_is_refused(session):
 
     reply = await convo.handle(press(f"tf:cp:{book.id}", external_id="555002"))
     assert "قاعدهٔ هزینه" not in reply.text
+
+
+# --------------------------------------------------------- period date editing
+async def test_a_period_offers_its_dates_and_they_can_be_moved(session):
+    owner, _, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    await session.flush()
+
+    detail = await convo.handle(press(f"pr:open:{period.id}"))
+    assert "1405/05/10" in detail.text          # the window, shown in Jalali
+    assert any("تاریخ‌های دوره" in label for label in labels(detail))
+
+    dates = await convo.handle(press(f"pr:dates:{period.id}"))
+    assert any("تاریخ پایان" in label for label in labels(dates))
+
+    await convo.handle(press(f"pr:dend:{period.id}"))
+    await convo.handle(says("1405/06/31"))
+
+    await session.refresh(period)
+    assert period.ends_on == date(2026, 9, 22)
+
+
+async def test_the_end_of_the_starting_month_is_one_press(session):
+    owner, _, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 10))
+    await session.flush()
+
+    await convo.handle(press(f"pr:dmonth:{period.id}"))
+    await session.refresh(period)
+    # 1 August 2026 is 10 Mordad 1405, and Mordad has 31 days, so the month
+    # ends on 22 August - not at the end of the Gregorian one.
+    assert period.ends_on == date(2026, 8, 22)
+
+
+async def test_a_typed_date_that_makes_no_sense_asks_again(session):
+    owner, _, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    await session.flush()
+
+    await convo.handle(press(f"pr:dend:{period.id}"))
+    reply = await convo.handle(says("فردا نمیدونم"))
+
+    assert "تاریخ پایان" in reply.text
+    await session.refresh(period)
+    assert period.ends_on == date(2026, 8, 31)
+
+
+async def test_a_member_pressing_the_dates_button_is_refused(session):
+    owner, colleague, book, convo = await team(session)
+    identity = IdentityService(session)
+    issued = await identity.start_link_from_web(colleague.id, TG)
+    await identity.complete_link_from_messenger(issued.token, TG, "555003")
+
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    await session.flush()
+
+    reply = await convo.handle(press(f"pr:dates:{period.id}", external_id="555003"))
+    assert "تاریخ‌های" not in reply.text
+    await session.refresh(period)
+    assert period.ends_on == date(2026, 8, 31)

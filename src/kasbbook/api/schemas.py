@@ -434,8 +434,12 @@ class PeriodRequest(Model):
     ends_on: date
 
 
-class PeriodRenameRequest(Model):
-    label: str = Field(min_length=1, max_length=40)
+class PeriodUpdateRequest(Model):
+    """Any of a period's name, start or end. Omitted fields stay as they are."""
+
+    label: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
 
 
 class PeriodResponse(Model):

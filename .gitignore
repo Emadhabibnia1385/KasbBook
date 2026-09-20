@@ -42,3 +42,6 @@ KASBBOOK_STATUS.md
 
 # Built documentation. Generated from docs/ by mkdocs.
 site/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

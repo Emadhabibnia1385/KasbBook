@@ -6,7 +6,7 @@ step is pinned to an exact figure rather than a range.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -547,19 +547,20 @@ async def test_a_treasury_cut_can_change_between_periods(session):
                             Decimal("45"), effective_from=date(2025, 4, 16))
     await session.flush()
 
-    # A rule is judged on the period's END date, not on its range, so each
-    # period must end inside the window of the cut it should pay.
+    # The fixture's period covers the whole month, and two periods may not
+    # cover the same day. Here the month is split in two so each half ends
+    # inside the window of the cut it should pay - a rule is judged on the
+    # period's END date, not across its range.
+    await payroll.delete_period(owner.id, first.id)
     early = await payroll.open_period(owner.id, book.id, "نیمهٔ اول",
                                       START, date(2025, 4, 15))
     late = await payroll.open_period(owner.id, book.id, "نیمهٔ دوم",
                                      date(2025, 4, 16), date(2025, 4, 30))
 
-    # All the income is dated START, so both periods see it or not by date;
-    # what is being asserted here is which percentage applied, not which rows.
+    # All the income is dated START, so only the first half sees it. Stacked,
+    # the two rules would have taken 95% of it; they take 50%.
     assert (await payroll.compute_distribution(early.id)).treasury_total == Decimal("5000000")
     assert (await payroll.compute_distribution(late.id)).treasury_total == ZERO_INCOME
-    # Stacked, the two rules would have taken 95%. They do not.
-    assert (await payroll.compute_distribution(first.id)).treasury_total == Decimal("4500000")
 
 
 async def test_closing_a_rule_leaves_what_it_already_took(session):
@@ -695,3 +696,99 @@ async def test_a_member_cannot_rename_a_period(session):
     member = await add_member(session, books, identity, book, owner, "عضو")
     with pytest.raises(PermissionDenied):
         await payroll.rename_period(member.id, period.id, "هرچی")
+
+
+# --------------------------------------------------- moving a period's window
+async def test_two_periods_may_not_cover_the_same_day(session):
+    """Overlap means one day's income divided twice, and two people paid for it."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+
+    with pytest.raises(ValidationError) as refused:
+        await payroll.open_period(owner.id, book.id, "دوم",
+                                  date(2025, 4, 15), date(2025, 5, 15))
+    assert "هم‌پوشانی" in str(refused.value)
+    assert len(await payroll.periods(book.id, owner.id)) == 1
+
+
+async def test_a_period_next_to_another_is_allowed(session):
+    """Touching is not overlapping: one ends the day before the next starts."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    nxt = await payroll.open_period(owner.id, book.id, "اردیبهشت",
+                                    date(2025, 5, 1), date(2025, 5, 31))
+    assert nxt.starts_on == date(2025, 5, 1)
+
+
+async def test_moving_a_window_changes_what_the_period_divides(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    assert (await payroll.compute_distribution(period.id)).gross_income == Decimal("10000000")
+
+    # The income is dated START; end the period the day before it.
+    await payroll.reschedule_period(owner.id, period.id, ends_on=START - timedelta(days=1),
+                                    starts_on=START - timedelta(days=10))
+    await session.flush()
+    assert (await payroll.compute_distribution(period.id)).gross_income == ZERO_INCOME
+
+
+async def test_moving_a_window_recalculates_the_payslips(session):
+    """A payslip is a snapshot of a window. Move the window and it is stale."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    before = (await payroll.calculate(owner.id, period.id))[0]
+    assert before.net_pay == Decimal("8000000")      # 10m income − 2m costs
+
+    # A window after the income, but still inside the share rule's life, so
+    # the member keeps a share and it is worth nothing.
+    await payroll.reschedule_period(owner.id, period.id,
+                                    starts_on=END + timedelta(days=1),
+                                    ends_on=END + timedelta(days=10))
+    await session.flush()
+
+    after = (await payroll.payslips(owner.id, period.id))[0]
+    assert after.net_pay == ZERO_INCOME
+    assert after.id != before.id
+
+
+async def test_a_window_cannot_move_onto_another_period(session):
+    identity, books, payroll, owner, book, first = await team_with_income(session)
+    second = await payroll.open_period(owner.id, book.id, "اردیبهشت",
+                                       date(2025, 5, 1), date(2025, 5, 31))
+    with pytest.raises(ValidationError):
+        await payroll.reschedule_period(owner.id, second.id, starts_on=date(2025, 4, 20))
+    await session.refresh(second)
+    assert second.starts_on == date(2025, 5, 1)
+
+
+async def test_a_window_cannot_end_before_it_starts(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    with pytest.raises(ValidationError):
+        await payroll.reschedule_period(owner.id, period.id, ends_on=START - timedelta(days=1))
+
+
+async def test_a_period_that_paid_somebody_keeps_its_window(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, "1000000", paid_on=START)
+    await session.flush()
+
+    # Rescheduling would recalculate, and recalculating would erase the payment.
+    with pytest.raises(PermissionDenied):
+        await payroll.reschedule_period(owner.id, period.id, ends_on=END + timedelta(days=1))
+    await session.refresh(period)
+    assert period.ends_on == END
+
+
+async def test_a_member_cannot_move_a_period(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "عضو")
+    with pytest.raises(PermissionDenied):
+        await payroll.reschedule_period(member.id, period.id, ends_on=END + timedelta(days=1))
+
+
+async def test_another_accounts_period_cannot_be_moved(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    stranger = await identity.create_user("غریبه")
+    with pytest.raises(NotFound):
+        await payroll.reschedule_period(stranger.id, period.id, ends_on=END)

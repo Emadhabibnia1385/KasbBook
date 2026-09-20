@@ -34,7 +34,7 @@ from ..schemas import (
     PayRequest,
     PaymentResponse,
     PayslipResponse,
-    PeriodRenameRequest,
+    PeriodUpdateRequest,
     PeriodRequest,
     PeriodResponse,
     PerformanceRequest,
@@ -97,16 +97,24 @@ async def open_period(
 
 
 @router.patch("/periods/{period_id}", response_model=PeriodResponse)
-async def rename_period(
-    book_id: uuid.UUID, period_id: uuid.UUID, body: PeriodRenameRequest,
+async def update_period(
+    book_id: uuid.UUID, period_id: uuid.UUID, body: PeriodUpdateRequest,
     user: CurrentUser, session: SessionDep,
 ) -> PeriodResponse:
-    """Change a period's name, leaving its dates and payslips alone."""
+    """Change a period's name, its window, or both."""
     payroll = PayrollService(session)
     period = await payroll.get_period(period_id)
     if period.book_id != book_id:
         raise NotFound("period")
-    period = await payroll.rename_period(user.id, period_id, body.label)
+    if body.label is None and body.starts_on is None and body.ends_on is None:
+        raise ValidationError("یک تغییر معتبر بفرست.")
+
+    if body.label is not None:
+        period = await payroll.rename_period(user.id, period_id, body.label)
+    if body.starts_on is not None or body.ends_on is not None:
+        period = await payroll.reschedule_period(
+            user.id, period_id, body.starts_on, body.ends_on
+        )
     return PeriodResponse(
         id=period.id, label=period.label, status=period.status.value,
         starts_on=period.starts_on, ends_on=period.ends_on,

@@ -1665,6 +1665,42 @@ PERIOD_LABELS = {
 }
 
 
+def period_dates(book: Book, period, month_end) -> Screen:
+    """Where a period starts and ends, and the ways to move either end."""
+    from ..shared import jalali
+
+    lines = [
+        f"📅 تاریخ‌های «{period.label}»",
+        "",
+        f"شروع: {jalali.to_text(period.starts_on)}",
+        f"پایان: {jalali.to_text(period.ends_on)}",
+        "",
+        "بازهٔ دوره تعیین می‌کند کدام تراکنش‌ها در آن تقسیم می‌شوند. "
+        "با تغییرش فیش‌های صادرشده دوباره حساب می‌شوند.",
+    ]
+    buttons = [[Button("✏️ تاریخ شروع", data=f"pr:dstart:{period.id}"),
+                Button("✏️ تاریخ پایان", data=f"pr:dend:{period.id}")]]
+    if month_end is not None and month_end != period.ends_on:
+        buttons.append([Button(
+            f"📆 پایان = {jalali.to_text(month_end)} (آخر ماه شروع)",
+            data=f"pr:dmonth:{period.id}")])
+    buttons.append([Button("⬅️ بازگشت", data=f"pr:open:{period.id}")])
+    return rtl("\n".join(lines)), buttons
+
+
+def period_ask_date(period, which: str) -> Screen:
+    """Ask for one end of the window, in Jalali."""
+    from ..shared import jalali
+
+    what = "شروع" if which == "start" else "پایان"
+    other = period.ends_on if which == "start" else period.starts_on
+    edge = "قبل از" if which == "start" else "بعد از"
+    return rtl(
+        f"📅 تاریخ {what} «{period.label}» را بفرست.\n\n"
+        f"مثل ۱۴۰۵/۰۶/۳۱ — باید {edge} {jalali.to_text(other)} نباشد."
+    ), [[Button("⬅️ انصراف", data=f"pr:dates:{period.id}")]]
+
+
 def period_list(book: Book, periods, month_label: str) -> Screen:
     """Payroll starts here: a period is the window everything is measured over."""
     if book.type.value in ("personal", "business"):
@@ -1717,8 +1753,11 @@ def period_detail(book: Book, period, distribution, slip_count: int,
     currency = book.base_currency
     state = PERIOD_LABELS.get(period.status.value, period.status.value)
 
+    from ..shared import jalali
+
     lines = [
         f"📅 {period.label}",
+        f"بازه: {jalali.to_text(period.starts_on)} تا {jalali.to_text(period.ends_on)}",
         f"وضعیت: {state}",
         "",
         f"درآمد دوره:     {fmt(distribution.gross_income, currency)}",
@@ -1750,6 +1789,8 @@ def period_detail(book: Book, period, distribution, slip_count: int,
         # Once money has changed hands the service refuses; not offering the
         # button is the honest version of the same rule.
         buttons.append([Button("🧮 محاسبهٔ فیش‌ها", data=f"pr:calc:{period.id}")])
+    if period.status.value not in ("locked", "paid") and not has_payments:
+        buttons.append([Button("📅 تاریخ‌های دوره", data=f"pr:dates:{period.id}")])
     if period.status.value not in ("locked", "paid") and not slip_count:
         # Only while it has paid nobody. Two periods covering the same day
         # divide that day's income twice, so a period made by mistake needs a
