@@ -42,7 +42,8 @@ exceed the cut. That is the honest reading of the month, so it is reported
 rather than clamped.
 
 Changing the policy steers the next calculation only. A period that has already
-been calculated keeps its figures frozen on its payslips.
+been calculated keeps its figures frozen on its payslips, and the treasury's
+allocation for a period is replaced — not added to — when it is recalculated.
 
 It is set with `PUT /books/{id}/cost-policy`, or in the bot from the treasury
 screen. Both need `MANAGE_TREASURY`, because the answer moves money between

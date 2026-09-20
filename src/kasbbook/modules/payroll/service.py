@@ -529,6 +529,18 @@ class PayrollService:
             )
         ).scalars().all():
             await self.session.delete(stale)
+        # The allocations belong to the run too. Deleting only the payslips left
+        # every recalculation adding a second cut for the same period, so a book
+        # recalculated twice reported a treasury balance twice the size of the
+        # money that ever went into it — with nothing anywhere saying so.
+        for stale_allocation in (
+            await self.session.execute(
+                select(TreasuryAllocation).where(
+                    TreasuryAllocation.period_id == period_id
+                )
+            )
+        ).scalars().all():
+            await self.session.delete(stale_allocation)
         await self.session.flush()
 
         slips: List[Payslip] = []

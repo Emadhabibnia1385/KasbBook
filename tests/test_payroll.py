@@ -499,3 +499,25 @@ async def test_the_cost_policy_of_another_teams_book_cannot_be_reached(session):
     with pytest.raises(NotFound):
         await books.set_cost_policy(stranger.id, book.id, CostPolicy.FROM_TREASURY)
 
+async def test_recalculating_a_period_does_not_double_the_treasury(session):
+    """A second run replaces the first one's allocation instead of adding to it.
+
+    This was silent: the payslips were replaced and the allocations were not,
+    so a book recalculated twice reported twice the treasury it ever held.
+    """
+    from sqlalchemy import select as _select
+    from kasbbook.modules.treasury.models import TreasuryAllocation
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    await gross_rule(session, book)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+
+    await payroll.calculate(owner.id, period.id)
+    await payroll.calculate(owner.id, period.id)
+
+    rows = (await session.execute(
+        _select(TreasuryAllocation).where(TreasuryAllocation.period_id == period.id)
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].amount == Decimal("5000000")
