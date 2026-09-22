@@ -20,6 +20,7 @@ from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.money import SCALE, ZERO, quantize, to_decimal
 from ...shared.security import utcnow
 from ..books.models import CostPolicy, Permission
+from ..exchange.models import CURRENCY_NAMES
 from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent
@@ -210,28 +211,14 @@ class PayrollService:
         The window decides which transactions the period divides, so its
         payslips are a snapshot of it. Moving the window makes that snapshot
         stale, and stale beats nothing only if nobody looks — so any payslips
-        are recalculated here rather than left to be trusted.
-
-        A period that has paid somebody is refused: payments cascade with
-        payslips, and recalculating would erase the record that money moved.
+        are recalculated here rather than left to be trusted. Payments made
+        against them stay, as they do on any recalculation.
         """
         period = await self.get_period(period_id)
         await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
 
         if period.status in (PeriodStatus.PAID, PeriodStatus.LOCKED):
             raise PermissionDenied("این دوره پرداخت یا قفل شده و تاریخش عوض نمی‌شود.")
-        # Checked here rather than left to calculate(): by the time that
-        # refused, the new dates were already written.
-        if await self.session.scalar(
-            select(Payment.id)
-            .join(Payslip, Payslip.id == Payment.payslip_id)
-            .where(Payslip.period_id == period_id)
-            .limit(1)
-        ):
-            raise PermissionDenied(
-                "این دوره پرداخت ثبت‌شده دارد؛ تغییر بازه فیش‌ها را دوباره حساب "
-                "می‌کند و سابقهٔ پرداخت را پاک می‌کند."
-            )
 
         new_start = starts_on or period.starts_on
         new_end = ends_on or period.ends_on
@@ -257,8 +244,6 @@ class PayrollService:
         await self.session.flush()
 
         if had_payslips:
-            # calculate() refuses a period that has paid out, which is the
-            # check this method already made.
             await self.calculate(actor_user_id, period_id)
         return period
 
@@ -273,8 +258,9 @@ class PayrollService:
         covering today would otherwise block today's bookkeeping entirely, and
         there was no way back.
 
-        Refused once money has been handed over — payments cascade with
-        payslips, and a correction after payment belongs in a later period.
+        Refused once money has been handed over: payments cascade with their
+        payslips, so discarding would erase the record that money moved. Such a
+        period needs recalculating instead, which keeps the payments.
         """
         period = await self.get_period(period_id)
         await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
@@ -288,8 +274,9 @@ class PayrollService:
             .limit(1)
         ):
             raise PermissionDenied(
-                "این دوره پرداخت ثبت‌شده دارد؛ باطل‌کردن محاسبه سابقهٔ پرداخت را "
-                "پاک می‌کند. اصلاح را در دورهٔ بعد ثبت کن."
+                "این دوره پرداخت ثبت‌شده دارد و باطل‌کردن محاسبه سابقهٔ پرداخت را "
+                "پاک می‌کند. برای به‌روز شدن فیش‌ها «محاسبهٔ دوباره» را بزن؛ "
+                "پرداخت‌ها سر جایشان می‌مانند."
             )
 
         slips = (
@@ -613,12 +600,20 @@ class PayrollService:
     async def clear_share(
         self, book_id: uuid.UUID, actor_user_id: uuid.UUID, user_id: uuid.UUID
     ) -> None:
-        """Stop this member taking a share from now on.
+        """Stop this member taking a share from today.
 
-        Deactivates rather than deletes: a payslip already issued names the rule
-        it was worked out from, and that has to keep meaning something.
+        The rule is closed, not switched off. Switching it off erased it from
+        history as well: share_rules_for() skips an inactive rule on every day,
+        so a past period recalculated afterwards found no share for this member
+        and paid them nothing — and since a period that has paid out can be
+        recalculated, every payment to them would have read as an overpayment.
+        Closing it is what set_share does to the rule it replaces, for the same
+        reason. A rule that had not started yet is a mistake being withdrawn,
+        and is switched off exactly as set_share does.
         """
         await self.books.require(book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        book = await self.books.get_book(book_id)
+        today = jalali.today_in(book.timezone)
 
         for rule in (
             await self.session.execute(
@@ -629,7 +624,16 @@ class PayrollService:
                 )
             )
         ).scalars().all():
-            rule.is_active = False
+            if rule.effective_from >= today:
+                rule.is_active = False
+            elif rule.effective_to is None or rule.effective_to >= today:
+                rule.effective_to = today - timedelta(days=1)
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id, action="share.cleared",
+                subject=str(user_id), detail=str(today),
+            )
+        )
         await self.session.flush()
 
     # -------------------------------------------------------- performance
@@ -768,29 +772,20 @@ class PayrollService:
         ).scalars().all():
             adjustments_by_user.setdefault(adjustment.user_id, []).append(adjustment)
 
-        # Payments hang off payslips and cascade with them, so replacing a
-        # payslip that has been paid deletes the record that money changed
-        # hands — and the wallet springs back up as if it never had. Corrections
-        # to a period that has paid out belong in a later one, which is what the
-        # period model has said all along.
-        if await self.session.scalar(
-            select(Payment.id)
-            .join(Payslip, Payslip.id == Payment.payslip_id)
-            .where(Payslip.period_id == period_id)
-            .limit(1)
-        ):
-            raise PermissionDenied(
-                "این دوره پرداخت ثبت‌شده دارد و محاسبهٔ دوباره سابقهٔ آن را پاک "
-                "می‌کند؛ اصلاح را در دورهٔ بعد ثبت کن."
-            )
-
-        # Recalculating replaces the previous run rather than doubling it.
-        for stale in (
-            await self.session.execute(
-                select(Payslip).where(Payslip.period_id == period_id)
-            )
-        ).scalars().all():
-            await self.session.delete(stale)
+        # A member's payslip is updated in place, never replaced. Payments hang
+        # off it and cascade with it, so replacing a paid payslip deleted the
+        # record that money had changed hands — and the wallet sprang back up as
+        # if it never had. Updated, it keeps its payments, and what moves is
+        # only what is still owed. That is what lets a period that has paid out
+        # keep taking entries.
+        existing = {
+            slip.user_id: slip
+            for slip in (
+                await self.session.execute(
+                    select(Payslip).where(Payslip.period_id == period_id)
+                )
+            ).scalars().all()
+        }
         # The allocations belong to the run too. Deleting only the payslips left
         # every recalculation adding a second cut for the same period, so a book
         # recalculated twice reported a treasury balance twice the size of the
@@ -810,22 +805,40 @@ class PayrollService:
             adjustments_total = self._apply_adjustments(
                 base_share, adjustments_by_user.get(user_id, [])
             )
-            slip = Payslip(
-                book_id=period.book_id,
-                period_id=period_id,
-                user_id=user_id,
-                distributable_snapshot=distribution.distributable,
-                share_basis_snapshot=rule.basis,
-                share_value_snapshot=rule.value,
-                base_share=base_share,
-                adjustments_total=adjustments_total,
-                net_pay=quantize(base_share + adjustments_total),
-                currency=book.base_currency,
-                # A slip that was just built genuinely has no payments yet.
-                # Saying so avoids a lazy load the caller cannot await.
-                payments=[],
-            )
-            self.session.add(slip)
+            slip = existing.pop(user_id, None)
+            if slip is None:
+                slip = Payslip(
+                    book_id=period.book_id,
+                    period_id=period_id,
+                    user_id=user_id,
+                    currency=book.base_currency,
+                    # A slip that was just built genuinely has no payments yet.
+                    # Saying so avoids a lazy load the caller cannot await.
+                    payments=[],
+                )
+                self.session.add(slip)
+            slip.distributable_snapshot = distribution.distributable
+            slip.share_basis_snapshot = rule.basis
+            slip.share_value_snapshot = rule.value
+            slip.base_share = base_share
+            slip.adjustments_total = adjustments_total
+            slip.net_pay = quantize(base_share + adjustments_total)
+            slips.append(slip)
+
+        # Whoever is left had a payslip and no longer has a share on the day
+        # the period ends. Without payments the slip simply goes. With them it
+        # stays, at nothing: deleting it would delete the record that they were
+        # paid, and at nothing, every payment to them reads as paid beyond
+        # their share — which, now, it is.
+        for slip in existing.values():
+            if not slip.payments:
+                await self.session.delete(slip)
+                continue
+            slip.distributable_snapshot = distribution.distributable
+            slip.share_value_snapshot = ZERO
+            slip.base_share = ZERO
+            slip.adjustments_total = ZERO
+            slip.net_pay = ZERO
             slips.append(slip)
 
         # The treasury cut is recorded once, as fact, alongside the run.
@@ -954,7 +967,15 @@ class PayrollService:
         # otherwise left a few toman outstanding that no amount of tether
         # could clear.
         if quantize(value * rate) > owed + quantize(SCALE * rate):
-            raise ValidationError(f"only {owed} is still owed on this payslip")
+            # A person reads this. It used to arrive in English, and once a
+            # period can be recalculated below what was paid, "only -300000
+            # is still owed" is what it would have said.
+            if owed <= ZERO:
+                raise ValidationError("از این فیش چیزی مانده نیست.")
+            unit = CURRENCY_NAMES.get(slip.currency, slip.currency)
+            raise ValidationError(
+                f"از این فیش فقط {owed.normalize():,f} {unit} مانده است."
+            )
 
         book = await self.books.get_book(slip.book_id)
         exchange = ExchangeService(self.session)

@@ -1379,14 +1379,13 @@ class Conversation:
     async def _period_detail(self, book, user, period):
         distribution = await self.payroll.compute_distribution(period.id)
         slips = await self.payroll.payslips(user.id, period.id)
-        paid = any(slip.paid_total > Decimal("0") for slip in slips)
         # A payslip froze the numbers it was built from. If the period has
         # moved since, saying so beats leaving somebody to read a stale figure
         # as a current one.
         stale = any(
             slip.distributable_snapshot != distribution.distributable for slip in slips
         )
-        return screens.period_detail(book, period, distribution, len(slips), paid, stale)
+        return screens.period_detail(book, period, distribution, slips, stale)
 
     async def _payroll_callback(self, action: str, argument: str, user, key: str):
         if action == "list":
@@ -1510,6 +1509,13 @@ class Conversation:
         outstanding = slip.remaining
 
         if action == "slip":
+            await self.state.clear(key)
+            return screens.payslip_detail(book, slip, name)
+
+        if action in ("payall", "pay") and outstanding <= 0:
+            # A button from an older screen. Since it was drawn the slip was
+            # settled, or recalculated below what had been paid; show it as
+            # it is now rather than try to pay a negative amount.
             await self.state.clear(key)
             return screens.payslip_detail(book, slip, name)
 

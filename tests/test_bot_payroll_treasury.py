@@ -830,3 +830,71 @@ async def test_the_bot_can_take_back_the_last_payment(session):
     await convo.handle(press(f"pr:unpay:{slip.payments[0].id}"))
     await session.refresh(slip, attribute_names=["payments"])
     assert slip.paid_total == Decimal("0")
+
+
+# ------------------------------------------------- a period that has paid out
+async def test_a_paid_period_takes_a_late_receipt_and_leaves_the_rest_owed(session):
+    """What the person asked for: paying the members must not close the month.
+
+    The late income goes in, the period offers to recalculate and says the
+    payments stay, and afterwards the difference is shown as still owed.
+    """
+    owner, colleague, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    await session.flush()
+    slips = {s.user_id: s for s in await payroll.calculate(owner.id, period.id)}
+    await convo.handle(press(f"pr:payall:{slips[owner.id].id}"))     # 40m, in full
+
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "10000000", occurred_on=date(2026, 8, 30))
+    await session.flush()
+
+    detail = await convo.handle(press(f"pr:open:{period.id}"))
+    assert "نمی‌خوانند" in detail.text
+    assert "پرداخت‌ها سر جایشان می‌مانند" in detail.text
+    assert any("محاسبهٔ دوبارهٔ فیش‌ها" in label for label in labels(detail))
+    assert any("تاریخ‌های دوره" in label for label in labels(detail))
+    # Discarding would delete the payment with the payslip, so it is not offered.
+    assert not any("باطل‌کردن محاسبه" in label for label in labels(detail))
+
+    after = await convo.handle(press(f"pr:calc:{period.id}"))
+    assert "نمی‌خوانند" not in after.text
+    assert "مانده پرداخت: 50,000,000" in after.text      # 5m to one, 45m to the other
+
+    listed = await convo.handle(press(f"pr:slips:{period.id}"))
+    assert "🟡 عماد: 45,000,000 IRT — مانده 5,000,000 IRT" in listed.text
+
+    slip = await convo.handle(press(f"pr:slip:{slips[owner.id].id}"))
+    assert "مانده: 5,000,000" in slip.text
+    assert any("پرداخت کامل (5,000,000" in label for label in labels(slip))
+
+
+async def test_a_payslip_paid_beyond_its_new_figure_says_so(session):
+    """A cost after payment leaves someone paid more than their share. Say so."""
+    owner, colleague, book, convo = await team(session)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(owner.id, book.id, "مرداد",
+                                       date(2026, 8, 1), date(2026, 8, 31))
+    await session.flush()
+    slip = {s.user_id: s for s in await payroll.calculate(owner.id, period.id)}[owner.id]
+    await convo.handle(press(f"pr:payall:{slip.id}"))
+    await LedgerService(session).record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM,
+                                        "اجاره", "4000000", occurred_on=date(2026, 8, 30))
+    await session.flush()
+    await convo.handle(press(f"pr:calc:{period.id}"))
+
+    reply = await convo.handle(press(f"pr:slip:{slip.id}"))
+    assert "بیش از سهم پرداخت شده: 2,000,000" in reply.text
+    assert "کامل پرداخت شده" not in reply.text
+    assert not any("پرداخت کامل" in label for label in labels(reply))
+
+    listed = await convo.handle(press(f"pr:slips:{period.id}"))
+    assert "🔴 عماد" in listed.text
+
+    # A "pay all" left on an older screen shows the slip as it is now.
+    stale_button = await convo.handle(press(f"pr:payall:{slip.id}"))
+    assert "بیش از سهم پرداخت شده" in stale_button.text
+    await session.refresh(slip, attribute_names=["payments"])
+    assert len(slip.payments) == 1

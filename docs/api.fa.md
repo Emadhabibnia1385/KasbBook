@@ -210,16 +210,20 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | | |
 |---|---|
 | `GET`/`POST /books/{id}/periods` | فهرست، یا بازکردن یکی |
+| `PATCH /books/{id}/periods/{p}` | تغییر نام یا بازه؛ فیش‌ها دوباره حساب می‌شوند و پرداخت‌ها می‌مانند |
+| `DELETE /books/{id}/periods/{p}` | فقط تا وقتی فیشی صادر نکرده |
 | `GET /books/{id}/periods/{p}/distribution` | درآمد − هزینه − خزانه = قابل‌توزیع |
 | `POST /books/{id}/periods/{p}/status/{status}` | فقط گذارهای مستندشده |
 | `GET`/`PUT /books/{id}/shares` | چه کسی چه می‌برد؛ `PUT` قاعدهٔ قبلی را تاریخ‌بندی می‌کند |
-| `DELETE /books/{id}/shares/{user}` | پرداخت به این عضو را متوقف کن |
+| `DELETE /books/{id}/shares/{user}` | پرداخت به این عضو را از امروز متوقف کن؛ دوره‌های گذشته قاعده را نگه می‌دارند |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | ساعت، روز، امتیاز — برای مبناهای سنجشی |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | پاداش و کسر، علامت‌دار |
 | `POST …/adjustments/{a}/approve` | ثبت و تأیید دو کار جدا هستند |
-| `POST /books/{id}/periods/{p}/calculate` | فیش‌ها، با تمام ورودی‌ها منجمد روی خودشان |
+| `POST /books/{id}/periods/{p}/calculate` | فیش‌ها، با تمام ورودی‌ها منجمد روی خودشان؛ دفعهٔ بعد سر جایشان به‌روز می‌شوند و پرداخت‌ها می‌مانند |
+| `DELETE /books/{id}/periods/{p}/payslips` | باطل‌کردن محاسبه — بعد از اولین پرداخت رد می‌شود |
 | `GET /books/{id}/periods/{p}/payslips` | فیش همه، یا فقط خودت، بسته به دسترسی |
 | `POST /books/{id}/payslips/{slip}/payments` | مرحله‌ای؛ قسطی‌بودن قاعده است |
+| `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | پس‌گرفتن پرداخت تا وقتی دوره باز است |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | صندوق‌های خزانه |
 | `GET`/`POST`/`DELETE /books/{id}/funds/{f}/rules` | چه چیزی تغذیه‌شان می‌کند |
 

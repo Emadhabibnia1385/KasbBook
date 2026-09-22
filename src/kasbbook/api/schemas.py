@@ -545,7 +545,11 @@ class PayslipResponse(MoneyModel):
     adjustments_total: Decimal
     net_pay: Decimal
     paid: Decimal
+    # Negative once a recalculation leaves the payslip below what was paid.
     outstanding: Decimal
+    # What was paid beyond the payslip, less the fraction a token settlement
+    # may land past it — the figure a person should be shown. Zero otherwise.
+    overpaid: Decimal
     currency: str
     payments: List[PaymentResponse]
 

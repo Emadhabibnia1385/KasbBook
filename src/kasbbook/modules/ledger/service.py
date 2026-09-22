@@ -26,7 +26,7 @@ from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent, User
 from ..loans.models import LoanPayment
-from ..payroll.models import FinancialPeriod, Payment, PeriodStatus, Payslip
+from ..payroll.models import FinancialPeriod, PeriodStatus
 from .categories import CategoryService
 from .models import (
     DEBIT_POSITIVE,
@@ -77,24 +77,16 @@ class LedgerService:
             FinancialPeriod.ends_on >= on
         ))).all()
         for period in periods:
+            # Only a period somebody deliberately moved past its open state
+            # refuses entries. Neither a payslip nor a payment does. Paying the
+            # members used to close the month, so the income that arrived a
+            # day late and the bill that came after had nowhere to go but the
+            # wrong month. A payslip is a snapshot: recalculating it keeps every
+            # payment made against it, and the difference is simply what is
+            # still owed — or what was paid beyond the new figure.
             if period.status is not PeriodStatus.OPEN:
                 raise PermissionDenied(
                     "این دوره بسته یا در حال محاسبه است؛ اصلاح را در دورهٔ باز ثبت کن."
-                )
-            # Only money already handed over freezes a period. Having merely
-            # calculated it used to be enough, which meant that calculating a
-            # period still running blocked every entry dated today — a live
-            # book cannot stop taking entries because a provisional payslip
-            # exists. A payslip is a snapshot and says so; when the numbers
-            # under it move, it is recalculated.
-            if await self.session.scalar(
-                select(Payment.id)
-                .join(Payslip, Payslip.id == Payment.payslip_id)
-                .where(Payslip.period_id == period.id)
-                .limit(1)
-            ):
-                raise PermissionDenied(
-                    "این دوره پرداخت ثبت‌شده دارد؛ اصلاح را در دورهٔ بعد ثبت کن."
                 )
 
     @staticmethod

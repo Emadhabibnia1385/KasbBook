@@ -212,16 +212,20 @@ Telegram is what this returns.
 | | |
 |---|---|
 | `GET`/`POST /books/{id}/periods` | list, or open one |
+| `PATCH /books/{id}/periods/{p}` | rename, or move the window; payslips are recalculated, payments kept |
+| `DELETE /books/{id}/periods/{p}` | only while it has issued no payslip |
 | `GET /books/{id}/periods/{p}/distribution` | income − costs − treasury = distributable |
 | `POST /books/{id}/periods/{p}/status/{status}` | only the documented transitions |
 | `GET`/`PUT /books/{id}/shares` | who takes what; `PUT` end-dates the previous rule |
-| `DELETE /books/{id}/shares/{user}` | stop paying this member |
+| `DELETE /books/{id}/shares/{user}` | stop paying this member from today; past periods keep the rule |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | hours, days, points — for measured bases |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | bonuses and deductions, signed |
 | `POST …/adjustments/{a}/approve` | recording and approving are separate |
-| `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them |
+| `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them; again, updates them in place and keeps their payments |
+| `DELETE /books/{id}/periods/{p}/payslips` | discard the calculation — refused once anyone has been paid |
 | `GET /books/{id}/periods/{p}/payslips` | everyone's, or only yours, by permission |
 | `POST /books/{id}/payslips/{slip}/payments` | staged; instalments are the norm |
+| `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | take a payment back while the period is open |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | treasury funds |
 | `GET`/`POST`/`DELETE /books/{id}/funds/{f}/rules` | what feeds them |
 

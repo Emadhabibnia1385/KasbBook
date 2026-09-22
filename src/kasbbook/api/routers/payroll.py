@@ -126,7 +126,7 @@ async def update_period(
 async def discard_calculation(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> None:
-    """Throw away a period's payslips so its transactions can be edited again."""
+    """Throw away a period's payslips. Refused once anyone has been paid."""
     payroll = PayrollService(session)
     period = await payroll.get_period(period_id)
     if period.book_id != book_id:
@@ -330,7 +330,7 @@ def _payslip(row, names) -> PayslipResponse:
         share_value=row.share_value_snapshot,
         base_share=row.base_share, adjustments_total=row.adjustments_total,
         net_pay=row.net_pay, paid=paid, outstanding=row.remaining,
-        currency=row.currency,
+        overpaid=row.overpaid, currency=row.currency,
         payments=[
             PaymentResponse(id=p.id, amount=p.amount, currency=p.currency,
                             paid_on=p.paid_on, reference=p.reference)

@@ -1744,8 +1744,8 @@ def period_list(book: Book, periods, month_label: str) -> Screen:
     return rtl("\n".join(lines)), buttons
 
 
-def period_detail(book: Book, period, distribution, slip_count: int,
-                  has_payments: bool = False, stale: bool = False) -> Screen:
+def period_detail(book: Book, period, distribution, slips=(),
+                  stale: bool = False) -> Screen:
     """The whole arithmetic, shown rather than asserted.
 
     Every line of it is here on purpose: someone about to be paid a share of a
@@ -1753,6 +1753,8 @@ def period_detail(book: Book, period, distribution, slip_count: int,
     """
     currency = book.base_currency
     state = PERIOD_LABELS.get(period.status.value, period.status.value)
+    slip_count = len(slips)
+    has_payments = any(slip.payments for slip in slips)
 
     from ..shared import jalali
 
@@ -1783,23 +1785,38 @@ def period_detail(book: Book, period, distribution, slip_count: int,
 
     if slip_count:
         lines += ["", f"{slip_count} فیش صادر شده."]
+        if has_payments:
+            # What the members are still owed, and what went to them beyond
+            # their share, straight from the payslips. A period keeps taking
+            # entries after it pays out, so both can move after payment.
+            owed = sum((slip.remaining for slip in slips if slip.remaining > 0),
+                       Decimal("0"))
+            over = sum((slip.overpaid for slip in slips), Decimal("0"))
+            lines.append(f"مانده پرداخت: {fmt(owed, currency)}" if owed
+                         else "همه پرداخت شده ✅")
+            if over:
+                lines.append(f"⚠️ بیش از سهم پرداخت شده: {fmt(over, currency)}")
         if stale:
             lines.append(
                 "⚠️ بعد از صدور فیش‌ها چیزی در این دوره ثبت یا عوض شده؛ "
                 "اعداد بالا با فیش‌ها نمی‌خوانند. دوباره حساب کن."
             )
+            if has_payments:
+                lines.append("پرداخت‌ها سر جایشان می‌مانند و فقط مانده عوض می‌شود.")
 
     buttons = []
-    if period.status.value not in ("locked", "paid") and not has_payments:
-        # Recalculating replaces the payslips, and payments cascade with them.
-        # Once money has changed hands the service refuses; not offering the
-        # button is the honest version of the same rule.
-        buttons.append([Button("🧮 محاسبهٔ فیش‌ها", data=f"pr:calc:{period.id}")])
+    if period.status.value not in ("locked", "paid"):
+        # Offered whether or not anyone has been paid: recalculating updates
+        # each payslip in place and keeps the payments made against it.
+        buttons.append([Button(
+            "🧮 محاسبهٔ دوبارهٔ فیش‌ها" if slip_count else "🧮 محاسبهٔ فیش‌ها",
+            data=f"pr:calc:{period.id}",
+        )])
     if slip_count and not has_payments and period.status.value not in ("locked", "paid"):
-        # A calculated period freezes its transactions. While it is still
-        # running that blocks today's bookkeeping, so there has to be a way back.
+        # Discarding deletes the payslips, and payments cascade with them, so
+        # it is only offered while nobody has been paid.
         buttons.append([Button("♻️ باطل‌کردن محاسبه", data=f"pr:uncalc:{period.id}")])
-    if period.status.value not in ("locked", "paid") and not has_payments:
+    if period.status.value not in ("locked", "paid"):
         buttons.append([Button("📅 تاریخ‌های دوره", data=f"pr:dates:{period.id}")])
     if period.status.value not in ("locked", "paid") and not slip_count:
         # Only while it has paid nobody. Two periods covering the same day
@@ -1831,15 +1848,25 @@ def payslip_list(book: Book, slips, names) -> Screen:
 
     currency = book.base_currency
     lines = ["💵 فیش‌های این دوره", ""]
-    total = Decimal("0")
+    total = owed = Decimal("0")
     for slip in slips:
         total += slip.net_pay
-        paid = slip.paid_total
-        mark = "✅" if paid >= slip.net_pay else ("🟡" if paid else "⚪️")
+        if slip.overpaid:
+            mark, note = "🔴", f" — بیش‌پرداخت {fmt(slip.overpaid, currency)}"
+        elif slip.is_settled:
+            mark, note = "✅", ""
+        elif slip.payments:
+            mark, note = "🟡", f" — مانده {fmt(slip.remaining, currency)}"
+        else:
+            mark, note = "⚪️", ""
+        if slip.remaining > 0:
+            owed += slip.remaining
         lines.append(
-            f"{mark} {names.get(slip.user_id, '—')}: {fmt(slip.net_pay, currency)}"
+            f"{mark} {names.get(slip.user_id, '—')}: {fmt(slip.net_pay, currency)}{note}"
         )
     lines += ["", f"مجموع: {fmt(total, currency)}"]
+    if owed and any(slip.payments for slip in slips):
+        lines.append(f"مانده پرداخت: {fmt(owed, currency)}")
 
     buttons = [
         [Button(f"{names.get(slip.user_id, '—')[:18]}", data=f"pr:slip:{slip.id}")]
@@ -1847,6 +1874,18 @@ def payslip_list(book: Book, slips, names) -> Screen:
     ]
     buttons.append([Button("⬅️ بازگشت", data=f"pr:open:{slips[0].period_id}")])
     return rtl("\n".join(lines)), buttons
+
+
+def _payment_amount(payment, base: str) -> str:
+    """A payment in the currency it was made in.
+
+    The payslip's own currency is written the way the rest of the payslip
+    writes it; a token keeps its name and its decimals, because 11.35 tether
+    shown as "11" loses real money.
+    """
+    if payment.currency == base:
+        return fmt(payment.amount, base)
+    return fmt_currency(payment.amount, payment.currency)
 
 
 def payslip_detail(book: Book, slip, name: str) -> Screen:
@@ -1876,14 +1915,29 @@ def payslip_detail(book: Book, slip, name: str) -> Screen:
     ]
 
     if slip.payments:
+        from ..shared import jalali
+
         lines += ["", "پرداخت‌ها:"]
         for payment in slip.payments:
-            lines.append(f"  • {fmt(payment.amount, currency)} — {payment.paid_on}")
-        lines.append("")
-        lines.append(
-            f"مانده: {fmt(outstanding, currency)}" if outstanding > 0
-            else "کامل پرداخت شده ✅"
-        )
+            # In the currency it was paid in. Written in the payslip's own,
+            # forty tethers read as "40 IRT" — and the list no longer added up
+            # to what the payslip said had been paid.
+            paid = _payment_amount(payment, currency)
+            if payment.currency != currency:
+                worth = payment.amount * payment.conversion_rate
+                paid += f" (≈ {fmt(worth, currency)})"
+            lines.append(f"  • {paid} — {jalali.to_text(payment.paid_on)}")
+        lines += ["", f"پرداخت‌شده: {fmt(slip.paid_total, currency)}"]
+        if slip.overpaid:
+            lines.append(f"⚠️ بیش از سهم پرداخت شده: {fmt(slip.overpaid, currency)}")
+            lines.append(
+                "سهم بعد از پرداخت کم شد. اگر قرار است برگردد، "
+                "در دورهٔ بعد به‌صورت کسر ثبتش کن."
+            )
+        elif outstanding > 0:
+            lines.append(f"مانده: {fmt(outstanding, currency)}")
+        else:
+            lines.append("کامل پرداخت شده ✅")
 
     buttons = []
     if outstanding > 0:
@@ -1895,8 +1949,9 @@ def payslip_detail(book: Book, slip, name: str) -> Screen:
     if slip.payments:
         # A figure typed wrongly, or against the wrong person, was permanent.
         last = slip.payments[-1]
-        buttons.append([Button(f"↩️ لغو آخرین پرداخت ({fmt(last.amount, currency)})",
-                               data=f"pr:unpay:{last.id}")])
+        buttons.append([Button(
+            f"↩️ لغو آخرین پرداخت ({_payment_amount(last, currency)})",
+            data=f"pr:unpay:{last.id}")])
     buttons.append([Button("⬅️ بازگشت", data=f"pr:slips:{slip.period_id}")])
     return rtl("\n".join(lines)), buttons
 

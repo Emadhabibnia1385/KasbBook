@@ -427,6 +427,35 @@ async def test_calculated_and_locked_periods_refuse_financial_mutations(session)
     assert await ledger.trial_balance(book.id) == (Decimal("10"), Decimal("10"))
 
 
+async def test_a_period_that_has_paid_out_still_takes_every_financial_change(session):
+    """Payments do not close a period; only its status does.
+
+    Recording, correcting and deleting were all refused once anyone had been
+    paid, so a late receipt had nowhere to go but the wrong month.
+    """
+    from kasbbook.modules.payroll.models import ShareBasis
+
+    user, _ = await account(session)
+    book = await BookService(session).create_book(user.id, "تیم", BookType.TEAM)
+    ledger = LedgerService(session)
+    tx = await ledger.record(book.id, user.id, Flow.INCOME, Scope.TEAM, "فروش", "10", occurred_on=DAY)
+    payroll = PayrollService(session)
+    await payroll.set_share(book.id, user.id, user.id, ShareBasis.PERCENT, 100,
+                            effective_from=DAY)
+    period = await payroll.open_period(user.id, book.id, "دوره", DAY, DAY)
+    slip = (await payroll.calculate(user.id, period.id))[0]
+    await payroll.pay(user.id, slip.id, "10", paid_on=DAY)
+
+    late = await ledger.record(book.id, user.id, Flow.INCOME, Scope.TEAM, "فروش", "5", occurred_on=DAY)
+    await ledger.update(book.id, user.id, tx.id, amount="20")
+    await ledger.delete(book.id, user.id, late.id)
+
+    assert tx.original_amount == Decimal("20")
+    assert await ledger.trial_balance(book.id) == (Decimal("20"), Decimal("20"))
+    again = (await payroll.calculate(user.id, period.id))[0]
+    assert (again.paid_total, again.remaining) == (Decimal("10"), Decimal("10"))
+
+
 async def test_receipt_is_not_forwarded_to_a_different_provider(session):
     user, _ = await account(session)
     identity = IdentityService(session)

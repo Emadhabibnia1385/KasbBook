@@ -394,24 +394,25 @@ async def test_a_member_cannot_be_paid_in_a_currency_the_book_never_ticked(sessi
     assert slip.paid_total == Decimal("0")
 
 
-async def test_a_period_with_payments_is_not_recalculated(session):
+async def test_recalculating_a_paid_period_keeps_the_payment_and_the_wallet(session):
     """Payments cascade with payslips, so replacing one erased the payment.
 
     The wallet sprang back up too: the book forgot it had handed the money
-    over, and nothing said so.
+    over, and nothing said so. Recalculating now updates the payslip in place.
     """
     from sqlalchemy import func
 
     from kasbbook.modules.payroll.models import Payment
-    from kasbbook.shared.errors import PermissionDenied
 
     owner, book, payroll, slip = await money_and_a_payslip(session)
     await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY)
     await session.flush()
 
-    with pytest.raises(PermissionDenied):
-        await payroll.calculate(owner.id, slip.period_id)
+    again = (await payroll.calculate(owner.id, slip.period_id))[0]
+    await session.flush()
 
+    assert again.id == slip.id
+    assert again.paid_total == Decimal("4000000")
     assert (await session.execute(select(func.count(Payment.id)))).scalar() == 1
     assert await ExchangeService(session).balance_of(book.id, "IRT") == Decimal("6000000.0000")
 
@@ -429,8 +430,8 @@ async def test_voiding_a_payment_puts_the_money_back(session):
 
     assert await exchange.balance_of(book.id, "IRT") == Decimal("10000000.0000")
     assert slip.paid_total == Decimal("0")
-    # And the period takes entries again, because nothing has been paid.
-    assert (await payroll.calculate(owner.id, slip.period_id))[0].net_pay == slip.net_pay
+    # And recalculating finds nothing paid against it.
+    assert (await payroll.calculate(owner.id, slip.period_id))[0].paid_total == Decimal("0")
 
 
 async def test_a_member_cannot_void_a_payment(session):
@@ -554,6 +555,17 @@ async def test_the_bot_pays_a_whole_payslip_in_tether(session):
     assert slip.is_settled
     assert await exchange.balance_of(book.id, "USDT") == Decimal("50.0000")
 
+    # And the payslip lists it as what it was: tether, on a Jalali day. Written
+    # in the payslip's own currency it read "50 IRT".
+    from kasbbook.shared import jalali
+
+    detail = await convo.handle(press(f"pr:slip:{slip.id}"))
+    assert "50 تتر (≈ 10,000,000 IRT)" in detail.text
+    assert jalali.to_text(slip.payments[0].paid_on) in detail.text
+    assert str(slip.payments[0].paid_on) not in detail.text
+    assert any("لغو آخرین پرداخت (50 تتر)" in b.text
+               for row in detail.buttons for b in row)
+
 
 async def test_settling_a_payslip_in_a_token_actually_settles_it(session):
     """Rounding the token down left a residue no amount of token could clear.
@@ -598,6 +610,10 @@ async def test_settling_a_payslip_in_a_token_actually_settles_it(session):
     await session.refresh(slip, attribute_names=["payments"])
     assert slip.is_settled, f"still owed {slip.remaining}"
     assert "کامل پرداخت شده" in reply.text
+    # Landing a fraction past the figure is how a token settles, not an
+    # overpayment, and must not be flagged as one.
+    assert slip.overpaid == Decimal("0")
+    assert "بیش از سهم" not in reply.text
     # Overshoot is bounded by one unit of the currency paid in.
     assert slip.paid_total - slip.net_pay < Decimal("229789") * Decimal("0.0001")
 

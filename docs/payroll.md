@@ -64,22 +64,34 @@ tethers is what forty tethers were worth, not forty toman.
 
 ## Periods
 
-Issuing a payslip does **not** freeze a period. Only money actually handed over
-does: after a payment, that period stops taking entries and corrections belong
-in a later one. A period that has merely been calculated keeps taking entries,
-and the period screen says when its payslips no longer match the numbers under
-them, so a stale figure is not read as a current one.
+Neither issuing a payslip nor paying one closes a period. Income that arrives a
+day late and the bill that comes after the members were paid belong to that
+month, and refusing them only pushed the truth into the wrong one. Only a
+period's status closes it — see the lifecycle below.
 
-Calculating a period freezes its transactions: a payslip is a snapshot and its
-inputs must not move underneath it. **Do not calculate a period that is still
-running** — while it covers today, nothing dated today can be recorded. A
-calculation can be discarded again as long as the period has paid nobody, which
-releases both the payslips and the treasury allocation.
+A payslip is a snapshot, so an entry recorded after it makes it stale. The
+period screen says so, and offers to recalculate. Recalculating updates each
+payslip **in place**: every payment made against it stays, and what moves is
+what is still owed. That can go either way:
 
-A period's window can be moved, and its name changed, while it has paid
-nobody. Moving the window changes which transactions the period divides, so
-any payslips are recalculated rather than left stale. Two periods in a book
-may never cover the same day: `compute_distribution` sums by date, so an
+- income added after payment leaves the difference **owed** to the member;
+- a cost under `before_split`, or an income moved out, can leave a payslip
+  **below what was paid**. That is shown as `overpaid`, never folded into
+  "settled"; a deduction in the next period is the usual way to take it back.
+
+A payment in a token can land a fraction past the payslip, by up to one unit of
+that token, because the exact figure is not reachable in it. That is how a
+token settles, and it is not reported as an overpayment.
+
+A calculation can be discarded as long as the period has paid nobody, which
+releases both the payslips and the treasury allocation. Once someone has been
+paid it is refused — payments cascade with their payslip — and recalculating is
+what such a period needs instead.
+
+A period's window can be moved and its name changed, paid or not. Moving the
+window changes which transactions the period divides, so any payslips are
+recalculated rather than left stale, keeping their payments. Two periods in a
+book may never cover the same day: `compute_distribution` sums by date, so an
 overlap divides one day's income twice.
 
 
@@ -143,8 +155,15 @@ one gets an end date the day before the new one starts, and both stay readable.
 That is what stops a raise agreed today from silently rewriting what the same
 person was paid last spring.
 
-Clearing a share deactivates it rather than deleting it, because a payslip
-already issued names the rule it was worked out from.
+Clearing a share **closes** it the same way, the day before today, rather than
+switching it off. Switched off, the rule vanished from history too, and a past
+period recalculated afterwards — which a paid period can be — found no share
+for the member and read every payment to them as an overpayment. A rule that
+had not started yet is withdrawn outright.
+
+A member with no share on a period's last day gets no payslip. If they already
+had one and were paid on it, it stays at nothing rather than being deleted with
+its payments.
 
 **Nobody is paid until they have a share.** A calculation with no share rules
 produces no payslips — so the bot refuses to run one and points at the shares
@@ -195,8 +214,9 @@ net_pay                  what is owed
 Reading last year's payslip shows what was decided then, not what today's rules
 would produce.
 
-Recalculating **replaces** the previous run rather than doubling it. Treasury
-allocations for the period are written alongside, once, as fact.
+Recalculating **updates** the previous run rather than doubling it: one payslip
+per member, the same payslip each time, so its payments stay with it. Treasury
+allocations for the period are replaced alongside, once, as fact.
 
 ## Paying
 
@@ -204,8 +224,12 @@ Staged, because that is the norm: a share is often paid across several
 transfers.
 
 ```
-GET  payslip → net_pay 40,000,000, paid 15,000,000, outstanding 25,000,000
+GET  payslip → net_pay 40,000,000, paid 15,000,000, outstanding 25,000,000, overpaid 0
 ```
+
+`outstanding` goes negative when a recalculation leaves the payslip below what
+was paid; `overpaid` is that figure less a token's settling fraction, and is
+the one to show a person.
 
 The bot offers "pay the rest" as one press — the common case by a long way, and
 typing the number again is a chance to mistype it — plus a partial-payment

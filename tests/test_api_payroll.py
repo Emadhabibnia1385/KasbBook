@@ -226,6 +226,36 @@ async def test_paying_reduces_what_is_outstanding(api, session):
     assert len(after["payments"]) == 1
 
 
+async def test_a_paid_period_takes_income_and_recalculates_over_http(api, session):
+    """The bot and the API reach the same service, so they get the same answer."""
+    headers, book, owner, colleague = await workspace(api, session)
+    for who in (owner, colleague):
+        await api.put(f"/api/v1/books/{book['id']}/shares", headers=headers,
+                      json={"user_id": who["id"], "basis": "percent", "value": "50",
+                            "effective_from": "2026-01-01"})
+    period = (await api.post(f"/api/v1/books/{book['id']}/periods", headers=headers,
+                             json={"label": "مرداد", "starts_on": "2026-08-01",
+                                   "ends_on": "2026-08-31"})).json()
+    calculate = f"/api/v1/books/{book['id']}/periods/{period['id']}/calculate"
+    slips = (await api.post(calculate, headers=headers)).json()
+    await api.post(f"/api/v1/books/{book['id']}/payslips/{slips[0]['id']}/payments",
+                   headers=headers, json={"amount": "40000000"})
+
+    late = await api.post(f"/api/v1/books/{book['id']}/transactions", headers=headers,
+                          json={"flow": "income", "category": "فروش",
+                                "amount": "10000000", "occurred_on": DAY.isoformat()})
+    assert late.status_code == 201
+
+    again = await api.post(calculate, headers=headers)
+    assert again.status_code == 200
+    paid = next(s for s in again.json() if s["id"] == slips[0]["id"])
+    assert paid["net_pay"] == "45000000.0000"
+    assert paid["paid"] == "40000000.0000"
+    assert paid["outstanding"] == "5000000.0000"
+    assert paid["overpaid"] == "0.0000"
+    assert len(paid["payments"]) == 1
+
+
 async def test_a_payslip_carries_the_inputs_that_produced_it(api, session):
     headers, book, owner, _ = await workspace(api, session)
     await api.put(f"/api/v1/books/{book['id']}/shares", headers=headers,
@@ -260,7 +290,8 @@ async def test_every_money_field_crosses_as_a_string(api, session):
     )
 
     slip = jsonlib.loads(response.text)[0]
-    for field in ("net_pay", "base_share", "distributable_snapshot", "outstanding"):
+    for field in ("net_pay", "base_share", "distributable_snapshot", "outstanding",
+                  "overpaid"):
         assert isinstance(slip[field], str), f"{field} came back as a number"
 
 

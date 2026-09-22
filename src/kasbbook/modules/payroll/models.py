@@ -37,7 +37,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...shared.database import Base, Timestamped, UUIDPrimaryKey
-from ...shared.money import Money, quantize
+from ...shared.money import SCALE, ZERO, Money, quantize
 
 
 class PeriodStatus(str, enum.Enum):
@@ -261,6 +261,27 @@ class Payslip(UUIDPrimaryKey, Timestamped, Base):
     @property
     def is_settled(self) -> bool:
         return self.remaining <= Decimal("0")
+
+    @property
+    def overpaid(self) -> Decimal:
+        """What was handed over beyond what this payslip now comes to, or zero.
+
+        A period keeps taking entries after it has paid out, so a payslip can
+        be recalculated below what its member already received — an income
+        moved out of the period, or a cost under the before-split policy. That
+        is real money and it is shown, never folded into "settled".
+
+        A payment in a token may land a fraction past the figure, by up to one
+        unit of that token (see PayrollService.pay), because the exact amount
+        is not reachable in it. That is how a token settles, not an overpayment,
+        and calling it one would put a warning on every slip paid in tether.
+        """
+        beyond = -self.remaining
+        slack = max(
+            (quantize(SCALE * p.conversion_rate) for p in self.payments), default=ZERO
+        )
+        # Quantized so a zero crosses HTTP as "0.0000", like every money field.
+        return quantize(beyond if beyond > slack else ZERO)
 
 
 class Payment(UUIDPrimaryKey, Timestamped, Base):

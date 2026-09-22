@@ -746,7 +746,9 @@ async def test_moving_a_window_recalculates_the_payslips(session):
 
     after = (await payroll.payslips(owner.id, period.id))[0]
     assert after.net_pay == ZERO_INCOME
-    assert after.id != before.id
+    # Updated in place rather than replaced, so a payment made against it
+    # would have stayed with it.
+    assert after.id == before.id
 
 
 async def test_a_window_cannot_move_onto_another_period(session):
@@ -765,7 +767,14 @@ async def test_a_window_cannot_end_before_it_starts(session):
         await payroll.reschedule_period(owner.id, period.id, ends_on=START - timedelta(days=1))
 
 
-async def test_a_period_that_paid_somebody_keeps_its_window(session):
+async def test_a_period_that_paid_somebody_can_still_move_its_window(session):
+    """Moving the window recalculates, and recalculating keeps the payments.
+
+    It used to be refused, because recalculating replaced the payslips and the
+    payments went with them. Here the window moves off the income entirely, so
+    the member has been paid for a period that now produced nothing — and the
+    payslip says exactly that rather than forgetting the money went out.
+    """
     identity, books, payroll, owner, book, period = await team_with_income(session)
     share(session, book, owner, ShareBasis.PERCENT, 100)
     await session.flush()
@@ -773,11 +782,16 @@ async def test_a_period_that_paid_somebody_keeps_its_window(session):
     await payroll.pay(owner.id, slip.id, "1000000", paid_on=START)
     await session.flush()
 
-    # Rescheduling would recalculate, and recalculating would erase the payment.
-    with pytest.raises(PermissionDenied):
-        await payroll.reschedule_period(owner.id, period.id, ends_on=END + timedelta(days=1))
-    await session.refresh(period)
-    assert period.ends_on == END
+    await payroll.reschedule_period(owner.id, period.id,
+                                    starts_on=END + timedelta(days=1),
+                                    ends_on=END + timedelta(days=10))
+    await session.flush()
+
+    after = (await payroll.payslips(owner.id, period.id))[0]
+    assert after.id == slip.id
+    assert after.net_pay == ZERO_INCOME
+    assert after.paid_total == Decimal("1000000")
+    assert after.overpaid == Decimal("1000000")
 
 
 async def test_a_member_cannot_move_a_period(session):
@@ -822,22 +836,32 @@ async def test_a_calculated_period_still_takes_entries(session):
     assert again[0].net_pay == Decimal("7995000")      # 10m − 2m − 5k
 
 
-async def test_a_paid_period_stops_taking_entries(session):
-    """Money handed over is the line. After that, corrections go in a later one."""
-    from kasbbook.modules.ledger.models import Flow, Scope
-    from kasbbook.modules.ledger.service import LedgerService
+async def test_a_paid_period_still_takes_entries(session):
+    """Paying the members does not close the month.
 
+    Income that arrives a day late had nowhere to go but the wrong month. It
+    goes in its own period now, and once recalculated the difference is simply
+    what the member is still owed — the payment already made stays where it is.
+    """
     identity, books, payroll, owner, book, period = await team_with_income(session)
     share(session, book, owner, ShareBasis.PERCENT, 100)
     await session.flush()
     slip = (await payroll.calculate(owner.id, period.id))[0]
-    await payroll.pay(owner.id, slip.id, "1000000", paid_on=START)
+    await payroll.pay(owner.id, slip.id, slip.net_pay, paid_on=START)     # 8m, in full
     await session.flush()
 
     ledger = LedgerService(session)
-    with pytest.raises(PermissionDenied):
-        await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM, "سرور",
-                            "5000", occurred_on=START)
+    await ledger.record(book.id, owner.id, Flow.INCOME, Scope.TEAM, "پروژه",
+                        "3000000", occurred_on=END)
+    debit, credit = await ledger.trial_balance(book.id)
+    assert debit == credit
+
+    again = (await payroll.calculate(owner.id, period.id))[0]
+    assert again.id == slip.id
+    assert again.net_pay == Decimal("11000000")         # 13m income − 2m costs
+    assert again.paid_total == Decimal("8000000")
+    assert again.remaining == Decimal("3000000")
+    assert again.overpaid == ZERO_INCOME
 
 
 async def test_discarding_a_calculation_removes_its_payslips(session):
@@ -880,6 +904,142 @@ async def test_a_period_that_paid_somebody_keeps_its_payslips(session):
     with pytest.raises(PermissionDenied):
         await payroll.discard_calculation(owner.id, period.id)
     assert len(await payroll.payslips(owner.id, period.id)) == 1
+
+
+async def test_a_payslip_recalculated_below_what_was_paid_says_so(session):
+    """A cost that arrives after payment leaves the member paid beyond their share.
+
+    That is real money and must be seen. Folded into "settled", the payslip
+    would have said all was well.
+    """
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, slip.net_pay, paid_on=START)     # 8m
+    await LedgerService(session).record(book.id, owner.id, Flow.EXPENSE, Scope.TEAM,
+                                        "سرور", "1000000", occurred_on=END)
+    await session.flush()
+
+    again = (await payroll.calculate(owner.id, period.id))[0]
+    assert again.net_pay == Decimal("7000000")
+    assert again.is_settled
+    assert again.overpaid == Decimal("1000000")
+
+    # Nothing is owed, so nothing more can be paid — and the refusal is Persian.
+    with pytest.raises(ValidationError) as refused:
+        await payroll.pay(owner.id, again.id, "1000", paid_on=END)
+    assert "مانده نیست" in str(refused.value)
+
+
+async def test_paying_more_than_is_left_says_what_is_left_in_persian(session):
+    """This message reached a person in English: "only 2.4959 is still owed"."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, "6500000", paid_on=START)
+
+    with pytest.raises(ValidationError) as refused:
+        await payroll.pay(owner.id, slip.id, "2000000", paid_on=START)
+    assert "1,500,000" in str(refused.value)
+    assert "owed" not in str(refused.value)
+
+
+async def test_a_member_whose_share_ended_keeps_what_they_were_paid(session):
+    """No share on the period's last day means no payslip — unless they were paid.
+
+    Deleting that payslip would delete the payments with it. It stays at
+    nothing, and what they were given reads as paid beyond their share.
+    """
+    from kasbbook.shared import jalali
+
+    identity = IdentityService(session)
+    books = BookService(session)
+    payroll = PayrollService(session)
+    owner = await identity.create_user("مالک")
+    book = await books.create_book(owner.id, "تیم", BookType.TEAM)
+    paid_one = await add_member(session, books, identity, book, owner, "پرداخت‌شده")
+    unpaid_one = await add_member(session, books, identity, book, owner, "پرداخت‌نشده")
+
+    today = jalali.today_in(book.timezone)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "پروژه", "9000000", occurred_on=today)
+    for person in (owner, paid_one, unpaid_one):
+        share(session, book, person, ShareBasis.PROJECT, 1, start=START)
+    period = await payroll.open_period(owner.id, book.id, "جاری",
+                                       today - timedelta(days=3), today + timedelta(days=3))
+    await session.flush()
+
+    slips = {s.user_id: s for s in await payroll.calculate(owner.id, period.id)}
+    await payroll.pay(owner.id, slips[paid_one.id].id, "1000000", paid_on=today)
+    for person in (paid_one, unpaid_one):
+        await payroll.clear_share(book.id, owner.id, person.id)
+    await session.flush()
+
+    again = {s.user_id: s for s in await payroll.calculate(owner.id, period.id)}
+    await session.flush()
+
+    assert unpaid_one.id not in again
+    assert again[paid_one.id].id == slips[paid_one.id].id
+    assert again[paid_one.id].net_pay == ZERO_INCOME
+    assert again[paid_one.id].overpaid == Decimal("1000000")
+    assert again[owner.id].net_pay == Decimal("9000000")      # the only share left
+
+
+async def test_clearing_a_share_keeps_the_past(session):
+    """Clearing used to switch the rule off for every day, history included.
+
+    A past period recalculated afterwards then found no share for the member,
+    and now that a period which has paid out can be recalculated, that would
+    have turned every payment to them into an overpayment.
+    """
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, slip.net_pay, paid_on=START)
+
+    await payroll.clear_share(book.id, owner.id, owner.id)
+    await session.flush()
+
+    assert await payroll.shares(book.id, owner.id) == {}         # none from today
+    again = (await payroll.calculate(owner.id, period.id))[0]    # last April's
+    assert again.net_pay == Decimal("8000000")
+    assert again.overpaid == ZERO_INCOME
+
+
+async def test_clearing_a_share_that_had_not_started_withdraws_it(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    future = share(session, book, owner, ShareBasis.PERCENT, 100,
+                   start=date.today() + timedelta(days=30))
+    await session.flush()
+
+    await payroll.clear_share(book.id, owner.id, owner.id)
+    await session.flush()
+    assert future.is_active is False
+
+
+async def test_a_member_cannot_clear_a_share(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    rule = share(session, book, owner, ShareBasis.PERCENT, 100)
+    member = await add_member(session, books, identity, book, owner, "عضو")
+    await session.flush()
+
+    with pytest.raises(PermissionDenied):
+        await payroll.clear_share(book.id, member.id, owner.id)
+    assert rule.effective_to is None and rule.is_active
+
+
+async def test_another_account_cannot_clear_a_share(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    rule = share(session, book, owner, ShareBasis.PERCENT, 100)
+    stranger = await identity.create_user("غریبه")
+    await session.flush()
+
+    with pytest.raises(NotFound):
+        await payroll.clear_share(book.id, stranger.id, owner.id)
+    assert rule.effective_to is None and rule.is_active
 
 
 async def test_a_member_cannot_discard_a_calculation(session):
