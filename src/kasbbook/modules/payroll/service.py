@@ -950,13 +950,25 @@ class PayrollService:
         owed = quantize(slip.net_pay - already)
 
         paid_in = (currency or slip.currency).upper()
-        rate = to_decimal(conversion_rate) if conversion_rate else Decimal("1")
-        if paid_in != slip.currency and conversion_rate is None:
-            raise ValidationError(
-                f"پرداخت به {paid_in} نرخ تبدیل به {slip.currency} می‌خواهد."
-            )
-        if rate <= ZERO:
-            raise ValidationError("نرخ تبدیل باید مثبت باشد.")
+        if paid_in == slip.currency:
+            # The payslip's own currency is worth exactly itself, and a rate
+            # sent with it is ignored — as the ledger ignores one on an entry
+            # in the book's own currency. Counted, "100 toman at 2" settled 200
+            # of the payslip while 100 left the wallet.
+            rate = Decimal("1")
+        else:
+            if conversion_rate is None:
+                raise ValidationError(
+                    f"پرداخت به {paid_in} نرخ تبدیل به {slip.currency} می‌خواهد."
+                )
+            # Rounded as it will be stored, before it is judged. A rate below
+            # the fourth decimal passed as positive and was then saved as zero,
+            # so the payment counted for nothing while the token left the
+            # wallet. It also keeps the check below and paid_total, which reads
+            # the stored rate, working from the same number.
+            rate = quantize(to_decimal(conversion_rate))
+            if rate <= ZERO:
+                raise ValidationError("نرخ تبدیل باید مثبت باشد (دست‌کم ۰٫۰۰۰۱).")
 
         # Compared in the payslip's own currency. Summing raw amounts counted
         # forty tethers as forty toman and left the payslip all but unpaid.

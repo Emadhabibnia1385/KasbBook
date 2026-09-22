@@ -224,7 +224,7 @@ Telegram is what this returns.
 | `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them; again, updates them in place and keeps their payments |
 | `DELETE /books/{id}/periods/{p}/payslips` | discard the calculation — refused once anyone has been paid |
 | `GET /books/{id}/periods/{p}/payslips` | everyone's, or only yours, by permission |
-| `POST /books/{id}/payslips/{slip}/payments` | staged; instalments are the norm |
+| `POST /books/{id}/payslips/{slip}/payments` | staged; instalments are the norm; any currency the book holds |
 | `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | take a payment back while the period is open |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | treasury funds |
 | `GET`/`POST`/`DELETE /books/{id}/funds/{f}/rules` | what feeds them |
@@ -232,6 +232,19 @@ Telegram is what this returns.
 `calculate` returns **422**, not an empty list, when no member has a share. A
 run that produces nothing because the question was never answered is not an
 empty result.
+
+A payment defaults to the payslip's own currency. Another must be one the book
+has enabled and holds enough of, and must carry `conversion_rate` into the
+payslip's currency; the payslip counts it at that rate, and each payment in the
+response carries its rate so the list reconciles with `paid`. A rate sent with
+the payslip's own currency is ignored, as it is on a transaction. `reference`
+is at most 80 characters.
+
+```bash
+curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
+  -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+  -d '{"amount":"50","currency":"USDT","conversion_rate":"229867"}'
+```
 
 Deleting a fund that has already taken money is refused — a paid period would
 be left pointing at nothing. Deactivate it instead. Deleting a *rule* is always

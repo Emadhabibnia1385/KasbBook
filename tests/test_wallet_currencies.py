@@ -386,6 +386,36 @@ async def test_a_member_cannot_be_paid_in_a_token_the_book_does_not_hold(session
     assert slip.paid_total == Decimal("0")
 
 
+async def test_a_rate_sent_with_the_payslips_own_currency_is_ignored(session):
+    """Counted, "4,000,000 at 2" settled 8,000,000 while 4,000,000 left the wallet."""
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+
+    payment = await payroll.pay(owner.id, slip.id, "4000000", paid_on=DAY,
+                                conversion_rate="2")
+    await session.flush()
+
+    assert payment.conversion_rate == Decimal("1")
+    assert slip.paid_total == Decimal("4000000")
+    assert await ExchangeService(session).balance_of(book.id, "IRT") == Decimal("6000000.0000")
+
+
+async def test_a_rate_too_small_to_store_is_refused(session):
+    """It passed as positive and was saved as 0.0000: a payment worth nothing."""
+    owner, book, payroll, slip = await money_and_a_payslip(session)
+    exchange = ExchangeService(session)
+    await exchange.set_enabled(owner.id, book.id, "USDT", True)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                        "فروش", "10", currency="USDT",
+                                        conversion_rate="230000", occurred_on=DAY)
+    await session.flush()
+
+    with pytest.raises(ValidationError):
+        await payroll.pay(owner.id, slip.id, "5", paid_on=DAY, currency="USDT",
+                          conversion_rate="0.00001")
+    assert slip.paid_total == Decimal("0")
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("10.0000")
+
+
 async def test_a_member_cannot_be_paid_in_a_currency_the_book_never_ticked(session):
     owner, book, payroll, slip = await money_and_a_payslip(session)
     with pytest.raises(ValidationError):

@@ -530,6 +530,9 @@ class PaymentResponse(MoneyModel):
     id: uuid.UUID
     amount: Decimal
     currency: str
+    # Into the payslip's currency; 1 when paid in it. Without it, "50 USDT"
+    # in this list could not be reconciled with the payslip's `paid`.
+    conversion_rate: Decimal
     paid_on: date
     reference: Optional[str] = None
 
@@ -556,8 +559,15 @@ class PayslipResponse(MoneyModel):
 
 class PayRequest(MoneyModel):
     amount: Decimal = Field(gt=0)
+    # None means the payslip's own currency. Another must be one the book has
+    # enabled and holds enough of, and must carry `conversion_rate` into the
+    # payslip's currency. The bot could pay a member in tether; this could not.
+    currency: Optional[str] = None
+    conversion_rate: Optional[Decimal] = Field(default=None, gt=0)
     paid_on: Optional[date] = None
-    reference: Optional[str] = Field(default=None, max_length=120)
+    # The column is 80 wide. Allowing 120 here passed validation and then
+    # failed the write on PostgreSQL with a 500 that SQLite never showed.
+    reference: Optional[str] = Field(default=None, max_length=80)
 
 
 class FundRequest(Model):

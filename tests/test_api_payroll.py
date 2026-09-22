@@ -295,6 +295,141 @@ async def test_every_money_field_crosses_as_a_string(api, session):
         assert isinstance(slip[field], str), f"{field} came back as a number"
 
 
+# ------------------------------------------------ paying in another currency
+async def tether_payslip(api, session):
+    """The workspace plus 100 tether of income, calculated half each.
+
+    100,000,000 toman and 100 tether at 200,000 is 120,000,000 of income; less
+    20,000,000 of costs, 50,000,000 each.
+    """
+    headers, book, owner, colleague = await workspace(api, session)
+    await api.put(f"/api/v1/books/{book['id']}/currencies/USDT", headers=headers,
+                  json={"enabled": True})
+    await api.post(f"/api/v1/books/{book['id']}/transactions", headers=headers,
+                   json={"flow": "income", "category": "فروش", "amount": "100",
+                         "currency": "USDT", "conversion_rate": "200000",
+                         "occurred_on": DAY.isoformat()})
+    for who in (owner, colleague):
+        await api.put(f"/api/v1/books/{book['id']}/shares", headers=headers,
+                      json={"user_id": who["id"], "basis": "percent", "value": "50",
+                            "effective_from": "2026-01-01"})
+    period = (await api.post(f"/api/v1/books/{book['id']}/periods", headers=headers,
+                             json={"label": "مرداد", "starts_on": "2026-08-01",
+                                   "ends_on": "2026-08-31"})).json()
+    slips = (await api.post(
+        f"/api/v1/books/{book['id']}/periods/{period['id']}/calculate", headers=headers
+    )).json()
+    slip = next(s for s in slips if s["user_id"] == owner["id"])
+    assert slip["net_pay"] == "50000000.0000"
+    return headers, book, period, slip
+
+
+async def _wallet(api, headers, book):
+    return {b["code"]: b["amount"] for b in (await api.get(
+        f"/api/v1/books/{book['id']}/wallet", headers=headers)).json()}
+
+
+async def test_a_payslip_can_be_paid_in_tether_over_http(api, session):
+    """The bot could pay a member in tether and the API could not."""
+    headers, book, _, slip = await tether_payslip(api, session)
+
+    reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
+                           headers=headers,
+                           json={"amount": "50", "currency": "USDT",
+                                 "conversion_rate": "200000"})
+    assert reply.status_code == 201
+    after = reply.json()
+    assert after["paid"] == "10000000.0000"          # 50 tether at 200,000
+    assert after["outstanding"] == "40000000.0000"
+    payment = after["payments"][0]
+    assert (payment["amount"], payment["currency"], payment["conversion_rate"]) == \
+        ("50.0000", "USDT", "200000.0000")
+    # The tether left the wallet; the toman did not.
+    wallet = await _wallet(api, headers, book)
+    assert wallet["USDT"] == "50.0000"
+    assert wallet["IRT"] == "80000000.0000"
+
+
+async def test_a_tether_payment_without_a_rate_is_refused_over_http(api, session):
+    headers, book, period, slip = await tether_payslip(api, session)
+
+    reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
+                           headers=headers, json={"amount": "50", "currency": "USDT"})
+    assert reply.status_code == 422
+    listed = (await api.get(f"/api/v1/books/{book['id']}/periods/{period['id']}/payslips",
+                            headers=headers)).json()
+    assert next(s for s in listed if s["id"] == slip["id"])["paid"] == "0.0000"
+    assert (await _wallet(api, headers, book))["USDT"] == "100.0000"
+
+
+async def test_a_currency_the_book_never_enabled_is_refused_over_http(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+    reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
+                           headers=headers,
+                           json={"amount": "10", "currency": "TON", "conversion_rate": "300000"})
+    assert reply.status_code == 422
+
+
+async def test_more_tether_than_the_book_holds_is_refused_over_http(api, session):
+    """150 tether is within what is owed, and more than the book has."""
+    headers, book, _, slip = await tether_payslip(api, session)
+    reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
+                           headers=headers,
+                           json={"amount": "150", "currency": "USDT",
+                                 "conversion_rate": "200000"})
+    assert reply.status_code == 422
+    assert (await _wallet(api, headers, book))["USDT"] == "100.0000"
+
+
+async def test_a_rate_sent_with_the_payslips_own_currency_counts_for_nothing(api, session):
+    """Counted, 15,000,000 toman "at 2" settled 30,000,000 of the payslip."""
+    headers, book, _, slip = await tether_payslip(api, session)
+    after = (await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
+                            headers=headers,
+                            json={"amount": "15000000", "conversion_rate": "2"})).json()
+    assert after["paid"] == "15000000.0000"
+    assert after["payments"][0]["conversion_rate"] == "1.0000"
+    # 100,000,000 in, 20,000,000 of costs out, and 15,000,000 paid — once.
+    assert (await _wallet(api, headers, book))["IRT"] == "65000000.0000"
+
+
+async def test_a_reference_longer_than_its_column_is_refused_up_front(api, session):
+    """Past 80 characters PostgreSQL refused the write with a 500."""
+    headers, book, _, slip = await tether_payslip(api, session)
+    path = f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments"
+    assert (await api.post(path, headers=headers,
+                           json={"amount": "1000", "reference": "x" * 81})).status_code == 422
+    fits = await api.post(path, headers=headers, json={"amount": "1000", "reference": "x" * 80})
+    assert fits.status_code == 201
+
+
+async def test_a_payslip_cannot_be_paid_through_another_books_path(api, session):
+    """A manager of two books paid one book's payslip through the other's URL."""
+    headers, book, _, slip = await tether_payslip(api, session)
+    other = (await api.post("/api/v1/books", headers=headers,
+                            json={"name": "دیگری", "type": "team"})).json()
+
+    reply = await api.post(f"/api/v1/books/{other['id']}/payslips/{slip['id']}/payments",
+                           headers=headers, json={"amount": "1000"})
+    assert reply.status_code == 404
+    assert (await _wallet(api, headers, book))["IRT"] == "80000000.0000"     # untouched
+
+
+async def test_a_stranger_cannot_pay_another_teams_payslip(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+    stranger = (await api.post("/api/v1/auth/register", json={
+        "display_name": "غریبه", "email": "stranger@example.com",
+        "password": "a-good-password",
+    })).json()
+    theirs = {"Authorization": f"Bearer {stranger['access_token']}"}
+
+    reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
+                           headers=theirs,
+                           json={"amount": "50", "currency": "USDT", "conversion_rate": "200000"})
+    assert reply.status_code == 404
+    assert (await _wallet(api, headers, book))["USDT"] == "100.0000"
+
+
 # ---------------------------------------------------------------- treasury
 async def test_a_fund_and_a_rule_reduce_what_is_distributable(api, session):
     headers, book, _, _ = await workspace(api, session)

@@ -222,7 +222,7 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `POST /books/{id}/periods/{p}/calculate` | فیش‌ها، با تمام ورودی‌ها منجمد روی خودشان؛ دفعهٔ بعد سر جایشان به‌روز می‌شوند و پرداخت‌ها می‌مانند |
 | `DELETE /books/{id}/periods/{p}/payslips` | باطل‌کردن محاسبه — بعد از اولین پرداخت رد می‌شود |
 | `GET /books/{id}/periods/{p}/payslips` | فیش همه، یا فقط خودت، بسته به دسترسی |
-| `POST /books/{id}/payslips/{slip}/payments` | مرحله‌ای؛ قسطی‌بودن قاعده است |
+| `POST /books/{id}/payslips/{slip}/payments` | مرحله‌ای؛ قسطی‌بودن قاعده است؛ با هر ارزی که دفتر دارد |
 | `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | پس‌گرفتن پرداخت تا وقتی دوره باز است |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | صندوق‌های خزانه |
 | `GET`/`POST`/`DELETE /books/{id}/funds/{f}/rules` | چه چیزی تغذیه‌شان می‌کند |
@@ -230,6 +230,18 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 وقتی هیچ عضوی سهم ندارد، `calculate` **۴۲۲** برمی‌گرداند، نه فهرست خالی.
 اجرایی که چیزی تولید نمی‌کند چون اصلاً از سؤالش جواب نگرفته‌ایم، نتیجهٔ خالی
 نیست.
+
+پرداخت به‌طور پیش‌فرض به ارز خود فیش است. ارز دیگر باید در دفتر فعال باشد و
+دفتر به اندازهٔ کافی از آن داشته باشد، و باید `conversion_rate` به ارز فیش را
+همراه داشته باشد؛ فیش آن را با همان نرخ حساب می‌کند، و هر پرداخت در پاسخ نرخ
+خودش را دارد تا فهرست با `paid` جور دربیاید. نرخی که با ارز خود فیش فرستاده
+شود نادیده گرفته می‌شود، همان‌طور که در تراکنش. `reference` حداکثر ۸۰ حرف است.
+
+```bash
+curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
+  -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+  -d '{"amount":"50","currency":"USDT","conversion_rate":"229867"}'
+```
 
 حذف صندوقی که قبلاً پول برداشته رد می‌شود — دورهٔ پرداخت‌شده به جای خالی اشاره
 می‌کرد. به‌جایش غیرفعالش کن. حذف *قاعده* همیشه بی‌خطر است، چون آنچه دوره‌های

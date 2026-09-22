@@ -236,6 +236,11 @@ typing the number again is a chance to mistype it — plus a partial-payment
 option.
 
 Each `Payment` records amount, date, currency, rate and an optional reference.
+The bot and the API pay through the same `pay()`, which owns the rules: a
+payment in the payslip's own currency is at rate 1 whatever rate is sent, a
+token needs a rate — rounded to the four places it is stored at before it is
+judged, so a rate too small to store is refused rather than saved as zero — and
+the book must hold the token being handed over.
 
 ## Who can see what
 

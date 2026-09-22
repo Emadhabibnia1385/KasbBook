@@ -333,6 +333,7 @@ def _payslip(row, names) -> PayslipResponse:
         overpaid=row.overpaid, currency=row.currency,
         payments=[
             PaymentResponse(id=p.id, amount=p.amount, currency=p.currency,
+                            conversion_rate=p.conversion_rate,
                             paid_on=p.paid_on, reference=p.reference)
             for p in row.payments
         ],
@@ -392,15 +393,23 @@ async def pay(
     book_id: uuid.UUID, payslip_id: uuid.UUID, body: PayRequest,
     user: CurrentUser, session: SessionDep,
 ) -> PayslipResponse:
-    """Hand over some or all of what is owed. Instalments are the norm."""
+    """Hand over some or all of what is owed, in any currency the book holds."""
     from ...modules.payroll.models import Payslip
 
     payroll = PayrollService(session)
     await payroll.pay(
-        user.id, payslip_id, body.amount, paid_on=body.paid_on, reference=body.reference
+        user.id, payslip_id, body.amount, paid_on=body.paid_on,
+        currency=body.currency, conversion_rate=body.conversion_rate,
+        reference=body.reference,
     )
 
     slip = await session.get(Payslip, payslip_id)
+    # The payslip must belong to the book in the path, as void_payment checks.
+    # Without it, a manager of two books could pay one's payslip through the
+    # other's URL. Checked after the service, which has already given a
+    # stranger the same 404; raising here rolls the payment back.
+    if slip.book_id != book_id:
+        raise NotFound("payslip")
     await session.refresh(slip)
     return _payslip(slip, await _names(session, book_id))
 
