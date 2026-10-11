@@ -15,11 +15,10 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
+from ..adapters.base import EventKind, IncomingEvent, OutgoingMessage
 from ..modules.books.models import Permission
 from ..modules.identity.models import Provider
 from ..modules.ledger.models import Flow, Scope
-from ..modules.reports import service as reports_service
 from ..shared.errors import KasbBookError, ValidationError
 from ..shared.parsing import parse_amount, parse_date
 from . import quick, screens
@@ -31,6 +30,7 @@ from .features.account import AccountFeature
 from .features.books import BooksFeature
 from .features.payroll import PayrollFeature
 from .features.planning import PlanningFeature
+from .features.reports import ReportsFeature
 from .features.wallet import WalletFeature
 from .state import StateStore, conversation_key
 
@@ -42,6 +42,7 @@ FEATURES: tuple = (
     BooksFeature,
     PayrollFeature,
     PlanningFeature,
+    ReportsFeature,
     WalletFeature,
 )
 FEATURE_BY_PREFIX, FEATURE_BY_FLOW = index(FEATURES)
@@ -193,12 +194,6 @@ class Conversation:
 
         if area == "dl":
             return await self._daily_callback(parts, user, key)
-
-        if area == "rep":
-            return await self._report_callback(action, argument, user)
-
-        if area in ("rp", "rb", "rc"):
-            return await self._period_screen(parts, user, area)
 
         if area == "qk":
             nonce = parts[3] if len(parts) > 3 else ""
@@ -422,46 +417,6 @@ class Conversation:
 
         sheets = await self.reports.day(user.id, on, book_id)
         return screens.daily_view(on, self._today(user), sheets, books, book_id, page)
-
-    async def _report_callback(self, action: str, argument: str, user):
-        if action == "book":
-            book = await self.books.get_book(uuid.UUID(argument))
-            years = await self.reports.years_with_data(book.id, user.id)
-            return screens.period_menu(book, years, self._today(user))
-
-        return screens.report_menu(await self.books.books_for_user(user.id))
-
-    async def _period_screen(self, parts, user, kind: str):
-        """rp / rb / rc all name a book and a period the same way."""
-        book = await self.books.get_book(uuid.UUID(parts[1]))
-        spec = ":".join(parts[2:])
-        period = reports_service.parse_spec(spec)
-        if period is None:
-            years = await self.reports.years_with_data(book.id, user.id)
-            return screens.period_menu(book, years, self._today(user))
-
-        if kind == "rb":
-            buckets = await self.reports.by_category(book.id, user.id, period)
-            return screens.category_breakdown(book, period.label, buckets, spec)
-
-        if kind == "rc":
-            payload = await self.reports.to_csv(book.id, user.id, period)
-            self.ctx.pending_file = OutgoingFile(
-                content=payload,
-                filename="kasbbook-" + spec.replace(":", "-") + ".csv",
-                caption="خروجی " + period.label,
-            )
-            summary = await self.reports.summary(book.id, user.id, period)
-            return screens.period_report(book, period.label, summary, spec)
-
-        summary = await self.reports.summary(book.id, user.id, period)
-        comparison = None
-        compared = await self.reports.compare(book.id, user.id, period)
-        if compared is not None:
-            previous, before, after = compared
-            comparison = screens.comparison_line(previous.label, before, after)
-
-        return screens.period_report(book, period.label, summary, spec, comparison)
 
     async def _attachment(self, event: IncomingEvent, user, key: str):
         """A file only means something while a receipt is being asked for."""
