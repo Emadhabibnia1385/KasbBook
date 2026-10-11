@@ -238,6 +238,35 @@ async def test_editing_on_rubika_replaces_the_keyboard_too():
     assert [c["method"] for c in fake.calls] == ["editMessageText", "editMessageKeypad"]
 
 
+@pytest.mark.parametrize("edit", [False, True])
+async def test_a_secret_meant_to_be_concealed_still_reaches_a_rubika_reader(edit):
+    """Rubika cannot conceal text, and the adapter dropped it instead.
+
+    An API key is shown exactly once, at creation, in the field a messenger
+    that can conceal hides behind a tap. Rubika's adapter never read that
+    field, so a key issued from the bot there was never seen by anyone. Shown
+    plainly is the honest degradation — the Bot API adapters already do it.
+    """
+    fake = FakeRubika()
+    message = OutgoingMessage("b0", "کلید تازه:", hidden="kb_secret_123",
+                              edit_message_id="112" if edit else None)
+    await (rubika(fake).edit_message(message) if edit else rubika(fake).send_message(message))
+
+    sent = [c["body"].get("text", "") for c in fake.calls
+            if c["method"] in ("sendMessage", "editMessageText")]
+    assert any("kb_secret_123" in text for text in sent), sent
+
+
+async def test_a_button_whose_data_would_be_refused_by_telegram_cannot_be_built():
+    """Over 64 bytes, Telegram refuses the whole message; better to fail here."""
+    Button("ok", data="x" * 64)
+    with pytest.raises(ValueError):
+        Button("too long", data="x" * 65)
+    # Bytes, not characters: Persian letters are two bytes each.
+    with pytest.raises(ValueError):
+        Button("فارسی", data="ب" * 33)
+
+
 async def test_a_rubika_upload_asks_for_a_url_first():
     """Rubika does not accept bytes on the API host; it hands out an upload URL."""
     fake = FakeRubika()

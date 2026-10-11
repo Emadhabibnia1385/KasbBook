@@ -49,6 +49,10 @@ class Attachment:
     mime_type: Optional[str] = None
 
 
+# Telegram's documented limit for callback_data, the strictest of the three.
+CALLBACK_DATA_LIMIT = 64
+
+
 @dataclass(frozen=True)
 class Button:
     text: str
@@ -58,6 +62,15 @@ class Button:
     def __post_init__(self) -> None:
         if not self.data and not self.url:
             raise ValueError("a button needs either callback data or a url")
+        # Telegram refuses the whole message, not just the button, when callback
+        # data passes 64 bytes - the person sees nothing at all. Refused here
+        # instead, where every screen in the test suite builds its buttons, so a
+        # payload that grows too long fails a test rather than a user.
+        if self.data and len(self.data.encode("utf-8")) > CALLBACK_DATA_LIMIT:
+            raise ValueError(
+                f"callback data is {len(self.data.encode('utf-8'))} bytes, over "
+                f"{CALLBACK_DATA_LIMIT}: {self.data!r}"
+            )
 
 
 @dataclass(frozen=True)

@@ -40,6 +40,18 @@ API_ROOT = "https://botapi.rubika.ir/v3"
 __all__ = ["RubikaAdapter", "API_ROOT"]
 
 
+def _with_secret(message: OutgoingMessage) -> str:
+    """The text, with any concealed part shown plainly.
+
+    Rubika has no spoiler markup. The secret used to be dropped, so an API key
+    issued here - shown once, at creation - reached nobody. Shown plainly is
+    the same honest degradation the Bot API adapters use.
+    """
+    if not message.hidden:
+        return message.text
+    return message.text + "\n" + message.hidden
+
+
 class RubikaAdapter:
     """Rubika bot API adapter."""
 
@@ -267,7 +279,7 @@ class RubikaAdapter:
         if message.forward_file_id:
             return await self.send_stored_file(message.chat_id, message.forward_file_id,
                 message.forward_file_kind, caption=message.text, buttons=message.buttons)
-        params: Dict[str, Any] = {"chat_id": message.chat_id, "text": message.text}
+        params: Dict[str, Any] = {"chat_id": message.chat_id, "text": _with_secret(message)}
         keypad = self.build_buttons(message.buttons)
         if keypad:
             params["inline_keypad"] = keypad
@@ -285,11 +297,12 @@ class RubikaAdapter:
             "editMessageText",
             chat_id=message.chat_id,
             message_id=message.edit_message_id,
-            text=message.text,
+            text=_with_secret(message),
         )
         if result is None:
             return await self.send_message(
-                OutgoingMessage(message.chat_id, message.text, message.buttons)
+                OutgoingMessage(message.chat_id, message.text, message.buttons,
+                                hidden=message.hidden)
             )
 
         # Editing text does not touch the keyboard, so the buttons are replaced
