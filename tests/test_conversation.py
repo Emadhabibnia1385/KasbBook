@@ -387,9 +387,10 @@ async def test_every_button_prefix_the_screens_emit_is_routed():
     assert not unrouted, f"screens emit prefixes nothing handles: {sorted(unrouted)}"
 
 
-# Drafts whose follow-up is a button, never a typed line: no feature reads text
-# for them, and a line typed while one is pending starts something new.
-BUTTON_ONLY_FLOWS = {"quick"}
+# Drafts whose follow-up is a button or an attachment, never a typed line: no
+# feature reads text for them, and a line typed while one is pending starts
+# something new. Listed, so a new flow has to be placed on purpose.
+BUTTON_ONLY_FLOWS = {"quick", "costpolicy", "currency", "receipt"}
 
 
 async def test_every_draft_flow_has_exactly_one_reader():
@@ -413,6 +414,7 @@ async def test_every_draft_flow_has_exactly_one_reader():
     for node in ast.walk(tree):
         # `if draft.get("flow") == "xx"` in the text dispatcher
         if (isinstance(node, ast.Compare) and isinstance(node.left, ast.Call)
+                and all(isinstance(op, ast.Eq) for op in node.ops)
                 and getattr(node.left.func, "attr", "") == "get"
                 and node.left.args and getattr(node.left.args[0], "value", "") == "flow"):
             for comparator in node.comparators:

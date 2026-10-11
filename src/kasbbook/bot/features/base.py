@@ -31,11 +31,56 @@ from ...modules.payroll.service import PayrollService
 from ...modules.recurring.service import RecurringService
 from ...modules.reports.service import ReportService
 from ...modules.treasury.service import TreasuryService
+from decimal import Decimal
+
+from ...modules.books.models import BookType
+from ...modules.ledger.models import Scope
 from ...shared import jalali
-from .. import screens
+from .. import quick, screens
 from ..state import StateStore
 
 Screen = Tuple[str, list]
+
+# What a person types to back out of a half-finished flow. The button's label
+# is included because some people type exactly what they see.
+CANCEL_WORDS = ("انصراف", "لغو", "↩️ انصراف", "⬅️ انصراف")
+
+# What fits on a button next to its emoji. Longer names stay readable in the
+# list text but would be cut mid-word on the button that opens the book.
+BOOK_NAME_LIMIT = 40
+
+# What a person types when a due date does not apply.
+NO_DUE_WORDS = ("ندارد", "ندارم", "بدون سررسید", "-")
+
+
+def read_amount(text: str):
+    """(amount, None) or (None, why): the answer to every "how much?" prompt.
+
+    One reader for every prompt, so «۳۰ هزار و ۵۰۰» means the same thing in a
+    quick line, a budget and a loan, and a refusal always says why: not a
+    number, zero, or written in a way that could mean two different sums.
+    """
+    got = quick.read_amount(text)
+    if isinstance(got, quick.Unclear):
+        return None, screens.unclear_reason(got.reason, got.numbers)
+    if got is None:
+        typed = (text or "").strip()
+        if typed[:1] in ("-", "−") and isinstance(quick.read_amount(typed[1:]), Decimal):
+            return None, "مبلغ منفی نمی‌شود؛ بدون علامت منفی بنویس. برای برداشت، نوع «هزینه» را بزن."
+        return None, f"«{typed[:30]}» مبلغ نیست. فقط عدد بنویس؛ مثلاً 250000 یا 250ک."
+    if got <= 0:
+        return None, "مبلغ باید بیشتر از صفر باشد."
+    return got, None
+
+
+# Which book type a scope belongs to, so a team book never records personal money.
+SCOPE_FOR_BOOK = {
+    BookType.PERSONAL: Scope.PERSONAL,
+    BookType.BUSINESS: Scope.WORK,
+    BookType.TEAM: Scope.TEAM,
+    BookType.ORGANIZATION: Scope.TEAM,
+}
+
 
 
 class Context:
