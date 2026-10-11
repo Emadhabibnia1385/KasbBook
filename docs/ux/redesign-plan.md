@@ -114,3 +114,33 @@ would make each fix harder to review. The P0 fixes touch:
 - Every API change has a refusal test and an isolation test (another user, and
   an API key).
 - One commit per slice, subject in English, on branch `ux-platform-redesign`.
+
+## Status — P0 wave 1 (approved: financial and security items only)
+
+Items 8 and 9 (idempotency, error envelope) were deferred by the owner.
+
+| # | ID | Status | Commit | Regression tests |
+|---|---|---|---|---|
+| 1 | ACC-004 | fixed | `7af96fa` | `test_payroll.py::test_a_flat_rule_naming_a_category_takes_its_flat_amount`, `…percentage_rule_naming_a_category_still_reads_that_category` |
+| 2 | ACC-005 | fixed | `7af96fa` | `test_payroll.py::test_a_deactivated_fund_takes_nothing_more` |
+| 3 | ACC-006 (D-3 = refuse) | fixed | `83693bc`, `b6a5277` | `test_payroll.py::test_percentage_shares_cannot_promise_more_than_everything`, `…future_share_cannot_overlap…`, `…already_over_100_percent_refuses_to_calculate`; bot: `test_bot_payroll_treasury.py::test_a_share_that_would_pass_100_is_refused_in_the_bot_with_the_free_room` |
+| 4 | ACC-001/002 (D-1 = open periods + notice) | fixed | `fb07f80` | `test_recurring_search_reminders.py::test_a_date_in_a_closed_period_is_skipped…`, `…author_left_the_book_is_paused…`; `test_reminder_loop.py::test_the_loop_books_recurring_rules_that_came_due`, `…late_catch_up_is_told_to_the_owner_once` |
+| 5 | B1 | fixed | `15140ed` | `tests/test_bot_stale_and_cancel.py` |
+| 6 | B2 | fixed | `15140ed` | `tests/test_bot_stale_and_cancel.py` (two `asyncio.gather` races) |
+| 7 | SEC-1 | fixed | `223d9ee` | `test_api_auth.py::test_an_api_key_cannot_manage_the_account_it_belongs_to` (12 routes), `…key_still_does_the_work…` |
+| 10 | B5 | fixed | `15140ed` | `tests/test_bot_stale_and_cancel.py` |
+| 11 | ENV-001/002 | fixed (test code only) | `b6a5277` | the 18 baseline failures now pass |
+| — | ENV-003 | environmental | — | passes with `--basetemp` outside the user's Temp |
+
+Last full run: `pytest tests --basetemp <scratch>` → **760 passed, 0 failed, 9
+skipped** (Postgres-only and packaging tests, as expected); pyflakes clean;
+`git diff --check` clean.
+
+**Not yet verified:**
+- Redis `GETDEL` runs only through a unit path, against no live Redis. It
+  needs Redis 6.2+; the deploy runs Redis 7.
+- `FOR UPDATE SKIP LOCKED` on the recurring run is a no-op on SQLite and has
+  not been exercised against PostgreSQL.
+- A recurring notice reaches the owner only on a messenger whose reminder loop
+  performed the run. With two messengers configured, the owner may hear about
+  a run on only one of them, or on neither.
