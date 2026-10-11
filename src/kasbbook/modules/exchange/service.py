@@ -312,6 +312,12 @@ class ExchangeService:
         if out_amount <= ZERO or in_amount <= ZERO:
             raise ValidationError("مقدار تبدیل باید بیشتر از صفر باشد.")
 
+        # Two conversions in flight both read the balance before either wrote,
+        # both passed, and the wallet went below zero. Recording, calculating
+        # and paying already queue on this lock; converting does too.
+        from ..ledger.categories import CategoryService
+
+        await CategoryService(self.session).lock_book(book_id)
         await self.require_funds(book_id, from_currency, out_amount)
 
         if to_currency == book.base_currency:

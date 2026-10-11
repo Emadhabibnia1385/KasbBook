@@ -1078,6 +1078,8 @@ class PayrollService:
             raise NotFound("پرداخت پیدا نشد.")
         slip = await self.session.get(Payslip, payment.payslip_id)
         await self.books.require(slip.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        # Queued with pay(), which reads what is owed under the same lock.
+        await CategoryService(self.session).lock_book(slip.book_id)
 
         period = await self.get_period(slip.period_id)
         if period.status in (PeriodStatus.PAID, PeriodStatus.LOCKED):

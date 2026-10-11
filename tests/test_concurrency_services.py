@@ -138,3 +138,75 @@ async def test_two_reminder_loops_never_book_the_same_date_twice(pg):
             assert len(rows) == 10
             assert len({row.occurred_on for row in rows}) == 10
             assert await ledger.trial_balance(book.id) == (Decimal("1000"), Decimal("1000"))
+
+
+async def _attempt(database: Database, work) -> bool:
+    """Run `work(session)` in its own session; True if it committed."""
+    from kasbbook.shared.errors import KasbBookError
+
+    async for session in database.session():
+        try:
+            await work(session)
+            await session.commit()
+            return True
+        except KasbBookError:
+            await session.rollback()
+            return False
+
+
+@needs_postgres
+async def test_two_conversions_cannot_spend_the_same_tokens(pg):
+    """Ten USDT, two conversions of six in flight: one wins, the wallet never goes below zero."""
+    from kasbbook.modules.exchange.service import ExchangeService
+    from kasbbook.modules.ledger.models import Scope
+
+    async for session in pg.session():
+        user = await IdentityService(session).create_user("عماد")
+        book = await BookService(session).create_book(user.id, "کارگاه", BookType.BUSINESS, "IRT")
+        await ExchangeService(session).set_enabled(user.id, book.id, "USDT", True)
+        await LedgerService(session).record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش",
+                                            "10", currency="USDT", conversion_rate="100000")
+        await session.commit()
+        user_id, book_id = user.id, book.id
+
+    async def convert(session):
+        await ExchangeService(session).convert(user_id, book_id, "USDT", "6", "IRT", "600000")
+
+    results = await asyncio.gather(*(_attempt(pg, convert) for _ in range(2)))
+
+    assert sorted(results) == [False, True]
+    async for session in pg.session():
+        assert await ExchangeService(session).balance_of(book_id, "USDT") == Decimal("4.0000")
+
+
+@needs_postgres
+async def test_two_payments_cannot_both_settle_one_payslip(pg):
+    from kasbbook.modules.books.models import Role
+    from kasbbook.modules.ledger.models import Scope
+    from kasbbook.modules.payroll.models import ShareBasis
+    from kasbbook.modules.payroll.service import PayrollService
+
+    day = date(2026, 8, 24)
+    async for session in pg.session():
+        identity = IdentityService(session)
+        owner = await identity.create_user("عماد")
+        member = await identity.create_user("سارا")
+        books = BookService(session)
+        book = await books.create_book(owner.id, "تیم", BookType.TEAM)
+        await books.add_member(owner.id, book.id, member.id, Role.MEMBER)
+        await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                            "پروژه", "1000", occurred_on=day)
+        payroll = PayrollService(session)
+        await payroll.set_share(book.id, owner.id, member.id, ShareBasis.PERCENT, 100,
+                                effective_from=day)
+        period = await payroll.open_period(owner.id, book.id, "مرداد", day, day)
+        slip = (await payroll.calculate(owner.id, period.id))[0]
+        await session.commit()
+        owner_id, slip_id = owner.id, slip.id
+
+    async def pay(session):
+        await PayrollService(session).pay(owner_id, slip_id, "1000")
+
+    results = await asyncio.gather(*(_attempt(pg, pay) for _ in range(2)))
+
+    assert sorted(results) == [False, True]
