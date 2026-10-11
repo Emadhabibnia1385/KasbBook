@@ -540,7 +540,13 @@ async def test_settling_says_what_it_did(session):
 
 # ============================================================== copy rules
 def _bot_sources():
-    return {path.name: path.read_text(encoding="utf-8") for path in (BOT / "screens.py", BOT / "conversation.py")}
+    """Every file the bot's Persian copy is written in: screens, features, the conversation.
+
+    Keyed by path below bot/, since screens/ and features/ both have a books.py.
+    """
+    paths = [BOT / "conversation.py", *sorted((BOT / "screens").glob("*.py")),
+             *sorted((BOT / "features").glob("*.py"))]
+    return {path.relative_to(BOT).as_posix(): path.read_text(encoding="utf-8") for path in paths}
 
 
 async def test_the_vocabulary_is_one_word_per_concept():
