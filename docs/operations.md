@@ -124,6 +124,25 @@ sudo ./venv/bin/alembic downgrade -1
 Every migration here has a working `downgrade`, and a test asserts they roll
 all the way back to base — on SQLite and on PostgreSQL.
 
+**Data is not code.** Rolling the code back leaves alone everything the newer
+version wrote. The recurring catch-up is the case that matters: once
+`KASBBOOK_RECURRING=on`, the bot books real transactions. Two ways to undo
+them, and only these two:
+
+- **restore the full backup** that `update.sh` took before updating, which puts
+  every table back together, ledger and journal included; or
+- **reverse each transaction through the application** — the bot's delete, or
+  `DELETE /api/v1/books/{id}/transactions/{tx}`. Both go through
+  `LedgerService`, which removes the transaction and its journal entry
+  together and keeps the books balanced. The owner's recurring notice lists
+  what was booked.
+
+Never delete transactions, journal entries or journal lines with SQL, and never
+one without the other. A transaction without its entry, or an entry without its
+transaction, is a ledger that no longer proves itself — and `trial_balance()`
+stops balancing. This is why the upgrade turns recurring booking off first and
+runs the preview: the cheapest rollback is the one that has nothing to undo.
+
 ## Health
 
 ```bash
