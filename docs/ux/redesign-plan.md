@@ -91,11 +91,11 @@ described in the platform gap analysis and the roadmap.
 
 ## Architecture
 
-The conversation refactor is deferred until the P0 fixes land.
-
-Splitting `conversation.py` and `screens.py` by feature is still the
-direction, but it is a large mechanical diff. Doing it before the bug fixes
-would make each fix harder to review. The P0 fixes touch:
+The conversation refactor was deferred until the P0 fixes landed, and has
+since been done: `conversation.py` is split into `bot/features/` and
+`screens.py` into `bot/screens/`, one module per feature (wave 2 status
+below). The file names in the list that follows are as they were when this
+plan was written. The P0 fixes touch:
 
 - `bot/conversation.py`: quick-entry nonce, cancel;
 - `bot/screens.py`: copy;

@@ -59,8 +59,24 @@ person can do lives in `bot/features/`, one module per area. Each feature
 declares the callback prefixes it answers and the draft flows it reads text
 for, and is given a `Context` (the services and the update's outbox), never the
 conversation. Two features claiming the same prefix or flow fail at import.
-`bot/screens.py` renders. Screens are pure functions — data in, text and buttons out — so every one of
-them is tested without a token, a network, or a database.
+`bot/screens/` renders, split the same way: one module per feature
+(`account`, `books`, `payroll`, `planning`, `reports`, `transactions`,
+`wallet`) and `common` for what several share — `rtl()`, money formatting, the
+home, error, stale and cancelled screens. `bot/screens/__init__.py` re-exports
+every name explicitly, so callers keep writing `screens.X`. The package is a
+star: a feature's screens import only `common`, and `common` imports none of
+them.
+
+Screens are pure functions — data in, text and buttons out — so every one of
+them is tested without a token, a network, or a database. A screen imports no
+session, service, database, conversation or adapter beyond `Button`;
+`tests/test_screens_architecture.py` fails the build if one does, and also
+holds the package to:
+- the names it promised, frozen;
+- one definition per name;
+- 64-byte callback payloads;
+- Persian through `rtl()`;
+- no English error reaching a person.
 
 The provider arrives as a constructor argument, taken from `adapter.provider`.
 It used to be hardcoded to `Provider.TELEGRAM` in the runner, which meant a
@@ -136,7 +152,7 @@ own environment file — never one process holding two identities.
 src/kasbbook/
   adapters/      base.py (the protocol), botapi.py (the shared dialect),
                  telegram.py, bale.py, rubika.py
-  bot/           conversation.py, features/ (one module per area), screens.py, quick.py, state.py
+  bot/           conversation.py, features/ and screens/ (one module per area), quick.py, state.py
   api/           app.py, deps.py, schemas.py, errors.py, ratelimit.py, routers/
   modules/       identity, books, ledger, budgets, debts, loans, recurring,
                  reports, reminders, treasury, payroll

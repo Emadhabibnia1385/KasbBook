@@ -1,5 +1,10 @@
 # Bug ledger (accounting & environment audit)
 
+> **Note (2026-10-11):** `screens.py:NNN` and `conversation.py:NNN` references
+> below point at the tree as it was audited. Both files have since been split
+> by feature into `bot/screens/` and `bot/features/`. The references are kept
+> as the evidence they were, not updated to new line numbers.
+
 Branch `ux-platform-redesign`, audited 2026-10-11 (Jalali 1405-07-19). Audit only: no product code or existing test was changed.
 
 **How to reproduce.** Every `confirmed bug` has a scratch test that asserts the *correct* behaviour, so it is red today and should turn green when fixed.

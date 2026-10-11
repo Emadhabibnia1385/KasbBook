@@ -59,15 +59,32 @@ at each edge. Messages a user will see are Persian.
 Return models or small dataclasses, never dicts — a renamed column should be a
 failing import, not a missing key at runtime.
 
-## 4. Screens — `bot/screens.py`
+## 4. Screens — `bot/screens/<area>.py`
 
-Pure functions: data in, `(text, buttons)` out. No database, no network. Wrap
-user-facing text in `rtl()` so mixed Persian and digits stay readable, and
+Pure functions: data in, `(text, buttons)` out. A screen imports no session,
+service, database, conversation or adapter — `Button` is the one exception.
+Wrap user-facing text in `rtl()` so mixed Persian and digits stay readable, and
 format money with `fmt()`.
 
+The screens are split the way the features are: one module per area. Put a new
+screen in the module of the feature that draws it. Shared code goes only in
+`screens/common.py`, and only when a second feature needs it. Common imports no
+feature's screens, and no feature's screens import another's. Export every new
+screen explicitly from `screens/__init__.py` — add it to the import and to
+`__all__` — so callers keep writing `screens.X`.
+
+After changing screens, run `tests/test_screens_architecture.py`. It fails on:
+- a name missing from, or defined twice in, the package;
+- a forbidden import;
+- a callback payload that can exceed 64 bytes;
+- Persian returned without `rtl()`;
+- an English error.
+
 Pick a callback prefix nobody uses (see the list in SKILL.md). Keep payloads
-short — **a callback payload is 64 bytes**, and a Persian category or fund name
-will not reliably fit. Where a button has to carry a long value, keep the list
+short — **a callback payload is 64 bytes**, refused by `Button` itself past that,
+and a Persian category or fund name will not reliably fit. A new kind of
+placeholder in a payload has to be sized in the architecture test's
+`PLACEHOLDER_BYTES`. Where a button has to carry a long value, keep the list
 in conversation state and reference it by index; that is what the category
 suggestions do.
 

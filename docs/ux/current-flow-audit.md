@@ -1,5 +1,10 @@
 # KasbBook bot — current flow audit (branch `ux-platform-redesign`)
 
+> **Note (2026-10-11):** `screens.py:NNN` and `conversation.py:NNN` references
+> below point at the tree as it was audited. Both files have since been split
+> by feature into `bot/screens/` and `bot/features/`. The references are kept
+> as the evidence they were, not updated to new line numbers.
+
 Method: the real `Conversation.handle()` driven with `IncomingEvent`s (fixture pattern of
 `tests/test_conversation.py`), SQLite in memory, no product code touched. Transcripts:
 `docs/ux/transcripts/before/*.md` (01–08 journeys, 96 invalid input, 97–99 cancel/stale).

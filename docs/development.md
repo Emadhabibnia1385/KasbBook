@@ -70,8 +70,11 @@ The shape most features take:
    on a table that already has rows.
 3. **Service** — `modules/<area>/service.py`. Every rule lives here, and it
    starts with `await self.books.require(...)`.
-4. **Screens** — `bot/screens.py`, pure functions. Pick a callback prefix that
-   is not taken; the guard test will tell you if it is.
+4. **Screens** — the feature's module in `bot/screens/`. Screens are pure
+   functions. Shared code goes only in `screens/common.py`. Export each new
+   screen explicitly from `screens/__init__.py`. Pick a callback prefix that is
+   not taken; the guard test will tell you if it is. Keep each payload within
+   64 bytes. Then run `tests/test_screens_architecture.py`.
 5. **Routing** — the feature in `bot/features/` that owns the area: add the
    prefix to its `prefixes` (and the draft flow to its `flows`, if it reads text).
 6. **API** — a router in `api/routers/`, calling the same service.
