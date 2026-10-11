@@ -16,6 +16,7 @@ from typing import Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...shared import jalali
 from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
@@ -139,7 +140,8 @@ class TreasuryService:
         if basis is not RuleBasis.FIXED and amount > MAX_PERCENT:
             raise ValidationError("درصد نمی‌تواند بیشتر از ۱۰۰ باشد")
 
-        starts_on = effective_from or date.today()
+        # The book's day, not the server's UTC one: see PayrollService.set_share.
+        starts_on = effective_from or jalali.today_in((await self.books.get_book(book_id)).timezone)
         if effective_to is not None and effective_to < starts_on:
             raise ValidationError("پایان قاعده نمی‌تواند قبل از شروعش باشد")
 

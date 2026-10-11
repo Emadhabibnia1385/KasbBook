@@ -1271,3 +1271,151 @@ async def test_a_rule_with_no_category_still_takes_everything(session):
                             Decimal("50"), effective_from=START)
     await session.flush()
     assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("5000000")
+
+
+
+# --------------------------------------------- closing a month for good (D-5)
+async def _advance_to_paid(payroll, owner, period):
+    for step in (PeriodStatus.CALCULATING, PeriodStatus.AWAITING_APPROVAL,
+                 PeriodStatus.APPROVED, PeriodStatus.PAID):
+        await payroll.advance_period(owner.id, period.id, step)
+
+
+async def test_a_period_with_unpaid_payslips_refuses_to_lock_and_names_them(session):
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=None)
+    member = await add_member(session, books, identity, book, owner, "سارا")
+    share(session, book, member, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, "4000000")
+
+    await _advance_to_paid(payroll, owner, period)
+    with pytest.raises(ValidationError) as refused:
+        await payroll.advance_period(owner.id, period.id, PeriodStatus.LOCKED)
+    assert "سارا" in str(refused.value) and "۶۰۰۰۰۰۰" in str(refused.value)
+    assert period.status is PeriodStatus.PAID
+
+    await payroll.pay(owner.id, slip.id, "6000000")
+    await payroll.advance_period(owner.id, period.id, PeriodStatus.LOCKED)
+    assert period.status is PeriodStatus.LOCKED
+
+
+async def test_a_locked_period_takes_no_payment(session):
+    """Locked used to refuse a void but accept a payment: the same change, reversed."""
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=None)
+    member = await add_member(session, books, identity, book, owner, "سارا")
+    share(session, book, member, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    await payroll.pay(owner.id, slip.id, "10000000")
+    await _advance_to_paid(payroll, owner, period)
+    await payroll.advance_period(owner.id, period.id, PeriodStatus.LOCKED)
+
+    with pytest.raises(PermissionDenied):
+        await payroll.pay(owner.id, slip.id, "1")
+    await session.refresh(slip, attribute_names=["payments"])
+    assert slip.paid_total == Decimal("10000000")
+
+
+# ------------------------------------------------------ a losing month (D-5b)
+async def test_a_losing_month_pays_nobody_and_says_how_much_it_lost(session):
+    """Costs above income used to give every member a negative "settled" payslip."""
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs="30000000")
+    a = await add_member(session, books, identity, book, owner, "الف")
+    b = await add_member(session, books, identity, book, owner, "ب")
+    share(session, book, a, ShareBasis.PERCENT, 50)
+    share(session, book, b, ShareBasis.PERCENT, 50)
+    await session.flush()
+
+    d = await payroll.compute_distribution(period.id)
+    assert d.distributable == ZERO_INCOME
+    assert d.shortfall == Decimal("20000000")
+    slips = await payroll.calculate(owner.id, period.id)
+    assert [s.net_pay for s in slips] == [ZERO_INCOME, ZERO_INCOME]
+
+
+async def test_fixed_claims_bigger_than_the_month_leave_weighted_members_at_zero(session):
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="2000000", costs=None)
+    salaried = await add_member(session, books, identity, book, owner, "حقوق‌بگیر")
+    partner = await add_member(session, books, identity, book, owner, "شریک")
+    share(session, book, salaried, ShareBasis.FIXED, 3000000)
+    share(session, book, partner, ShareBasis.HOURS, 1)
+    session.add(PerformanceRecord(book_id=book.id, period_id=period.id, user_id=partner.id,
+                                  hours_worked=Decimal("10")))
+    await session.flush()
+
+    slips = {s.user_id: s for s in await payroll.calculate(owner.id, period.id)}
+    # The salary is a promise and is kept; the partner's share is not a bill.
+    assert slips[salaried.id].base_share == Decimal("3000000")
+    assert slips[partner.id].base_share == ZERO_INCOME
+
+
+# ------------------------------------------- adjustments that lie (ACC-013/014)
+@pytest.mark.parametrize("kind,value", [
+    (AdjustmentKind.PENALTY, "1000000"), (AdjustmentKind.ADVANCE, "500"),
+    (AdjustmentKind.BONUS, "-1000000"), (AdjustmentKind.OVERTIME, "-1"),
+])
+async def test_an_adjustment_whose_kind_contradicts_its_sign_is_refused(session, kind, value):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "سارا")
+    with pytest.raises(ValidationError):
+        await payroll.add_adjustment(owner.id, period.id, member.id, kind,
+                                     AdjustmentMode.AMOUNT, value)
+
+
+async def test_a_correction_may_go_either_way(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "سارا")
+    for value in ("1000", "-1000"):
+        await payroll.add_adjustment(owner.id, period.id, member.id,
+                                     AdjustmentKind.CORRECTION, AdjustmentMode.AMOUNT, value)
+
+
+async def test_an_adjustment_for_someone_outside_the_book_is_refused(session):
+    """It used to be stored and then silently never applied."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    stranger = await identity.create_user("غریبه")
+    with pytest.raises(ValidationError):
+        await payroll.add_adjustment(owner.id, period.id, stranger.id,
+                                     AdjustmentKind.BONUS, AdjustmentMode.AMOUNT, "1000")
+
+
+# ---------------------------------------------- allocation history (ACC-016)
+async def test_each_allocation_remembers_the_rule_that_took_it(session):
+    from kasbbook.modules.treasury.models import TreasuryAllocation
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=None)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.FIXED,
+                            Decimal("3000000"), effective_from=START)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("10"), effective_from=START)
+    await session.flush()
+    await payroll.calculate(owner.id, period.id)
+
+    rows = (await session.execute(
+        select(TreasuryAllocation).where(TreasuryAllocation.period_id == period.id)
+    )).scalars().all()
+    assert sorted((r.basis_snapshot.value, r.value_snapshot, r.amount) for r in rows) == sorted([
+        (RuleBasis.FIXED.value, Decimal("3000000"), Decimal("3000000")),
+        (RuleBasis.GROSS_PERCENT.value, Decimal("10"), Decimal("1000000")),
+    ])
+
+
+# ----------------------------------------------------- the book's day (ACC-012)
+async def test_a_share_from_today_starts_on_the_books_day_not_the_servers(session, monkeypatch):
+    """At 00:30 in Tehran on 1 Mehr the server's UTC date is still 31 Shahrivar."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    member = await add_member(session, books, identity, book, owner, "سارا")
+    tehran_day = date(2026, 9, 23)
+    monkeypatch.setattr("kasbbook.shared.jalali.today_in", lambda *a, **k: tehran_day)
+
+    rule = await payroll.set_share(book.id, owner.id, member.id, ShareBasis.PERCENT, 50)
+    assert rule.effective_from == tehran_day

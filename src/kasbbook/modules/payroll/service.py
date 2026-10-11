@@ -30,6 +30,7 @@ from ..treasury.models import RuleBasis, TreasuryAllocation, TreasuryFund, Treas
 from .models import (
     PERIOD_TRANSITIONS,
     Adjustment,
+    AdjustmentKind,
     AdjustmentMode,
     FinancialPeriod,
     Payment,
@@ -41,6 +42,12 @@ from .models import (
 )
 
 HUNDRED = Decimal("100")
+
+# Which way each kind of adjustment moves pay. A correction may go either way.
+RAISES_PAY = frozenset({AdjustmentKind.BONUS, AdjustmentKind.OVERTIME})
+LOWERS_PAY = frozenset(
+    {AdjustmentKind.PENALTY, AdjustmentKind.SHORTFALL, AdjustmentKind.ADVANCE}
+)
 
 _FA_DIGITS = str.maketrans("0123456789.", "۰۱۲۳۴۵۶۷۸۹٫")
 
@@ -64,18 +71,38 @@ class Distribution:
     # tracked: a category is either an income one or an expense one, never
     # both, so a category's "net" is its income.
     income_by_category: Dict[str, Decimal] = field(default_factory=dict)
+    # Each rule's own cut, so the allocation written for it can say which
+    # rule took it and on what basis. treasury_by_fund is the same money
+    # summed per fund.
+    treasury_cuts: List[tuple] = field(default_factory=list)
 
     @property
     def net_profit(self) -> Decimal:
         return self.gross_income - self.direct_costs
 
     @property
-    def distributable(self) -> Decimal:
+    def _before_floor(self) -> Decimal:
         if self.cost_policy is CostPolicy.FROM_TREASURY:
             # Members are paid out of gross income; the treasury's cut is what
             # carries the costs. See CostPolicy.
             return self.gross_income - self.treasury_total
         return self.net_profit - self.treasury_total
+
+    @property
+    def distributable(self) -> Decimal:
+        """What the members share, never below zero.
+
+        A month that spent more than it earned used to hand every member a
+        negative payslip, which read as "settled" because nothing was owed — a
+        loss shown as a closed account. There is nothing to share in such a
+        month; the loss itself is `shortfall`, for a screen to say out loud.
+        """
+        return max(self._before_floor, ZERO)
+
+    @property
+    def shortfall(self) -> Decimal:
+        """How far the month fell short of paying anything out, or zero."""
+        return max(-self._before_floor, ZERO)
 
     @property
     def treasury_net(self) -> Decimal:
@@ -161,6 +188,9 @@ class PayrollService:
                 f"a {period.status.value} period cannot move to {to.value}"
             )
 
+        if to is PeriodStatus.LOCKED:
+            await self._refuse_lock_over_unpaid(period)
+
         period.status = to
         if to is PeriodStatus.LOCKED:
             period.locked_at = utcnow()
@@ -175,6 +205,32 @@ class PayrollService:
         )
         await self.session.flush()
         return period
+
+    async def _refuse_lock_over_unpaid(self, period: FinancialPeriod) -> None:
+        """A locked period takes no payment, so it may not lock while one is owed.
+
+        Locking used to check only the transition, so a month could close with
+        pay still outstanding — and then, because pay() did not look at the
+        lock either, be paid into after it was closed. The refusal names who is
+        still owed, so the fix is obvious: pay them, or recalculate.
+        """
+        from ..identity.models import User
+
+        unpaid = []
+        for slip in (
+            await self.session.execute(
+                select(Payslip).where(Payslip.period_id == period.id)
+            )
+        ).scalars().all():
+            await self.session.refresh(slip, attribute_names=["payments"])
+            if slip.remaining > ZERO:
+                person = await self.session.get(User, slip.user_id)
+                name = person.display_name if person else "—"
+                unpaid.append(f"{name} ({_fa_number(slip.remaining.normalize())})")
+        if unpaid:
+            raise ValidationError(
+                "این دوره فیش پرداخت‌نشده دارد و قفل نمی‌شود: " + "، ".join(unpaid)
+            )
 
     async def _require_no_overlap(
         self,
@@ -456,6 +512,7 @@ class PayrollService:
                 cut = rule.value
 
             cut = quantize(max(cut, ZERO))
+            result.treasury_cuts.append((rule, cut))
             result.treasury_total += cut
             result.treasury_by_fund[rule.fund_id] = (
                 result.treasury_by_fund.get(rule.fund_id, ZERO) + cut
@@ -542,7 +599,10 @@ class PayrollService:
                     rule.value if rule.basis is not ShareBasis.PROJECT else Decimal("1")
                 )
 
-        remaining = distributable - sum(direct.values(), ZERO)
+        # Fixed claims can be more than a thin month holds. What is left for
+        # the weighted members is then nothing — not a negative amount that
+        # turns their payslips into bills.
+        remaining = max(distributable - sum(direct.values(), ZERO), ZERO)
         total_weight = sum(weights.values(), ZERO)
 
         out: Dict[uuid.UUID, tuple] = {}
@@ -582,7 +642,12 @@ class PayrollService:
         if basis is ShareBasis.PERCENT and amount > HUNDRED:
             raise ValidationError("درصد نمی‌تواند بیشتر از ۱۰۰ باشد")
 
-        starts_on = effective_from or date.today()
+        # The book's day, not the server's: at half past midnight in Tehran the
+        # server's UTC date is still yesterday, and a share "from today" began
+        # in the previous period.
+        starts_on = effective_from or jalali.today_in(
+            (await self.books.get_book(book_id)).timezone
+        )
 
         if basis is ShareBasis.PERCENT:
             await self._refuse_percent_over_hundred(book_id, user_id, amount, starts_on)
@@ -667,7 +732,9 @@ class PayrollService:
     ) -> Dict[uuid.UUID, ShareRule]:
         """The rule in force for each member, for a screen to display."""
         await self.books.require(book_id, actor_user_id, Permission.VIEW_REPORTS)
-        return await self.share_rules_for(book_id, on or date.today())
+        return await self.share_rules_for(
+            book_id, on or jalali.today_in((await self.books.get_book(book_id)).timezone)
+        )
 
     async def clear_share(
         self, book_id: uuid.UUID, actor_user_id: uuid.UUID, user_id: uuid.UUID
@@ -777,13 +844,29 @@ class PayrollService:
         await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
         await self._require_editable(period)
 
+        # Stored and then silently dropped: calculate() only applies
+        # adjustments to people who have a payslip, and a stranger never does.
+        if await self.books.membership(period.book_id, user_id) is None:
+            raise ValidationError("این شخص عضو این دفتر نیست.")
+
+        amount = quantize(value)
+        if amount == ZERO:
+            raise ValidationError("مبلغ تعدیل نمی‌تواند صفر باشد.")
+        # The sign moves the money; the kind only names it. The bot derives the
+        # kind from the sign, and the API let them disagree, so a "penalty" of
+        # +1,000,000 raised someone's pay.
+        if kind in RAISES_PAY and amount < ZERO:
+            raise ValidationError("پاداش و اضافه‌کار مبلغ مثبت می‌خواهند.")
+        if kind in LOWERS_PAY and amount > ZERO:
+            raise ValidationError("جریمه، کسری و مساعده مبلغ منفی می‌خواهند.")
+
         adjustment = Adjustment(
             book_id=period.book_id,
             period_id=period_id,
             user_id=user_id,
             kind=kind,
             mode=mode,
-            value=quantize(value),
+            value=amount,
             reason=reason,
             recorded_by=actor_user_id,
         )
@@ -913,16 +996,19 @@ class PayrollService:
             slip.net_pay = ZERO
             slips.append(slip)
 
-        # The treasury cut is recorded once, as fact, alongside the run.
-        for fund_id, amount in distribution.treasury_by_fund.items():
+        # The treasury cut is recorded once, as fact, alongside the run — one
+        # row per rule, with that rule's own basis and value. One row per fund
+        # stamped every cut "gross percent" with the amount as its percentage,
+        # so the history this table exists to keep could not be audited.
+        for rule, amount in distribution.treasury_cuts:
             self.session.add(
                 TreasuryAllocation(
                     book_id=period.book_id,
-                    fund_id=fund_id,
+                    fund_id=rule.fund_id,
                     period_id=period_id,
                     amount=amount,
-                    basis_snapshot=RuleBasis.GROSS_PERCENT,
-                    value_snapshot=amount,
+                    basis_snapshot=rule.basis,
+                    value_snapshot=rule.value,
                 )
             )
 
@@ -998,10 +1084,21 @@ class PayrollService:
         if slip is None:
             raise NotFound("payslip")
         await self.books.require(slip.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        # Two payments in flight both read what was owed before either wrote,
+        # and both passed the overpayment check. Calculation and recording
+        # already queue on this lock; paying now does too.
+        await CategoryService(self.session).lock_book(slip.book_id)
+
+        period = await self.get_period(slip.period_id)
+        if period.status is PeriodStatus.LOCKED:
+            # Locked is the end of the line: void_payment already refused to
+            # change a locked period, and accepting money into one is the same
+            # change in the other direction.
+            raise PermissionDenied("این دوره قفل است و پرداختی در آن ثبت نمی‌شود.")
 
         value = quantize(amount)
         if value <= ZERO:
-            raise ValidationError("a payment must be positive")
+            raise ValidationError("مبلغ پرداخت باید بیشتر از صفر باشد.")
 
         # Summed in SQL rather than through the relationship: the payslip may
         # already be in the identity map from a calculate() in the same session,
