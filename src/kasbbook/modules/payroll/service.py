@@ -43,6 +43,12 @@ from .models import (
 
 HUNDRED = Decimal("100")
 
+# The forward path a period takes to locked; close_period walks it.
+CLOSING_PATH = [
+    PeriodStatus.OPEN, PeriodStatus.CALCULATING, PeriodStatus.AWAITING_APPROVAL,
+    PeriodStatus.APPROVED, PeriodStatus.PAID, PeriodStatus.LOCKED,
+]
+
 # Which way each kind of adjustment moves pay. A correction may go either way.
 RAISES_PAY = frozenset({AdjustmentKind.BONUS, AdjustmentKind.OVERTIME})
 LOWERS_PAY = frozenset(
@@ -97,12 +103,12 @@ class Distribution:
         loss shown as a closed account. There is nothing to share in such a
         month; the loss itself is `shortfall`, for a screen to say out loud.
         """
-        return max(self._before_floor, ZERO)
+        return quantize(max(self._before_floor, ZERO))
 
     @property
     def shortfall(self) -> Decimal:
         """How far the month fell short of paying anything out, or zero."""
-        return max(-self._before_floor, ZERO)
+        return quantize(max(-self._before_floor, ZERO))
 
     @property
     def treasury_net(self) -> Decimal:
@@ -204,6 +210,46 @@ class PayrollService:
             )
         )
         await self.session.flush()
+        return period
+
+    async def close_period(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID
+    ) -> FinancialPeriod:
+        """Take a period all the way to locked, in one step.
+
+        The bot offered "close period" only on an approved period and then
+        asked for a move the state machine does not have (approved → locked),
+        while offering no way to approve or mark paid at all: no period could be
+        closed from the bot. The steps in between are bookkeeping states for a
+        team that splits proposing from approving; for whoever holds the lock
+        permission they are one decision, so this walks them.
+
+        Every refusal is checked before the first step, so a refused close
+        moves nothing: no payslips yet, payslips older than the period's
+        numbers, or anyone still owed.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.LOCK_PERIOD)
+        await CategoryService(self.session).lock_book(period.book_id)
+        await self.session.refresh(period)
+        if period.status is PeriodStatus.LOCKED:
+            return period
+
+        slips = (await self.session.execute(
+            select(Payslip).where(Payslip.period_id == period.id)
+        )).scalars().all()
+        if not slips:
+            raise ValidationError("هنوز فیشی صادر نشده؛ اول فیش‌ها را حساب کن.")
+        distributable = (await self.compute_distribution(period.id)).distributable
+        if any(slip.distributable_snapshot != distributable for slip in slips):
+            # Locking would freeze payslips that no longer match the period.
+            raise ValidationError(
+                "بعد از صدور فیش‌ها چیزی در این دوره عوض شده؛ اول دوباره حساب کن."
+            )
+        await self._refuse_lock_over_unpaid(period)
+
+        for step in CLOSING_PATH[CLOSING_PATH.index(period.status) + 1:]:
+            await self.advance_period(actor_user_id, period.id, step)
         return period
 
     async def _refuse_lock_over_unpaid(self, period: FinancialPeriod) -> None:

@@ -2031,6 +2031,13 @@ def period_detail(book: Book, period, distribution, slips=(),
         "",
         f"قابل تقسیم:    {fmt(distribution.distributable, currency)}",
     ]
+    if distribution.shortfall:
+        # A losing month pays nobody. Said out loud, so a row of zero payslips
+        # reads as the loss it is rather than as nothing having happened.
+        lines.append(
+            f"⚠️ این دوره {fmt(distribution.shortfall, currency)} زیان داده؛ "
+            "چیزی برای تقسیم نمانده و سهم‌ها صفر است."
+        )
 
     if slip_count:
         lines += ["", f"{slip_count} فیش صادر شده."]
@@ -2082,10 +2089,21 @@ def period_detail(book: Book, period, distribution, slips=(),
         Button("🧾 سهم اعضا", data=f"sh:open:{book.id}"),
         Button("🏦 خزانه", data=f"tf:list:{book.id}"),
     ])
-    if period.status.value == "approved":
+    if slip_count and period.status.value != "locked":
         buttons.append([Button("🔒 بستن دوره", data=f"pr:lock:{period.id}")])
     buttons.append([Button("⬅️ بازگشت", data=f"pr:list:{book.id}")])
     return rtl("\n".join(lines)), buttons
+
+
+def confirm_close_period(period) -> Screen:
+    return rtl(
+        f"🔒 بستن دورهٔ «{period.label}»\n\n"
+        "بعد از بستن، در این بازه نه تراکنشی ثبت یا ویرایش می‌شود و نه پرداختی. "
+        "این کار برگشت ندارد. مطمئنی؟"
+    ), [
+        [Button("🔒 بله، ببند", data=f"pr:lockok:{period.id}")],
+        [Button("↩️ انصراف", data=f"pr:open:{period.id}")],
+    ]
 
 
 def payslip_list(book: Book, slips, names) -> Screen:

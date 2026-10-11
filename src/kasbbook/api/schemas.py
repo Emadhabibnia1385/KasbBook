@@ -468,6 +468,8 @@ class DistributionResponse(MoneyModel):
     # FROM_TREASURY it can be negative, and saying so is the point.
     treasury_net: Decimal
     distributable: Decimal
+    # How far a losing month fell short; the distributable floors at zero.
+    shortfall: Decimal
     cost_policy: str
 
 

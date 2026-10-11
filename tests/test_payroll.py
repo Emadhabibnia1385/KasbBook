@@ -1419,3 +1419,50 @@ async def test_a_share_from_today_starts_on_the_books_day_not_the_servers(sessio
 
     rule = await payroll.set_share(book.id, owner.id, member.id, ShareBasis.PERCENT, 50)
     assert rule.effective_from == tehran_day
+
+
+# ---------------------------------------------- closing in one step (ACC-008)
+async def _paid_team(session, pay_all=True):
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, income="10000000", costs=None)
+    member = await add_member(session, books, identity, book, owner, "سارا")
+    share(session, book, member, ShareBasis.PERCENT, 100)
+    await session.flush()
+    slip = (await payroll.calculate(owner.id, period.id))[0]
+    if pay_all:
+        await payroll.pay(owner.id, slip.id, "10000000")
+    return identity, books, payroll, owner, book, period, member, slip
+
+
+async def test_closing_walks_a_paid_up_period_to_locked(session):
+    *_, payroll, owner, book, period, member, slip = await _paid_team(session)
+    closed = await payroll.close_period(owner.id, period.id)
+    assert closed.status is PeriodStatus.LOCKED and closed.locked_at is not None
+
+
+@pytest.mark.parametrize("problem", ["unpaid", "no_slips", "stale"])
+async def test_a_refused_close_moves_the_period_nowhere(session, problem):
+    if problem == "no_slips":
+        identity, books, payroll, owner, book, period = await team_with_income(session)
+    else:
+        identity, books, payroll, owner, book, period, member, slip = await _paid_team(
+            session, pay_all=(problem != "unpaid"))
+        if problem == "stale":
+            # Income arrives after the payslips were issued.
+            await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
+                                                "پروژه", "5000000", occurred_on=START)
+
+    with pytest.raises(ValidationError):
+        await payroll.close_period(owner.id, period.id)
+    assert period.status is PeriodStatus.OPEN
+
+
+async def test_only_the_lock_permission_closes_a_period(session):
+    identity, books, payroll, owner, book, period, member, slip = await _paid_team(session)
+    admin = await add_member(session, books, identity, book, owner, "مدیر", role=Role.ADMIN)
+    with pytest.raises(PermissionDenied):
+        await payroll.close_period(admin.id, period.id)
+    stranger = await identity.create_user("غریبه")
+    with pytest.raises(NotFound):
+        await payroll.close_period(stranger.id, period.id)
+    assert period.status is PeriodStatus.OPEN

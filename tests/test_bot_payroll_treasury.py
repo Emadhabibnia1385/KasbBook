@@ -936,3 +936,32 @@ async def test_a_payslip_paid_beyond_its_new_figure_says_so(session):
     assert "بیش از سهم پرداخت شده" in stale_button.text
     await session.refresh(slip, attribute_names=["payments"])
     assert len(slip.payments) == 1
+
+
+# ------------------------------------------ closing from the bot (ACC-008)
+async def test_a_period_can_actually_be_closed_from_the_bot(session):
+    """The button used to appear only on "approved" and ask for a move that does not exist."""
+    owner, colleague, book, convo = await team(session)
+    payroll = PayrollService(session)
+    await convo.handle(press(f"pr:new:{book.id}"))
+    period = (await payroll.periods(book.id, owner.id))[0]
+    await convo.handle(press(f"pr:calc:{period.id}"))
+
+    detail = await convo.handle(press(f"pr:open:{period.id}"))
+    assert f"pr:lock:{period.id}" in [b.data for row in detail.buttons for b in row]
+
+    asked = await convo.handle(press(f"pr:lock:{period.id}"))
+    assert "برگشت ندارد" in asked.text
+
+    # Nobody is paid yet: refused, named, and the period has not moved.
+    refused = await convo.handle(press(f"pr:lockok:{period.id}"))
+    assert "پرداخت‌نشده" in refused.text
+    assert (await payroll.get_period(period.id)).status.value == "open"
+
+    for slip in await payroll.payslips(owner.id, period.id):
+        await payroll.pay(owner.id, slip.id, slip.net_pay)
+    await session.commit()
+
+    done = await convo.handle(press(f"pr:lockok:{period.id}"))
+    assert "بسته شد" in done.text
+    assert (await payroll.get_period(period.id)).status.value == "locked"

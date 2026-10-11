@@ -164,7 +164,7 @@ async def distribution(
         gross_income=result.gross_income, direct_costs=result.direct_costs,
         net_profit=result.net_profit, treasury_total=result.treasury_total,
         treasury_net=result.treasury_net, distributable=result.distributable,
-        cost_policy=result.cost_policy.value,
+        shortfall=result.shortfall, cost_policy=result.cost_policy.value,
     )
 
 
@@ -178,6 +178,18 @@ async def advance(
         user.id, period_id, _as_enum(PeriodStatus, status, "status")
     )
     return _period(period)
+
+
+@router.post("/periods/{period_id}/close", response_model=PeriodResponse)
+async def close(
+    book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> PeriodResponse:
+    """Lock a period in one step — what the bot's "close period" does.
+
+    Refused, with nothing moved, while no payslip exists, a payslip is older
+    than the period's numbers, or anyone is still owed.
+    """
+    return _period(await PayrollService(session).close_period(user.id, period_id))
 
 
 # ----------------------------------------------------------------- shares

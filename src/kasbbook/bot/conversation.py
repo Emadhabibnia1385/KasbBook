@@ -28,7 +28,6 @@ from ..modules.loans.service import LoanService
 from ..modules.payroll.models import (
     AdjustmentKind,
     AdjustmentMode,
-    PeriodStatus,
     ShareBasis,
 )
 from ..modules.payroll.service import PayrollService
@@ -1590,9 +1589,13 @@ class Conversation:
             )
 
         if action == "lock":
-            await self.payroll.advance_period(user.id, period.id, PeriodStatus.LOCKED)
-            period = await self.payroll.get_period(period.id)
-            return await self._period_detail(book, user, period)
+            return screens.confirm_close_period(period)
+
+        if action == "lockok":
+            period = await self.payroll.close_period(user.id, period.id)
+            return screens.with_notice(
+                "🔒 دوره بسته شد.", await self._period_detail(book, user, period)
+            )
 
         return screens.stale(None, user.display_name)
 

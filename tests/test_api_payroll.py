@@ -597,3 +597,46 @@ async def test_a_member_cannot_set_the_cost_policy_over_http(api, session):
     reply = await api.put(f"/api/v1/books/{book['id']}/cost-policy",
                           headers=their_headers, json={"cost_policy": "from_treasury"})
     assert reply.status_code == 403
+
+
+# ------------------------------------------------- close, and a losing month
+async def test_a_period_closes_over_http_only_once_everyone_is_paid(api, session):
+    headers, book, owner, colleague = await workspace(api, session)
+    base = f"/api/v1/books/{book['id']}"
+    for who in (owner, colleague):
+        await api.put(f"{base}/shares", headers=headers,
+                      json={"user_id": who["id"], "basis": "percent", "value": "50",
+                            "effective_from": "2026-01-01"})
+    period = (await api.post(f"{base}/periods", headers=headers,
+                             json={"label": "مرداد", "starts_on": "2026-08-01",
+                                   "ends_on": "2026-08-31"})).json()
+    slips = (await api.post(f"{base}/periods/{period['id']}/calculate", headers=headers)).json()
+
+    refused = await api.post(f"{base}/periods/{period['id']}/close", headers=headers)
+    assert refused.status_code == 422 and "سارا" in refused.json()["detail"]
+
+    for slip in slips:
+        paid = await api.post(f"{base}/payslips/{slip['id']}/payments", headers=headers,
+                              json={"amount": "40000000"})
+        assert paid.status_code == 201, paid.text
+    closed = await api.post(f"{base}/periods/{period['id']}/close", headers=headers)
+    assert closed.status_code == 200 and closed.json()["status"] == "locked"
+
+    late = await api.post(f"{base}/payslips/{slips[0]['id']}/payments", headers=headers,
+                          json={"amount": "1"})
+    assert late.status_code == 403
+
+
+async def test_the_distribution_reports_a_losing_months_shortfall(api, session):
+    headers, book, owner, colleague = await workspace(api, session)
+    base = f"/api/v1/books/{book['id']}"
+    await api.post(f"{base}/transactions", headers=headers,
+                   json={"flow": "expense", "category": "اجاره", "amount": "130000000",
+                         "occurred_on": DAY.isoformat()})
+    period = (await api.post(f"{base}/periods", headers=headers,
+                             json={"label": "مرداد", "starts_on": "2026-08-01",
+                                   "ends_on": "2026-08-31"})).json()
+
+    d = (await api.get(f"{base}/periods/{period['id']}/distribution", headers=headers)).json()
+    assert d["distributable"] == "0.0000"
+    assert d["shortfall"] == "50000000.0000"

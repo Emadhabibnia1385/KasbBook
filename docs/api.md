@@ -218,8 +218,9 @@ Telegram is what this returns.
 | `GET`/`POST /books/{id}/periods` | list, or open one |
 | `PATCH /books/{id}/periods/{p}` | rename, or move the window; payslips are recalculated, payments kept |
 | `DELETE /books/{id}/periods/{p}` | only while it has issued no payslip |
-| `GET /books/{id}/periods/{p}/distribution` | income − costs − treasury = distributable |
+| `GET /books/{id}/periods/{p}/distribution` | income − costs − treasury = distributable (never below zero; `shortfall` is a losing month's loss) |
 | `POST /books/{id}/periods/{p}/status/{status}` | only the documented transitions |
+| `POST /books/{id}/periods/{p}/close` | to locked in one step; 422, with nothing moved, if there are no payslips, they are stale, or anyone is owed |
 | `GET`/`PUT /books/{id}/shares` | who takes what; `PUT` end-dates the previous rule |
 | `DELETE /books/{id}/shares/{user}` | stop paying this member from today; past periods keep the rule |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | hours, days, points — for measured bases |

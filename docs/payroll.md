@@ -104,9 +104,19 @@ open → calculating → awaiting_approval → approved → paid → locked
 Only those moves are allowed (`PERIOD_TRANSITIONS`). Anything else is a bug,
 not a decision.
 
-A **locked** period refuses edits. Corrections go in a later period, which is
-how accounting works — you do not go back and change last month once people
-have been paid on it.
+A **locked** period refuses edits and payments. Corrections go in a later
+period, which is how accounting works — you do not go back and change last
+month once people have been paid on it. A period will not lock while anyone on
+it is still owed; the refusal names them.
+
+Closing (`close_period`, the bot's «بستن دوره», `POST …/periods/{p}/close`)
+walks those states to locked in one step. It refuses — moving nothing — while
+there are no payslips, while a payslip is older than the period's numbers, or
+while anyone is still owed.
+
+A month that spent more than it earned has nothing to share: the distributable
+floors at zero and the distribution reports the `shortfall`. Members' payslips
+are zero rather than negative, and the screen says the month lost money.
 
 ## Treasury
 
