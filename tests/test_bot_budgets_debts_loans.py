@@ -304,6 +304,22 @@ async def test_a_finished_loan_stops_offering_a_payment_button(session):
     assert "تمام شد" in reply.text
 
 
+async def test_pressing_the_same_pay_button_twice_pays_one_instalment(session):
+    """The button carries the count it was shown with; the second press is stale."""
+    user, book, convo = await setup(session)
+    service = LoanService(session)
+    loan = await service.create(book.id, user.id, "وام", 1_000, 6, date(2025, 4, 10))
+    shown = await convo.handle(press(f"ln:open:{loan.id}"))
+    pay = next(b.data for row in shown.buttons for b in row if b.data.startswith("ln:pay:"))
+
+    await convo.handle(press(pay))
+    again = await convo.handle(press(pay))
+
+    assert "قبلاً ثبت شده" in again.text
+    assert (await service.progress(book.id, user.id, loan)).paid_count == 1
+    assert len(await LedgerService(session).transactions(book.id, user.id)) == 1
+
+
 async def test_deleting_a_loan_asks_first_and_then_keeps_the_payments(session):
     user, book, convo = await setup(session)
     service = LoanService(session)

@@ -1326,7 +1326,8 @@ def loan_detail(book: Book, progress) -> Screen:
 
     buttons = []
     if progress.remaining_count:
-        buttons.append([Button("✅ ثبت پرداخت قسط", data=f"ln:pay:{loan.id}")])
+        buttons.append([Button("✅ ثبت پرداخت قسط",
+                               data=f"ln:pay:{loan.id}:{progress.paid_count}")])
     buttons.append([Button("🗑 حذف وام", data=f"ln:del:{loan.id}")])
     buttons.append([Button("⬅️ بازگشت", data=f"ln:list:{book.id}")])
     return rtl("\n".join(lines)), buttons

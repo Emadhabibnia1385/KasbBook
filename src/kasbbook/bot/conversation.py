@@ -270,7 +270,8 @@ class Conversation:
             return await self._debt_callback(action, argument, user, key)
 
         if area == "ln":
-            return await self._loan_callback(action, argument, user, key)
+            extra = parts[3] if len(parts) > 3 else ""
+            return await self._loan_callback(action, argument, user, key, extra)
 
         if area == "td":
             return await self._tx_detail_callback(action, argument, user, key, event)
@@ -980,7 +981,7 @@ class Conversation:
                     return book, loan
         return None, None
 
-    async def _loan_callback(self, action: str, argument: str, user, key: str):
+    async def _loan_callback(self, action: str, argument: str, user, key: str, extra: str = ""):
         if action == "list":
             book = await self.books.get_book(uuid.UUID(argument))
             await self.state.clear(key)
@@ -1003,7 +1004,12 @@ class Conversation:
             return screens.loan_detail(book, progress)
 
         if action == "pay":
-            await self.loans.record_payment(book.id, user.id, loan.id)
+            # The button names the count it was shown with; a second press of
+            # it is refused instead of paying a second instalment.
+            await self.loans.record_payment(
+                book.id, user.id, loan.id,
+                expected_paid_count=int(extra) if extra.isdigit() else None,
+            )
             progress = await self.loans.progress(book.id, user.id, loan)
             return screens.loan_detail(book, progress)
 

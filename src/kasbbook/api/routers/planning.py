@@ -152,12 +152,18 @@ async def create_loan(
 
 @router.post("/loans/{loan_id}/pay", response_model=LoanResponse)
 async def pay_installment(
-    book_id: uuid.UUID, loan_id: uuid.UUID, user: CurrentUser, session: SessionDep
+    book_id: uuid.UUID, loan_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    expected_paid_count: Optional[int] = Query(default=None, ge=0),
 ) -> LoanResponse:
-    """Record one instalment. It books an expense as well as advancing the loan."""
+    """Record one instalment. It books an expense as well as advancing the loan.
+
+    `expected_paid_count` makes a retry safe: send the `paid_count` you last
+    saw, and a repeat of the same request is refused instead of paying twice.
+    """
     loans = LoanService(session)
     loan = await loans.get(book_id, user.id, loan_id)
-    await loans.record_payment(book_id, user.id, loan_id)
+    await loans.record_payment(book_id, user.id, loan_id,
+                               expected_paid_count=expected_paid_count)
     return _loan(await loans.progress(book_id, user.id, loan))
 
 

@@ -144,18 +144,45 @@ class LoanService:
 
         return LoanProgress(loan, int(row[0]), quantize(to_decimal(row[1])))
 
+    async def _paid_count(self, loan: Loan) -> int:
+        return int(await self.session.scalar(
+            select(func.count(LoanPayment.id)).where(LoanPayment.loan_id == loan.id)
+        ) or 0)
+
     async def record_payment(
         self,
         book_id: uuid.UUID,
         user_id: uuid.UUID,
         loan_id: uuid.UUID,
         on: Optional[date] = None,
+        expected_paid_count: Optional[int] = None,
     ) -> Transaction:
-        """One installment: a real expense in the ledger, linked back to the loan."""
+        """One installment: a real expense in the ledger, linked back to the loan.
+
+        A loan of two instalments took a third, and a fourth: nothing compared
+        the count with the loan, and the progress screen clamped "remaining" to
+        zero so the overpayment showed nowhere. Refused now.
+
+        `expected_paid_count` is how many were paid on the screen the person
+        pressed. Two presses of the same button both carry the same count, so
+        the second finds the count moved and records nothing — while two
+        instalments paid on purpose, one after the other, each carry their own.
+        """
         await self.books.require(book_id, user_id, Permission.RECORD_EXPENSE)
+        # Counted under the book lock, so two payments in flight see each other.
+        await self.ledger.categories.lock_book(book_id)
 
         loan = await self._owned(book_id, loan_id)
-        paid_on = on or date.today()
+        paid = await self._paid_count(loan)
+        if expected_paid_count is not None and paid != expected_paid_count:
+            raise ValidationError(
+                "این صفحه قدیمی است؛ این قسط قبلاً ثبت شده. وضعیت تازهٔ وام را ببین."
+            )
+        if paid >= loan.installment_count:
+            raise ValidationError("همهٔ اقساط این وام پرداخت شده است.")
+
+        # The book's day, not the server's UTC one.
+        paid_on = on or jalali.today_in((await self.books.get_book(book_id)).timezone)
 
         transaction = await self.ledger.record(
             book_id=book_id,

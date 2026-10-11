@@ -368,3 +368,34 @@ async def test_a_debt_of_nothing_is_refused(session):
     user, book = await setup(session)
     with pytest.raises(ValidationError):
         await DebtService(session).create(book.id, user.id, "علی", Direction.I_OWE, 0)
+
+
+# -------------------------------------------- paying past the end (ACC-011)
+async def test_a_paid_off_loan_takes_no_more_payments(session):
+    """Two instalments accepted a third: 3,000 paid of a 2,000 loan, shown nowhere."""
+    user, book = await setup(session)
+    service = LoanService(session)
+    ledger = LedgerService(session)
+    loan = await service.create(book.id, user.id, "وام", 1_000, 2, date(2025, 4, 10))
+    await service.record_payment(book.id, user.id, loan.id)
+    await service.record_payment(book.id, user.id, loan.id)
+
+    with pytest.raises(ValidationError):
+        await service.record_payment(book.id, user.id, loan.id)
+
+    assert len(await ledger.transactions(book.id, user.id)) == 2
+    assert await ledger.trial_balance(book.id) == (Decimal("2000"), Decimal("2000"))
+
+
+async def test_a_repeated_payment_request_is_refused_not_paid_twice(session):
+    user, book = await setup(session)
+    service = LoanService(session)
+    loan = await service.create(book.id, user.id, "وام", 1_000, 6, date(2025, 4, 10))
+
+    await service.record_payment(book.id, user.id, loan.id, expected_paid_count=0)
+    with pytest.raises(ValidationError):
+        await service.record_payment(book.id, user.id, loan.id, expected_paid_count=0)
+    # The next instalment, asked for on purpose, is fine.
+    await service.record_payment(book.id, user.id, loan.id, expected_paid_count=1)
+
+    assert (await service.progress(book.id, user.id, loan)).paid_count == 2
