@@ -13,6 +13,33 @@ PYTHONIOENCODING=utf-8 ./venv/Scripts/python -m pytest "$S/<file>::<test>" -p no
 Files (all in `$S`): `L` = `test_ledger_exchange.py`, `P` = `test_payroll_chain.py`, `N` = `test_planning_chain.py`, `M` = `test_misc_chain.py`. Run a whole file by omitting `::<test>`.
 Labels: confirmed bug | suspected bug | accounting-policy decision | UX-only | needs accountant review.
 
+## Status (2026-10-11)
+
+The `Fix` column in the tables below records the audit as it stood when it was
+taken. Current status:
+
+| ID | Status | Commit |
+|---|---|---|
+| ACC-001, ACC-002 | fixed | `fb07f80`, `ceb91e8` |
+| ACC-003 | fixed: owner decision D-2 | `2e6eb83` |
+| ACC-004, ACC-005 | fixed | `7af96fa` |
+| ACC-006 | fixed: D-3 | `83693bc` |
+| ACC-007 | fixed: D-4 | `ef921b9` |
+| ACC-008 | fixed | `66d0121` |
+| ACC-009, ACC-025 | fixed: D-5 | `14c6012` |
+| ACC-011 | fixed | `bd15495` |
+| ACC-012 | fixed (service defaults; the bot already used the person's day) | `14c6012`, `bd15495` |
+| ACC-013, ACC-014, ACC-016 | fixed | `14c6012` |
+| ACC-017, ACC-018, ACC-020 | fixed | `9f6c5b0` |
+| ACC-019 | fixed | `2e6eb83` |
+| ACC-021 | fixed; the race is tested on PostgreSQL in CI | `14c6012`, `5775e26` |
+| ACC-023 | fixed: D-5b (the loss is not yet carried forward) | `14c6012` |
+| ACC-028 | fixed (Persian errors at the bot boundary) | `f016d47` |
+| ACC-010, ACC-015 | open (P2) | — |
+| ACC-022, ACC-024, ACC-026, ACC-027 | needs decision (D-6) | — |
+| ENV-001, ENV-002 | fixed (test code) | `b6a5277` |
+| ENV-003 | environmental (`--basetemp`) | — |
+
 ## Accounting / product findings
 
 | ID | Sev | Title | Label | Repro (file::test) | Expected vs actual | Root cause | Proposed regression test | Fix |

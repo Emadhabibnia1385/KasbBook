@@ -1,5 +1,23 @@
 # Accounting decisions awaiting the owner
 
+## Decided by the owner on 2026-10-11
+
+| Item | Decision | Implemented in |
+|---|---|---|
+| D-1 recurring catch-up | **B**: book missed dates into open periods only; skip dates in closed periods; tell the owner | `fb07f80`, with the `KASBBOOK_RECURRING` switch and preview in `ceb91e8` |
+| D-2 settling a debt | **C**: ask at settle time; "close only" first and the default; the API takes `record_transaction` | `2e6eb83` |
+| D-3 shares over 100% | **A**: refuse at entry, and refuse to calculate legacy rules over 100 | `83693bc` |
+| D-4 negative wallet after an edit or delete | **A**: refuse with an explanation | `ef921b9` |
+| D-5 locked periods | refuse payments into a locked period, and refuse to lock while anyone is owed | `14c6012`, `66d0121` |
+| D-5b losing month | floor the distributable at zero; report the shortfall | `14c6012`, `66d0121` |
+
+D-6 (approval of adjustments, deactivated members, personal-scope expenses in
+team books, payroll and conversions without journal entries) is still open and
+still needs an accountant. Carrying a loss forward into the next period (the
+second half of D-5b) is also not built.
+
+---
+
 Each item is a place where the code's behaviour is a *policy*, not an
 arithmetic error. Nothing listed here is changed until the owner (and, where
 marked, an accountant) picks an option. Evidence and reproductions are in

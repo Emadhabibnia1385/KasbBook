@@ -144,3 +144,24 @@ skipped** (Postgres-only and packaging tests, as expected); pyflakes clean;
 - A recurring notice reaches the owner only on a messenger whose reminder loop
   performed the run. With two messengers configured, the owner may hear about
   a run on only one of them, or on neither.
+
+## Status — wave 2 (deployment safety, P1, Persian UX, refactor)
+
+| Area | Item | Commit |
+|---|---|---|
+| Deploy safety | `KASBBOOK_RECURRING` switch, real-run preview (`apps/bot/recurring_preview.py`), per-rule notice that fits one message, MULTI/EXEC draft claim (works on Redis < 6.2), CI job racing real Redis 7 + PostgreSQL 16 | `ceb91e8` |
+| Security | amounts beyond the column refused (422), CSV formula injection, LIKE wildcards, atomic Redis limiter, `Retry-After`, limiter eviction, right-most `X-Forwarded-For` | `9f6c5b0` |
+| Financial | D-5, D-5b, ACC-013/014 adjustments, ACC-016 allocation snapshot, ACC-012 book day | `14c6012` |
+| Financial | D-4 wallet cannot go negative through an edit or delete | `ef921b9` |
+| Financial | a refused bot step keeps nothing it began (per-update savepoint) | `c2cd1a2` |
+| Financial | D-2 debt settle asks; ACC-019 zero debt | `2e6eb83` |
+| Financial | ACC-011 loan overpayment and double press | `bd15495` |
+| Financial | ACC-008 close a period from the bot or API; shortfall shown | `66d0121` |
+| Financial | conversions and voids on the book lock (ACC-021) | `5775e26` |
+| UX | B3 parser, B4, B6–B12, first-run path, ~65 copy changes, `transcripts/after/` | `f016d47` |
+| Refactor | feature contract + registry; payroll moved | `b1bb03e`, `8517cbd` |
+
+**Still verified only in CI** (the services job): the Redis claim under 50
+concurrent pops, four recurring loops on PostgreSQL, two concurrent conversions,
+two concurrent payslip payments. The test bodies were run sequentially on
+SQLite to check they are correct; the races themselves need the real services.
