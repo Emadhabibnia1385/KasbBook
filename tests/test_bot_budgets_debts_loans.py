@@ -196,11 +196,36 @@ async def test_settling_from_the_list_clears_the_totals(session):
     debt = await DebtService(session).create(
         book.id, user.id, "علی", Direction.OWED_TO_ME, 500_000
     )
-    reply = await convo.handle(press(f"dt:settle:{debt.id}"))
+    await convo.handle(press(f"dt:settle:{debt.id}"))
+    reply = await convo.handle(press(f"dt:settleonly:{debt.id}"))
 
     totals = await DebtService(session).totals(book.id, user.id)
     assert totals.owed_to_me == Decimal("0")
     assert "0" in reply.text
+
+
+async def test_settling_asks_before_recording_money_and_records_it_once(session):
+    """Owner decision D-2: close only, or close and record — asked, never assumed."""
+    user, book, convo = await setup(session)
+    from kasbbook.modules.debts.models import Direction
+
+    debt = await DebtService(session).create(
+        book.id, user.id, "علی", Direction.OWED_TO_ME, 500_000
+    )
+    ask = await convo.handle(press(f"dt:settle:{debt.id}"))
+    datas = [b.data for row in ask.buttons for b in row]
+    assert datas[0] == f"dt:settleonly:{debt.id}"          # the safe answer first
+    assert f"dt:settletx:{debt.id}" in datas
+    assert "دوبار" in ask.text
+
+    done = await convo.handle(press(f"dt:settletx:{debt.id}"))
+    assert "ثبت شد" in done.text
+    again = await convo.handle(press(f"dt:settletx:{debt.id}"))
+    assert "قبلاً تسویه" in again.text
+
+    rows = await LedgerService(session).transactions(book.id, user.id)
+    assert [(r.flow.value, r.converted_amount) for r in rows] == [("income", Decimal("500000"))]
+    assert await LedgerService(session).trial_balance(book.id) == (Decimal("500000"), Decimal("500000"))
 
 
 # -------------------------------------------------------------------- loans

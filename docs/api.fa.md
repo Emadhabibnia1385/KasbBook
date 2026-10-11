@@ -197,7 +197,7 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `GET`/`PUT /books/{id}/budgets` | سقف برای هر دسته؛ `PUT` چون هر دسته یکی دارد |
 | `DELETE /books/{id}/budgets/{budget}` | |
 | `GET`/`POST /books/{id}/debts` | `?include_settled=true` برای دیدن بسته‌شده‌ها |
-| `POST /books/{id}/debts/{debt}/settle` | تراکنش متناظر را می‌نویسد |
+| `POST /books/{id}/debts/{debt}/settle` | می‌بندد؛ با `{"record_transaction": true}` پول را هم ثبت می‌کند (درآمد اگر طلب توست، هزینه اگر بدهی). پیش‌فرض خاموش است: اگر فروش یا خرید اصلی قبلاً ثبت شده، ثبت پرداخت هم آن را دوبار می‌شمارد. تسویهٔ دوباره ۴۲۲ است. |
 | `GET`/`POST /books/{id}/loans` | مبلغ و تعداد قسط، نه جمع کل |
 | `POST /books/{id}/loans/{loan}/pay` | یک قسط و هزینه‌اش را ثبت می‌کند |
 

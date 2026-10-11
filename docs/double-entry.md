@@ -111,6 +111,9 @@ transactions. They are snapshotted onto the period rather than posted to the
 ledger — a payslip is a statement of what someone is owed, and the money moving
 is a separate, later fact.
 
-The money that actually moves — a debt settled, a loan instalment paid, a
-recurring rule firing — goes through `LedgerService.record()` like anything
-else, and gets its journal entry like anything else.
+The money that actually moves — a loan instalment paid, a recurring rule
+firing, a debt settled when the person asks for the payment to be recorded —
+goes through `LedgerService.record()` like anything else, and gets its journal
+entry like anything else. Settling a debt records nothing by default: if the
+sale on credit or the purchase was already recorded, the payment is the same
+money, and recording it again would count it twice.

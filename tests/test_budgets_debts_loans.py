@@ -328,3 +328,43 @@ async def test_a_stranger_cannot_see_another_books_loans(session):
 
     with pytest.raises(NotFound):
         await LoanService(session).list_loans(book.id, stranger.id)
+
+
+# ------------------------------------------------- settling and money (D-2)
+async def test_settling_records_no_money_unless_asked(session):
+    """The default: the sale on credit may already be in the books."""
+    user, book = await setup(session)
+    service = DebtService(session)
+    debt = await service.create(book.id, user.id, "علی", Direction.OWED_TO_ME, 500_000)
+
+    await service.settle(book.id, user.id, debt.id)
+
+    assert await LedgerService(session).transactions(book.id, user.id) == []
+
+
+@pytest.mark.parametrize("direction,flow", [
+    (Direction.OWED_TO_ME, Flow.INCOME), (Direction.I_OWE, Flow.EXPENSE),
+])
+async def test_settling_with_a_transaction_records_the_money_once(session, direction, flow):
+    user, book = await setup(session)
+    service = DebtService(session)
+    ledger = LedgerService(session)
+    debt = await service.create(book.id, user.id, "علی", direction, 500_000)
+
+    await service.settle(book.id, user.id, debt.id, record_transaction=True)
+
+    rows = await ledger.transactions(book.id, user.id)
+    assert [(r.flow, r.converted_amount) for r in rows] == [(flow, Decimal("500000"))]
+    assert "علی" in rows[0].description
+    assert await ledger.trial_balance(book.id) == (Decimal("500000"), Decimal("500000"))
+
+    # A second press records nothing more.
+    with pytest.raises(ValidationError):
+        await service.settle(book.id, user.id, debt.id, record_transaction=True)
+    assert len(await ledger.transactions(book.id, user.id)) == 1
+
+
+async def test_a_debt_of_nothing_is_refused(session):
+    user, book = await setup(session)
+    with pytest.raises(ValidationError):
+        await DebtService(session).create(book.id, user.id, "علی", Direction.I_OWE, 0)

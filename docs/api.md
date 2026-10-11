@@ -200,7 +200,7 @@ by email or phone.
 | `GET`/`PUT /books/{id}/budgets` | a ceiling per category; `PUT` because a category has one |
 | `DELETE /books/{id}/budgets/{budget}` | |
 | `GET`/`POST /books/{id}/debts` | `?include_settled=true` to see closed ones |
-| `POST /books/{id}/debts/{debt}/settle` | writes the matching transaction |
+| `POST /books/{id}/debts/{debt}/settle` | closes it; `{"record_transaction": true}` also records the money (income if owed to you, expense if you owed). Off by default: if the original sale or purchase is already recorded, recording the payment too counts it twice. A second settle is 422. |
 | `GET`/`POST /books/{id}/loans` | instalment amount and count, not a total |
 | `POST /books/{id}/loans/{loan}/pay` | records one instalment and its expense |
 

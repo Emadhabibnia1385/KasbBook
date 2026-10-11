@@ -1360,6 +1360,26 @@ def loan_ask_start(typed: Optional[str] = None) -> Screen:
     ]
 
 
+def debt_confirm_settle(book: Book, debt) -> Screen:
+    """Settling asks whether the money itself should be recorded (owner decision D-2).
+
+    "Only close it" comes first and is the safe answer: if the sale on credit or
+    the purchase was recorded when it happened, recording the payment too
+    counts the same money twice.
+    """
+    received = debt.direction.value == "owed_to_me"
+    as_what = "درآمد" if received else "هزینه"
+    return rtl(
+        f"✅ تسویهٔ «{debt.person}» — {fmt(debt.amount, book.base_currency)}\n\n"
+        f"اگر فروش یا خرید اصلی را قبلاً ثبت کرده‌ای، فقط ببند تا دوبار شمرده نشود. "
+        f"اگر نه، این مبلغ به‌عنوان {as_what} هم ثبت شود."
+    ), [
+        [Button("فقط ببند", data=f"dt:settleonly:{debt.id}")],
+        [Button(f"ببند و {as_what} ثبت کن", data=f"dt:settletx:{debt.id}")],
+        [Button("↩️ انصراف", data=f"dt:list:{book.id}")],
+    ]
+
+
 def confirm_delete(what: str, yes_data: str, no_data: str) -> Screen:
     return rtl(f"⚠️ حذف {what}\n\nمطمئنی؟"), [
         [Button("🗑 بله، حذف کن", data=yes_data)],

@@ -50,8 +50,10 @@ class DebtService:
             raise ValidationError("نام طرف حساب لازم است")
 
         value = quantize(to_decimal(amount))
-        if value < ZERO:
-            raise ValidationError("مبلغ نمی‌تواند منفی باشد")
+        # Zero was let through while loans and recurring rules refused it, and a
+        # debt of nothing sat in the list as a position.
+        if value <= ZERO:
+            raise ValidationError("مبلغ باید بیشتر از صفر باشد؛ مثلاً ۵۰۰ هزار.")
 
         debt = Debt(
             book_id=book_id,
@@ -72,11 +74,44 @@ class DebtService:
         return debt
 
     async def settle(
-        self, book_id: uuid.UUID, user_id: uuid.UUID, debt_id: uuid.UUID
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        debt_id: uuid.UUID,
+        record_transaction: bool = False,
     ) -> Debt:
+        """Close the debt, and — only when asked — record the money moving.
+
+        Whether settling is income or expense depends on what was recorded
+        when the debt arose: if the sale on credit, or the purchase, is already
+        in the books, booking the payment as well counts it twice. The service
+        cannot know, so it does not guess; the caller asks the person (owner
+        decision D-2) and the default is to close the debt only.
+        """
         await self.books.require(book_id, user_id, Permission.RECORD_INCOME)
 
         debt = await self._owned(book_id, debt_id)
+        if debt.settled_at is not None:
+            # A second press must not record the money a second time.
+            raise ValidationError(f"«{debt.person}» قبلاً تسویه شده است.")
+
+        if record_transaction:
+            from ..ledger.models import Flow
+            from ..ledger.service import LedgerService
+            from ..recurring.service import SCOPE_FOR_BOOK
+
+            received = debt.direction is Direction.OWED_TO_ME
+            book = await self.books.get_book(book_id)
+            await LedgerService(self.session).record(
+                book_id=book_id,
+                actor_user_id=user_id,
+                flow=Flow.INCOME if received else Flow.EXPENSE,
+                scope=SCOPE_FOR_BOOK[book.type],
+                category="تسویه طلب" if received else "تسویه بدهی",
+                amount=debt.amount,
+                description=f"تسویه با {debt.person}",
+            )
+
         debt.settled_at = datetime.now(timezone.utc)
         await self.session.flush()
         return debt

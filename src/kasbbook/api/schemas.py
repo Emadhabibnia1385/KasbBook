@@ -392,6 +392,12 @@ class DebtRequest(MoneyModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
+class DebtSettleRequest(Model):
+    # Off unless asked: if the original sale or purchase is already recorded,
+    # recording the payment as well counts the same money twice.
+    record_transaction: bool = False
+
+
 class DebtResponse(MoneyModel):
     id: uuid.UUID
     person: str

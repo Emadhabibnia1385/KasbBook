@@ -928,7 +928,7 @@ class Conversation:
         if action == "nodue":
             return await self._save_debt(user, key, None)
 
-        if action in ("settle", "del", "delok"):
+        if action in ("settle", "settleonly", "settletx", "del", "delok"):
             target = uuid.UUID(argument)
             for book in await self.books.books_for_user(user.id):
                 for debt in await self.debts.list_debts(book.id, user.id, True):
@@ -938,8 +938,14 @@ class Conversation:
                                 f"مورد «{debt.person}»", f"dt:delok:{target}", f"dt:list:{book.id}",
                             )
                         if action == "settle":
-                            await self.debts.settle(book.id, user.id, target)
-                            notice = f"✅ «{debt.person}» تسویه شد."
+                            return screens.debt_confirm_settle(book, debt)
+                        if action in ("settleonly", "settletx"):
+                            recorded = action == "settletx"
+                            await self.debts.settle(book.id, user.id, target,
+                                                    record_transaction=recorded)
+                            notice = f"✅ «{debt.person}» تسویه شد." + (
+                                " مبلغش در تراکنش‌ها هم ثبت شد." if recorded else ""
+                            )
                         else:
                             await self.debts.delete(book.id, user.id, target)
                             notice = f"✅ «{debt.person}» حذف شد."

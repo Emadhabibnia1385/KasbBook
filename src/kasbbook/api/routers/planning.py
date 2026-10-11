@@ -7,7 +7,7 @@ row carrying a computed status that the caller should not have to recompute.
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
@@ -19,6 +19,7 @@ from ...modules.loans.service import LoanService
 from ...shared.errors import ValidationError
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
+    DebtSettleRequest,
     BudgetRequest,
     BudgetResponse,
     DebtRequest,
@@ -107,10 +108,17 @@ async def create_debt(
 
 @router.post("/debts/{debt_id}/settle", response_model=DebtResponse)
 async def settle_debt(
-    book_id: uuid.UUID, debt_id: uuid.UUID, user: CurrentUser, session: SessionDep
+    book_id: uuid.UUID, debt_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    body: Optional[DebtSettleRequest] = None,
 ) -> DebtResponse:
-    """Mark it paid. Settling books the matching transaction, which is the point."""
-    return _debt(await DebtService(session).settle(book_id, user.id, debt_id))
+    """Mark it paid; with `record_transaction`, also record the money moving.
+
+    Off by default: if the original sale or purchase is already in the books,
+    recording the payment too counts it twice. The bot asks the same question.
+    """
+    record = body.record_transaction if body else False
+    return _debt(await DebtService(session).settle(book_id, user.id, debt_id,
+                                                   record_transaction=record))
 
 
 @router.delete("/debts/{debt_id}", status_code=204)

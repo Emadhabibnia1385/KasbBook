@@ -531,7 +531,8 @@ async def test_settling_says_what_it_did(session):
     debt = await DebtService(session).create(
         book.id, user.id, "رضایی", Direction.OWED_TO_ME, Decimal(500), None, None)
 
-    reply = await convo.handle(press(f"dt:settle:{debt.id}"))
+    await convo.handle(press(f"dt:settle:{debt.id}"))
+    reply = await convo.handle(press(f"dt:settleonly:{debt.id}"))
 
     assert "«رضایی» تسویه شد" in reply.text
     assert "چیزی ثبت نشده" not in reply.text
