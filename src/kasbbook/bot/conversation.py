@@ -12,44 +12,44 @@ import secrets
 import uuid
 from datetime import date, datetime
 from decimal import Decimal, ROUND_CEILING
-from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
 from ..modules.books.models import BookType, CostPolicy, Permission
-from ..modules.books.service import BookService
-from ..modules.books.invitations import InvitationService
 from ..modules.budgets.models import BudgetKind
-from ..modules.budgets.service import BudgetService
 from ..modules.debts.models import Direction
-from ..modules.debts.service import DebtService
-from ..modules.loans.service import LoanService
 from ..modules.payroll.models import (
     AdjustmentKind,
     AdjustmentMode,
     ShareBasis,
 )
-from ..modules.payroll.service import PayrollService
 from ..modules.recurring.models import Period as RecurringPeriod
-from ..modules.recurring.service import RecurringService
 from ..modules.identity.models import Provider
-from ..modules.identity.service import IdentityService
-from ..modules.identity.login import AccountLoginService
-from ..modules.ledger.categories import CategoryService
 from ..modules.ledger.models import Flow, Scope
-from ..modules.ledger.service import LedgerService
 from ..modules.reports import service as reports_service
 from ..modules.treasury.models import FundKind, RuleBasis
-from ..modules.exchange.service import ExchangeService
-from ..modules.treasury.service import TreasuryService
-from ..modules.reports.service import ReportService
 from ..shared.errors import KasbBookError, ValidationError
 from ..shared import jalali
 from ..shared.money import SCALE
 from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
 from . import quick, screens
+from .features.base import Context, index
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
+
+# Every feature moved out of this file, in one list. `index` refuses two that
+# claim the same callback prefix or draft flow — at import, not at the first
+# unlucky button press.
+FEATURES: tuple = ()
+FEATURE_BY_PREFIX, FEATURE_BY_FLOW = index(FEATURES)
+
+# The context's services, aliased onto the conversation for the handlers that
+# have not moved into a feature yet. Shrinks to nothing as they move.
+SERVICES = (
+    "identity", "books", "ledger", "reports", "budgets", "debts", "loans",
+    "recurring", "payroll", "treasury", "exchange", "categories", "invitations",
+    "account_login",
+)
 
 # What a person types to back out of a half-finished flow. The button's label
 # is included because some people type exactly what they see.
@@ -102,37 +102,22 @@ class Conversation:
         provider: Provider,
         rates=None,
     ) -> None:
+        self.ctx = Context(session, state, provider, rates)
         self.session = session
         self.state = state
         self.provider = provider
         self.rates = rates
-        self.identity = IdentityService(session)
-        self.books = BookService(session)
-        self.ledger = LedgerService(session)
-        self.reports = ReportService(session)
-        self.budgets = BudgetService(session)
-        self.debts = DebtService(session)
-        self.loans = LoanService(session)
-        self.recurring = RecurringService(session)
-        self.payroll = PayrollService(session)
-        self.treasury = TreasuryService(session)
-        self.exchange = ExchangeService(session, rates=rates)
-        self.categories = CategoryService(session)
-        self.invitations = InvitationService(session)
-        self.account_login = AccountLoginService(session)
-        self._notifications = []
-        # Set by a handler that needs to hand the user a file alongside a screen.
-        self._pending_file: Optional[OutgoingFile] = None
-        # A receipt the provider already holds: forwarded by id, never downloaded.
-        self._forward_file_id: Optional[str] = None
-        self._forward_file_kind: Optional[str] = None
-        # Text a screen wants concealed until the reader taps it.
-        self._hidden: Optional[str] = None
+        # The handlers not yet moved into a feature still read the services
+        # off the conversation; they are the context's, shared, not copies.
+        for name in SERVICES:
+            setattr(self, name, getattr(self.ctx, name))
+        self._features = [feature(self.ctx) for feature in FEATURES]
+        self._by_prefix = {p: f for f in self._features for p in f.prefixes}
+        self._by_flow = {name: f for f in self._features for name in f.flows}
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
-        self._pending_file = self._forward_file_id = self._forward_file_kind = self._hidden = None
-        self._notifications = []
+        self.ctx.reset_outbox()
         key = conversation_key(self.provider.value, event.identity.external_id)
 
         try:
@@ -150,11 +135,11 @@ class Conversation:
             chat_id=event.chat_id,
             text=text,
             buttons=buttons,
-            document=self._pending_file,
-            forward_file_id=self._forward_file_id,
-            forward_file_kind=self._forward_file_kind,
-            hidden=self._hidden,
-            notifications=self._notifications,
+            document=self.ctx.pending_file,
+            forward_file_id=self.ctx.forward_file_id,
+            forward_file_kind=self.ctx.forward_file_kind,
+            hidden=self.ctx.hidden,
+            notifications=self.ctx.notifications,
             # Editing the screen in place is what keeps the chat a panel rather
             # than a transcript; the adapter falls back to a new message if the
             # anchor is gone.
@@ -221,8 +206,7 @@ class Conversation:
         return await self._home(user)
 
     async def _home(self, user):
-        """The home screen; with no book yet it says a book comes first."""
-        return screens.welcome(user.display_name, first_run=not await self.books.books_for_user(user.id))
+        return await self.ctx.home(user)
 
     # ----------------------------------------------------------- callbacks
     async def _callback(self, event: IncomingEvent, user, key: str):
@@ -230,6 +214,10 @@ class Conversation:
         area = parts[0] if parts else ""
         action = parts[1] if len(parts) > 1 else ""
         argument = parts[2] if len(parts) > 2 else ""
+
+        feature = self._by_prefix.get(area)
+        if feature is not None:
+            return await feature.callback(area, parts, user, key, event)
 
         if area == "nav":
             await self.state.clear(key)
@@ -452,8 +440,7 @@ class Conversation:
         return screens.tx_home(self._today(user))
 
     def _today(self, user) -> date:
-        """The person's day. See jalali.today_in for why not the server's."""
-        return jalali.today_in(user.timezone)
+        return self.ctx.today(user)
 
     @staticmethod
     def _day_from_token(token: str, fallback: date) -> date:
@@ -560,7 +547,7 @@ class Conversation:
 
         if kind == "rc":
             payload = await self.reports.to_csv(book.id, user.id, period)
-            self._pending_file = OutgoingFile(
+            self.ctx.pending_file = OutgoingFile(
                 content=payload,
                 filename="kasbbook-" + spec.replace(":", "-") + ".csv",
                 caption="خروجی " + period.label,
@@ -709,7 +696,7 @@ class Conversation:
         text, buttons = screens.transaction_detail(book, tx, origin, activity)
         if tx.receipt_file_id:
             if tx.receipt_provider == self.provider.value:
-                self._forward_file_id, self._forward_file_kind = tx.receipt_file_id, tx.receipt_kind
+                self.ctx.forward_file_id, self.ctx.forward_file_kind = tx.receipt_file_id, tx.receipt_kind
             else:
                 text += "\n\nپیوست را در پیام‌رسانی که رسید را ثبت کرده‌ای مشاهده کن."
         return text, buttons
@@ -1128,7 +1115,7 @@ class Conversation:
                 await auth.revoke_api_key(user.id, old.id)
 
             issued = await auth.issue_api_key(user.id, "bot")
-            self._hidden = issued.key
+            self.ctx.hidden = issued.key
             return screens.api_key_created(
                 issued.key,
                 replaced=bool(existing),
@@ -1442,12 +1429,7 @@ class Conversation:
 
     # ----------------------------------------------------------- payroll
     async def _member_names(self, book_id) -> dict:
-        """user_id → display name, for every screen that lists people."""
-        names = {}
-        for member in await self.books.members(book_id):
-            person = await self.identity.get_user(member.user_id)
-            names[member.user_id] = person.display_name
-        return names
+        return await self.ctx.member_names(book_id)
 
     async def _period_list_screen(self, book, user):
         periods = await self.payroll.periods(book.id, user.id)
@@ -2003,6 +1985,10 @@ class Conversation:
             await self.state.clear(key)
             return screens.cancelled(user.display_name)
 
+        feature = self._by_flow.get(draft.get("flow"))
+        if feature is not None:
+            return await feature.text(text, draft, user, key, event)
+
         if draft.get("flow") == "category_manage":
             draft["name"] = self.categories.name(text)
             draft["stage"] = "type"
@@ -2034,7 +2020,7 @@ class Conversation:
                                           "challenge_id": str(issued.challenge_id)})
                 if issued.destination_external_id:
                     proof, buttons = screens.login_proof(issued.code)
-                    self._notifications.append(OutgoingMessage(issued.destination_external_id, proof, buttons))
+                    self.ctx.notifications.append(OutgoingMessage(issued.destination_external_id, proof, buttons))
                 return screens.ask_login_code()
             target = await self.account_login.complete(user.id, identity.id,
                 uuid.UUID(draft["challenge_id"]), to_ascii_digits(text))

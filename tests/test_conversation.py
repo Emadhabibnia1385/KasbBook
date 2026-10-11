@@ -11,6 +11,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from pathlib import Path
 
 from kasbbook.adapters.base import ChannelIdentity, EventKind, IncomingEvent
 from kasbbook.bot.conversation import Conversation
@@ -320,20 +321,21 @@ async def test_dates_accept_either_calendar():
 
 
 # ------------------------------------------------- callback namespace safety
-async def test_no_two_features_share_a_callback_prefix():
-    """
-    A prefix collision is silent and expensive.
+BOT = Path(__file__).resolve().parents[1] / "src/kasbbook/bot"
 
-    `rc:` once meant both "report CSV" and "recurring"; the first branch won and
-    every recurring button raised a UUID error. Nothing failed at import, and no
-    existing test noticed. This walks the routing table instead.
-    """
+
+def _bot_sources():
+    """Every file a button or a draft can be written in: the bot, its features, its screens."""
+    return [BOT / "conversation.py", *sorted((BOT / "features").glob("*.py")),
+            *([BOT / "screens.py"] if (BOT / "screens.py").exists() else []),
+            *sorted((BOT / "screens").glob("*.py"))]
+
+
+def _branch_routed() -> list:
+    """Prefixes still routed by an `if area == ...` branch in conversation.py."""
     import ast
-    import pathlib
 
-    source = pathlib.Path(__file__).resolve().parents[1] / "src/kasbbook/bot/conversation.py"
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-
+    tree = ast.parse((BOT / "conversation.py").read_text(encoding="utf-8"))
     routed: list = []
     for node in ast.walk(tree):
         # `if area == "xx"` and `if area in ("xx", "yy")`
@@ -341,17 +343,27 @@ async def test_no_two_features_share_a_callback_prefix():
             continue
         if node.left.id != "area":
             continue
-
         for comparator in node.comparators:
             if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
                 routed.append(comparator.value)
             elif isinstance(comparator, (ast.Tuple, ast.List)):
-                routed += [
-                    element.value
-                    for element in comparator.elts
-                    if isinstance(element, ast.Constant)
-                ]
+                routed += [e.value for e in comparator.elts if isinstance(e, ast.Constant)]
+    return routed
 
+
+async def test_no_two_features_share_a_callback_prefix():
+    """
+    A prefix collision is silent and expensive.
+
+    `rc:` once meant both "report CSV" and "recurring"; the first branch won and
+    every recurring button raised a UUID error. Nothing failed at import, and no
+    existing test noticed. Two features claiming one prefix now fail at import
+    (`features.base.index`); this also catches a feature and a leftover branch
+    in conversation.py claiming the same one, where the feature would win.
+    """
+    from kasbbook.bot.conversation import FEATURE_BY_PREFIX
+
+    routed = _branch_routed() + list(FEATURE_BY_PREFIX)
     assert routed, "no callback routing found — has the dispatcher moved?"
 
     duplicates = {prefix for prefix in routed if routed.count(prefix) > 1}
@@ -360,33 +372,59 @@ async def test_no_two_features_share_a_callback_prefix():
 
 async def test_every_button_prefix_the_screens_emit_is_routed():
     """A button whose prefix nothing handles is a dead end the user can reach."""
-    import ast
-    import pathlib
     import re
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "src/kasbbook/bot"
+    from kasbbook.bot.conversation import FEATURE_BY_PREFIX
 
     emitted = set()
-    for line in (root / "screens.py").read_text(encoding="utf-8").splitlines():
-        for match in re.finditer(r'data=f?"([a-z]+):', line):
-            emitted.add(match.group(1))
+    for path in _bot_sources():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            for match in re.finditer(r'data=f?"([a-z]+):', line):
+                emitted.add(match.group(1))
 
-    tree = ast.parse((root / "conversation.py").read_text(encoding="utf-8"))
-    routed = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) \
-                and node.left.id == "area":
-            for comparator in node.comparators:
-                if isinstance(comparator, ast.Constant):
-                    routed.add(comparator.value)
-                elif isinstance(comparator, (ast.Tuple, ast.List)):
-                    routed |= {
-                        element.value for element in comparator.elts
-                        if isinstance(element, ast.Constant)
-                    }
-
+    routed = set(_branch_routed()) | set(FEATURE_BY_PREFIX)
     unrouted = emitted - routed
     assert not unrouted, f"screens emit prefixes nothing handles: {sorted(unrouted)}"
+
+
+# Drafts whose follow-up is a button, never a typed line: no feature reads text
+# for them, and a line typed while one is pending starts something new.
+BUTTON_ONLY_FLOWS = {"quick"}
+
+
+async def test_every_draft_flow_has_exactly_one_reader():
+    """A flow nobody reads text for strands the person mid-flow.
+
+    Every `{"flow": "..."}` a draft is written with must be read by exactly one
+    owner: a feature that declares it, a branch still in conversation.py, or
+    the short list of flows that only ever continue with a button.
+    """
+    import ast
+    import re
+
+    from kasbbook.bot.conversation import FEATURE_BY_FLOW
+
+    written = set()
+    for path in _bot_sources():
+        written |= set(re.findall(r'"flow":\s*"([a-z_]+)"', path.read_text(encoding="utf-8")))
+
+    branched = []
+    tree = ast.parse((BOT / "conversation.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        # `if draft.get("flow") == "xx"` in the text dispatcher
+        if (isinstance(node, ast.Compare) and isinstance(node.left, ast.Call)
+                and getattr(node.left.func, "attr", "") == "get"
+                and node.left.args and getattr(node.left.args[0], "value", "") == "flow"):
+            for comparator in node.comparators:
+                if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
+                    branched.append(comparator.value)
+
+    assert len(written) > 10 and branched or FEATURE_BY_FLOW, "found no drafts — has the scan gone stale?"
+    readers = list(FEATURE_BY_FLOW) + branched + sorted(BUTTON_ONLY_FLOWS)
+    unread = written - set(readers)
+    assert not unread, f"drafts written that nothing reads text for: {sorted(unread)}"
+    shared = {flow for flow in set(FEATURE_BY_FLOW) & set(branched)}
+    assert not shared, f"flows claimed by a feature and a leftover branch: {sorted(shared)}"
 
 
 # ------------------------------------------------------- category suggestions
