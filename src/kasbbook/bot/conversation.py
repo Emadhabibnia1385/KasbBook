@@ -137,7 +137,12 @@ class Conversation:
         key = conversation_key(self.provider.value, event.identity.external_id)
 
         try:
-            text, buttons = await self._route(event, key)
+            # A savepoint around this update's work, so a refusal undoes exactly
+            # that work. The caller commits after an answer, and whatever a
+            # service had flushed before it refused would otherwise be kept
+            # behind a message saying nothing was done.
+            async with self.session.begin_nested():
+                text, buttons = await self._route(event, key)
         except KasbBookError as exc:
             # Domain errors are answers, not crashes: the user sees why.
             text, buttons = screens.error(screens.user_message(exc))

@@ -333,3 +333,38 @@ async def _balanced(session):
     for book in (await session.execute(select(Book))).scalars():
         debit, credit = await ledger.trial_balance(book.id)
         assert debit == credit
+
+
+# ------------------------------------------- a refusal keeps nothing it began
+async def test_a_refused_step_leaves_nothing_half_written(session, monkeypatch):
+    """The bot answers a domain error, and the runner then commits the session.
+
+    So anything a service had already flushed before it refused was committed
+    with the refusal - a half-written change behind a message saying nothing
+    was done. Simulated here with a record() that writes its row and then
+    refuses, which is the shape any such service bug would have.
+    """
+    from kasbbook.modules.ledger.models import Transaction
+    from kasbbook.shared.errors import ValidationError
+    from sqlalchemy import select
+
+    user, (book,), convo = await setup(session)
+    real_record = LedgerService.record
+
+    async def writes_then_refuses(self, *args, **kwargs):
+        await real_record(self, *args, **kwargs)
+        raise ValidationError("رد شد")
+
+    monkeypatch.setattr(LedgerService, "record", writes_then_refuses)
+    await session.commit()
+
+    asked = await convo.handle(says("فروش 100000"))
+    reply = await convo.handle(press(button(asked, "qk:flow:income")))
+    assert "رد شد" in reply.text
+
+    await session.commit()          # what the runner does next
+    rows = (await session.execute(
+        select(Transaction).where(Transaction.book_id == book.id)
+    )).scalars().all()
+    assert rows == []
+    assert await LedgerService(session).trial_balance(book.id) == (0, 0)
