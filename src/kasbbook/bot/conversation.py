@@ -206,4 +206,3 @@ class Conversation:
 
         # Nothing in flight, so try to read the line as a transaction.
         return await self._transactions.quick_line(text, user, key)
-
