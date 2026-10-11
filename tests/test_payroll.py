@@ -582,6 +582,68 @@ async def test_closing_a_rule_leaves_what_it_already_took(session):
     assert rule.is_active is True
 
 
+async def test_a_flat_rule_naming_a_category_takes_its_flat_amount(session):
+    """A category narrows a percentage; it cannot turn a flat amount into one.
+
+    The category branch ran before the basis was read, so a flat 5,000,000
+    "from project income" took 5,000,000% of that income: fifty billion out
+    of a ten-million month.
+    """
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.FIXED,
+                            Decimal("5000000"), effective_from=START, category="پروژه")
+    await session.flush()
+
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("5000000")
+
+
+async def test_a_percentage_rule_naming_a_category_still_reads_that_category(session):
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    ledger = LedgerService(session)
+    await ledger.record(book.id, owner.id, Flow.INCOME, Scope.TEAM, "مشاوره", "4000000",
+                        occurred_on=START)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("10"), effective_from=START, category="مشاوره")
+    await session.flush()
+
+    # 10% of the 4,000,000 consulting income, not of the 14,000,000 total.
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("400000")
+
+
+async def test_a_deactivated_fund_takes_nothing_more(session):
+    """Deactivating is what "remove" means once a fund has taken money.
+
+    Its rules stayed active, and the distribution read rules without looking
+    at their fund, so a fund the owner had switched off kept taking its cut.
+    """
+    from kasbbook.modules.treasury.service import TreasuryService
+
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    treasury = TreasuryService(session)
+    fund = await treasury.create_fund(book.id, owner.id, "خزانه", FundKind.MAIN)
+    await treasury.add_rule(book.id, owner.id, fund.id, RuleBasis.GROSS_PERCENT,
+                            Decimal("10"), effective_from=START)
+    await session.flush()
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("1000000")
+
+    await treasury.toggle_fund(book.id, owner.id, fund.id)
+    await session.flush()
+    assert (await payroll.compute_distribution(period.id)).treasury_total == ZERO_INCOME
+
+    # Switching it back on restores the cut: nothing about the rule was lost.
+    await treasury.toggle_fund(book.id, owner.id, fund.id)
+    await session.flush()
+    assert (await payroll.compute_distribution(period.id)).treasury_total == Decimal("1000000")
+
+
 async def test_a_rule_cannot_end_before_it_starts(session):
     from kasbbook.modules.treasury.service import TreasuryService
 

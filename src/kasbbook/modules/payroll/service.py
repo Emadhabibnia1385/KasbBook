@@ -26,7 +26,7 @@ from ..books.service import BookService
 from ..identity.models import AuditEvent
 from ..ledger.models import Flow, Transaction
 from ..ledger.categories import CategoryService
-from ..treasury.models import RuleBasis, TreasuryAllocation, TreasuryRule
+from ..treasury.models import RuleBasis, TreasuryAllocation, TreasuryFund, TreasuryRule
 from .models import (
     PERIOD_TRANSITIONS,
     Adjustment,
@@ -407,11 +407,17 @@ class PayrollService:
             else:
                 result.direct_costs += tx.converted_amount
 
+        # A deactivated fund takes nothing more. Its rules are left active on
+        # purpose — switching the fund back on should restore them — so the
+        # fund itself has to be part of the question, or it keeps taking.
         rules = (
             await self.session.execute(
-                select(TreasuryRule).where(
+                select(TreasuryRule)
+                .join(TreasuryFund, TreasuryFund.id == TreasuryRule.fund_id)
+                .where(
                     TreasuryRule.book_id == period.book_id,
                     TreasuryRule.is_active.is_(True),
+                    TreasuryFund.is_active.is_(True),
                 )
             )
         ).scalars().all()
@@ -424,7 +430,10 @@ class PayrollService:
             # A rule naming a category is charged on that category alone. The
             # column said so from the start and nothing read it, so a rule
             # meant for one kind of income quietly took a cut of all of it.
-            if rule.category:
+            # Only a percentage is narrowed by it: a flat amount read through
+            # this branch became a percentage of itself, and a flat 5,000,000
+            # took fifty billion.
+            if rule.category and rule.basis is not RuleBasis.FIXED:
                 # Charged on that category's income alone. Gross and net agree
                 # here because a category carries one flow, so a category has
                 # no costs of its own to net off.
