@@ -44,11 +44,18 @@ REGISTER_LIMIT, REGISTER_WINDOW = 3, 3600
 class TooManyAttempts(AuthError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
 
+    def __init__(self, message: str, retry_after: int) -> None:
+        super().__init__(message)
+        # Read by the error handler to set the `Retry-After` header.
+        self.retry_after = retry_after
+
 
 async def _enforce(limiter, key: str, limit: int, window: int) -> None:
     allowed, retry_after = await limiter.hit(key, limit, window)
     if not allowed:
-        raise TooManyAttempts(f"too many attempts; try again in {retry_after} seconds")
+        raise TooManyAttempts(
+            f"too many attempts; try again in {retry_after} seconds", retry_after
+        )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)

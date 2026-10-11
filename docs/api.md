@@ -39,7 +39,8 @@ JavaScript. Do **not** parse it into a `Number`.
 ```
 
 Domain errors carry their own status: 404 not found, 403 denied, 422 invalid,
-409 conflict, 401 unauthenticated, 429 rate limited. Validation failures come
+409 conflict, 401 unauthenticated, 429 rate limited (with a `Retry-After`
+header in seconds). An amount of 10^24 or more is a 422. Validation failures come
 from Pydantic in its own shape, with the offending field.
 
 Unhandled exceptions are always `{"detail": "something went wrong on our
@@ -189,7 +190,7 @@ by email or phone.
 |---|---|
 | `GET /books/{id}/reports/summary` | `?period=1403-05` → income, expense, net, count |
 | `GET /books/{id}/reports/by-category` | `?flow=expense&period=` → totals and shares |
-| `GET /books/{id}/reports/export.csv` | the period as a file, Jalali dates included |
+| `GET /books/{id}/reports/export.csv` | the period as a file, Jalali dates included; text cells starting `= + - @` get a leading `'` |
 | `GET /books/{id}/reports/day` | `?date=2026-03-19` → the daily list's split: business, personal, installments, savings |
 
 ## Budgets, debts, loans

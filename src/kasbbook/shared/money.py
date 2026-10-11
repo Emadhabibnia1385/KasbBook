@@ -14,11 +14,15 @@ from typing import Any, Optional, Union
 from sqlalchemy import Numeric, String
 from sqlalchemy.types import TypeDecorator
 
+from .errors import ValidationError
+
 # Four places is enough for a rial and for a crypto rate quoted per unit.
 SCALE = Decimal("0.0001")
 ZERO = Decimal("0")
 
 Amount = Union[Decimal, int, str]
+
+TOO_LARGE = "مبلغ بیش از حد بزرگ است؛ عددی کمتر از ۱۰ به توان ۲۴ وارد کن."
 
 
 def to_decimal(value: Optional[Amount]) -> Decimal:
@@ -39,9 +43,28 @@ def to_decimal(value: Optional[Amount]) -> Decimal:
         raise ValueError(f"not a valid amount: {value!r}") from exc
 
 
+# The column is Numeric(28, 4): 24 digits before the point. Anything that
+# rounds to 10^24 or beyond cannot be stored, and `Decimal.quantize` signals it
+# with a raw InvalidOperation that surfaced as an HTTP 500 and a stack trace in
+# the bot. Refusing here is the one place the API and the bot both pass through.
+LIMIT = Decimal(10) ** 24
+
+
 def quantize(value: Optional[Amount]) -> Decimal:
-    """Round to the stored scale, the way an accountant would."""
-    return to_decimal(value).quantize(SCALE, rounding=ROUND_HALF_UP)
+    """Round to the stored scale, the way an accountant would.
+
+    Raises `ValidationError` for an amount the column could not hold, so every
+    caller gets a refusal with a Persian message instead of a crash.
+    """
+    exact = to_decimal(value)
+    try:
+        rounded = exact.quantize(SCALE, rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        # Too many digits to even round at the context's precision.
+        raise ValidationError(TOO_LARGE) from None
+    if not rounded.is_finite() or abs(rounded) >= LIMIT:
+        raise ValidationError(TOO_LARGE)
+    return rounded
 
 
 class Money(TypeDecorator):

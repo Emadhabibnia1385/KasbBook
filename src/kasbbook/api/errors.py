@@ -20,9 +20,13 @@ logger = logging.getLogger("kasbbook.api")
 def install(app: FastAPI) -> None:
     @app.exception_handler(KasbBookError)
     async def _domain_error(request: Request, error: KasbBookError) -> JSONResponse:
+        # A throttle says when to come back (RFC 9110 `Retry-After`, seconds),
+        # so a well-behaved client waits instead of guessing.
+        retry_after = getattr(error, "retry_after", None)
         return JSONResponse(
             status_code=getattr(error, "status_code", 400),
             content={"detail": str(error) or error.__class__.__name__},
+            headers={"Retry-After": str(max(1, retry_after))} if retry_after is not None else None,
         )
 
     @app.exception_handler(Exception)

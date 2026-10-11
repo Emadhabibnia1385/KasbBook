@@ -114,7 +114,14 @@ that matters: password guessing stops being free.
 
 With Redis it is shared across workers. Without, it is per-process — correct on
 one worker and useless across several, and the API logs a warning saying so at
-startup rather than pretending otherwise.
+startup rather than pretending otherwise. The in-process counter forgets
+windows that have ended, so a flood of distinct keys cannot grow it forever.
+The Redis counter is created together with its expiry in one transaction
+(`SET NX EX`, then `INCR`), so a crash cannot leave a counter that never
+resets; a counter stranded without an expiry by an older version is given one
+on its next hit.
+
+A refused request is a `429` with a `Retry-After` header in seconds.
 
 ## Account enumeration
 
@@ -194,7 +201,19 @@ enabled is a hole, not a convenience — and it is off entirely unless
 
 `X-Forwarded-For` is trusted for rate limiting **only** when
 `KASBBOOK_TRUSTED_PROXY` says a proxy is in front. Without that, anyone can set
-the header and rate limiting becomes decorative.
+the header and rate limiting becomes decorative. Behind that proxy the
+**right-most** hop is the client: the proxy appends the address it saw to
+whatever the caller sent, so anything to its left is the caller's own claim.
+
+## Output and input hygiene
+
+- **CSV export** prefixes `'` to any text cell (category, currency,
+  description) that starts with `=`, `+`, `-`, `@`, tab or carriage return, so
+  a spreadsheet shows it instead of running it. Amount columns are left as
+  numbers.
+- **Search** treats `%` and `_` as ordinary characters, not LIKE wildcards.
+- **Amounts** must be below 10^24 (the width of the stored column); a larger
+  one is refused with 422 rather than failing inside the database.
 
 ## Process isolation
 

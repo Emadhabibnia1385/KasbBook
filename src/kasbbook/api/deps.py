@@ -118,11 +118,19 @@ def client_fingerprint(request: Request) -> str:
     The direct peer, unless a proxy we run has said otherwise. `X-Forwarded-For`
     is trusted only when `KASBBOOK_TRUSTED_PROXY` says there is one in front,
     because otherwise anyone can set it and rate limiting becomes decorative.
+
+    Behind that proxy the **right-most** hop is used. A proxy such as nginx
+    appends the address it actually saw to whatever header the client sent, so
+    everything to the left is the client's own claim: reading the left-most hop
+    let a caller pick a fresh "address" per request and never be throttled.
+    This assumes exactly one proxy; with a chain, only the last hop (the one
+    our own proxy appended) is trustworthy, which is still the one used.
     """
     import os
 
     if os.environ.get("KASBBOOK_TRUSTED_PROXY"):
         forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
+        hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
     return request.client.host if request.client else "unknown"

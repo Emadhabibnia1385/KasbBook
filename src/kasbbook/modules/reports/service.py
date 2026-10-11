@@ -147,6 +147,22 @@ def day_totals(rows: Sequence[Transaction]) -> DayTotals:
     )
 
 
+# A spreadsheet runs a cell that starts with one of these as a formula, and
+# `=HYPERLINK(...)` in a description someone else typed is how an export
+# becomes an attack on whoever opens it. Tab and carriage return count too:
+# Excel strips them before deciding.
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _defang(text: str) -> str:
+    """Make a text cell inert by prefixing an apostrophe; never for amounts.
+
+    Amount columns are written from a Decimal, so a negative one keeps its
+    minus and stays a number.
+    """
+    return "'" + text if text.startswith(_FORMULA_STARTS) else text
+
+
 class ReportService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -273,10 +289,14 @@ class ReportService:
         if len(needle) < 2:
             return [], 0, ZERO
 
-        pattern = f"%{needle}%"
+        # `%` and `_` are LIKE wildcards: "50%" must find "50%", not every
+        # row containing "50", and `\` is escaped first because it is the
+        # escape character itself.
+        escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
         condition = (Transaction.book_id == book_id) & (
-            Transaction.category.ilike(pattern)
-            | func.coalesce(Transaction.description, "").ilike(pattern)
+            Transaction.category.ilike(pattern, escape="\\")
+            | func.coalesce(Transaction.description, "").ilike(pattern, escape="\\")
         )
 
         matches = (
@@ -309,12 +329,12 @@ class ReportService:
                 jalali.to_text(tx.occurred_on),
                 tx.occurred_on.isoformat(),
                 "درآمد" if tx.flow is Flow.INCOME else "هزینه",
-                tx.category,
+                _defang(tx.category),
                 f"{tx.converted_amount:f}",
-                tx.original_currency,
+                _defang(tx.original_currency),
                 f"{tx.original_amount:f}",
                 f"{tx.conversion_rate:f}",
-                tx.description or "",
+                _defang(tx.description or ""),
             ])
 
         # A BOM so Excel opens it as UTF-8 and the Persian is readable.
