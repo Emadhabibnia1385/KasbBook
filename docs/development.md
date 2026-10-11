@@ -72,7 +72,8 @@ The shape most features take:
    starts with `await self.books.require(...)`.
 4. **Screens** — `bot/screens.py`, pure functions. Pick a callback prefix that
    is not taken; the guard test will tell you if it is.
-5. **Routing** — one branch in `conversation.py`.
+5. **Routing** — the feature in `bot/features/` that owns the area: add the
+   prefix to its `prefixes` (and the draft flow to its `flows`, if it reads text).
 6. **API** — a router in `api/routers/`, calling the same service.
 7. **Tests** — at least: the happy path, one refusal, and one isolation test
    proving another account cannot reach it.

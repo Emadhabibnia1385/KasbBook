@@ -74,11 +74,21 @@ suggestions do.
 An empty state deserves as much care as a full one. Say what the feature is
 for and what to press, rather than showing a blank list.
 
-## 5. Routing — `bot/conversation.py`
+## 5. Routing — `bot/features/<area>.py`
 
-One branch in `_callback`, dispatching your prefix to a handler method. If the
-flow collects free text, add a `flow` key to the draft state and a branch in
-`_text`.
+The bot is split by feature. Add your prefix to the owning feature's `prefixes`
+and a branch in its `callback`. If the flow collects free text, give the draft a
+`flow` key, add it to the feature's `flows`, and add a branch in its `text`.
+A new area gets a new module: subclass `Feature`, list it in `FEATURES` in
+`bot/conversation.py`. A feature is given a `Context`, never the conversation.
+Do not import `conversation.py` from a feature.
+
+Two features claiming one prefix or flow fail at import. The guard tests
+check three more things:
+- every prefix a screen emits is routed;
+- every draft flow written has exactly one reader;
+- a flow continued only by a button or an attachment is listed in
+  `BUTTON_ONLY_FLOWS`.
 
 Anything that acts on an existing row should look the book up **from that row**
 rather than trusting a book id in the callback — a button payload is something

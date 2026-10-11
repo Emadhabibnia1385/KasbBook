@@ -52,8 +52,13 @@ API ربات تلگرام است با میزبانی دیگر، و آن گویش
 
 ### لایهٔ گفتگو نام هیچ پیام‌رسانی را نمی‌برد
 
-`bot/conversation.py` کال‌بک‌ها را مسیریابی می‌کند و `bot/screens.py` رندرشان
-می‌کند. صفحه‌ها توابع خالص‌اند — داده وارد، متن و دکمه خارج — پس هر کدامشان
+`bot/conversation.py` فقط چیزی را نگه می‌دارد که مال هیچ بخشی نیست: savepoint
+دور هر به‌روزرسانی، کسانی که هنوز وصل نشده‌اند، فرمان‌ها، و دو توزیع‌کننده.
+هر کاری که آدم می‌کند در `bot/features/` است، یک ماژول برای هر حوزه. هر بخش
+پیشوندهای کال‌بک و جریان‌های پیش‌نویسی را که مال اوست اعلام می‌کند و یک `Context`
+(سرویس‌ها و صندوق خروجی همان به‌روزرسانی) می‌گیرد، نه خود گفتگو را. اگر دو بخش
+یک پیشوند یا جریان را بخواهند، همان موقع import شکست می‌خورد. `bot/screens.py`
+رندر می‌کند. صفحه‌ها توابع خالص‌اند — داده وارد، متن و دکمه خارج — پس هر کدامشان
 بدون توکن، بدون شبکه و بدون دیتابیس تست می‌شوند.
 
 پیام‌رسان به‌شکل آرگومان سازنده می‌رسد، برگرفته از `adapter.provider`. قبلاً در
@@ -130,7 +135,7 @@ API ربات تلگرام است با میزبانی دیگر، و آن گویش
 src/kasbbook/
   adapters/      base.py (پروتکل)، botapi.py (گویش مشترک)،
                  telegram.py، bale.py، rubika.py
-  bot/           conversation.py، screens.py، quick.py، state.py
+  bot/           conversation.py، features/ (یک ماژول برای هر حوزه)، screens.py، quick.py، state.py
   api/           app.py، deps.py، schemas.py، errors.py، ratelimit.py، routers/
   modules/       identity، books، ledger، budgets، debts، loans، recurring،
                  reports، reminders، treasury، payroll

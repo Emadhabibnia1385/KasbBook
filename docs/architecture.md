@@ -53,8 +53,13 @@ dialect lives in `adapters/botapi.py` once.
 
 ### The conversation layer names no provider
 
-`bot/conversation.py` routes callbacks and `bot/screens.py` renders them.
-Screens are pure functions — data in, text and buttons out — so every one of
+`bot/conversation.py` holds what no feature owns: the savepoint around each
+update, people not linked yet, commands, and two dispatchers. Everything a
+person can do lives in `bot/features/`, one module per area. Each feature
+declares the callback prefixes it answers and the draft flows it reads text
+for, and is given a `Context` (the services and the update's outbox), never the
+conversation. Two features claiming the same prefix or flow fail at import.
+`bot/screens.py` renders. Screens are pure functions — data in, text and buttons out — so every one of
 them is tested without a token, a network, or a database.
 
 The provider arrives as a constructor argument, taken from `adapter.provider`.
@@ -131,7 +136,7 @@ own environment file — never one process holding two identities.
 src/kasbbook/
   adapters/      base.py (the protocol), botapi.py (the shared dialect),
                  telegram.py, bale.py, rubika.py
-  bot/           conversation.py, screens.py, quick.py, state.py
+  bot/           conversation.py, features/ (one module per area), screens.py, quick.py, state.py
   api/           app.py, deps.py, schemas.py, errors.py, ratelimit.py, routers/
   modules/       identity, books, ledger, budgets, debts, loans, recurring,
                  reports, reminders, treasury, payroll
