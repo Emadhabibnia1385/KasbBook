@@ -45,6 +45,12 @@ def says(text, external_id="555001"):
     )
 
 
+def tapped(reply, prefix):
+    """Press the button the screen actually offered: its data carries the draft's nonce."""
+    data = next(b.data for row in reply.buttons for b in row if b.data.startswith(prefix))
+    return press(data)
+
+
 async def setup(session, books_named=("مغازه",)):
     identity = IdentityService(session)
     user = await identity.create_user("عماد")
@@ -109,7 +115,7 @@ async def test_one_line_records_a_transaction_when_there_is_one_book(session):
     reply = await convo.handle(says("فروش 250000"))
     assert "درآمد است یا هزینه" in reply.text
 
-    reply = await convo.handle(press("qk:flow:income"))
+    reply = await convo.handle(tapped(reply, "qk:flow:income"))
     assert "ثبت شد" in reply.text
 
     rows = await LedgerService(session).transactions(book.id, user.id)
@@ -124,8 +130,8 @@ async def test_with_several_books_the_line_asks_which_one(session):
     reply = await convo.handle(says("فروش ۲۵۰ک"))
     assert "کدام دفتر" in reply.text
 
-    await convo.handle(press(f"qk:book:{side.id}"))
-    await convo.handle(press("qk:flow:income"))
+    reply = await convo.handle(tapped(reply, f"qk:book:{side.id}"))
+    await convo.handle(tapped(reply, "qk:flow:income"))
 
     assert len(await LedgerService(session).transactions(side.id, user.id)) == 1
     assert await LedgerService(session).transactions(shop.id, user.id) == []
@@ -134,8 +140,8 @@ async def test_with_several_books_the_line_asks_which_one(session):
 async def test_the_note_and_date_from_the_line_are_kept(session):
     user, (book,), convo = await setup(session)
 
-    await convo.handle(says("1405/05/31 اجاره ۱٫۲م بابت مرداد"))
-    await convo.handle(press("qk:flow:expense"))
+    reply = await convo.handle(says("1405/05/31 اجاره ۱٫۲م بابت مرداد"))
+    await convo.handle(tapped(reply, "qk:flow:expense"))
 
     row = (await LedgerService(session).transactions(book.id, user.id))[0]
     assert row.description == "بابت مرداد"

@@ -26,6 +26,15 @@ class StateStore(Protocol):
     async def clear(self, key: str) -> None:
         ...
 
+    async def pop(self, key: str) -> Dict[str, Any]:
+        """Read the value and remove it in one step; {} if there was none.
+
+        This is how a draft is *claimed*: of two concurrent confirm taps, only
+        one gets the draft back, so only one records it. A `get` followed by a
+        `clear` cannot do that, because both taps read before either clears.
+        """
+        ...
+
 
 class MemoryStateStore:
     """In-process state, for tests and single-worker development.
@@ -56,6 +65,13 @@ class MemoryStateStore:
 
     async def clear(self, key: str) -> None:
         self._data.pop(key, None)
+
+    async def pop(self, key: str) -> Dict[str, Any]:
+        # There is no await between the read and the removal, so no other task
+        # can run in between: on one event loop that is atomic.
+        value = await self.get(key)
+        self._data.pop(key, None)
+        return value
 
 
 class RedisStateStore:
@@ -94,6 +110,19 @@ class RedisStateStore:
 
     async def clear(self, key: str) -> None:
         await self._redis.delete(self._key(key))
+
+    async def pop(self, key: str) -> Dict[str, Any]:
+        import json
+
+        # GETDEL (Redis 6.2+, deploy/ runs 7) reads and deletes in one command,
+        # so two workers cannot both receive the same draft.
+        raw = await self._redis.getdel(self._key(key))
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return {}
 
 
 def conversation_key(provider: str, external_id: str) -> str:

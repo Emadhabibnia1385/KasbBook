@@ -8,6 +8,7 @@ Bale or Rubika, because the adapter already turned their payload into an
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import date, datetime
 from decimal import Decimal, ROUND_CEILING
@@ -50,6 +51,10 @@ from ..shared.money import SCALE
 from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
 from . import quick, screens
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
+
+# What a person types to back out of a half-finished flow. The button's label
+# is included because some people type exactly what they see.
+CANCEL_WORDS = ("انصراف", "لغو", "↩️ انصراف", "⬅️ انصراف")
 
 # Which book type a scope belongs to, so a team book never records personal money.
 SCOPE_FOR_BOOK = {
@@ -192,6 +197,8 @@ class Conversation:
 
         if area == "nav":
             await self.state.clear(key)
+            if action == "cancel":
+                return screens.cancelled(user.display_name)
             return screens.welcome(user.display_name)
 
         if area == "book":
@@ -216,7 +223,8 @@ class Conversation:
             return await self._period_screen(parts, user, area)
 
         if area == "qk":
-            return await self._quick_callback(action, argument, user, key)
+            nonce = parts[3] if len(parts) > 3 else ""
+            return await self._quick_callback(action, argument, nonce, user, key)
 
         if area == "bg":
             return await self._budget_callback(action, argument, user, key)
@@ -289,7 +297,9 @@ class Conversation:
             draft = await self.state.get(key)
             if draft.get("flow") == "tx" and draft.get("awaiting") == "description":
                 return await self._save_tx(draft, user, key)
-            return screens.tx_home(self._today(user))
+            # Nothing to skip: the entry was recorded already (a double tap) or
+            # this button belongs to an old message.
+            return screens.stale(None, user.display_name)
         if action == "new":
             await self.state.clear(key)
             return screens.tx_home(self._today(user))
@@ -1891,6 +1901,13 @@ class Conversation:
         draft = await self.state.get(key)
         text = (event.text or "").strip()
 
+        # The word means cancel wherever a line is being waited for. Without
+        # this it was taken as the answer: a book named «انصراف», or the next
+        # line swallowed as a name. Checked here, once, not in every flow.
+        if draft.get("flow") and text in CANCEL_WORDS:
+            await self.state.clear(key)
+            return screens.cancelled(user.display_name)
+
         if draft.get("flow") == "category_manage":
             draft["name"] = self.categories.name(text)
             draft["stage"] = "type"
@@ -2007,47 +2024,76 @@ class Conversation:
             "amount": str(entry.amount),
             "description": entry.description,
             "on": entry.on.isoformat() if entry.on else None,
+            # Names this draft on its buttons; see _quick_callback.
+            "nonce": secrets.token_hex(3),
         }
         await self.state.set(key, pending)
 
         if len(books) == 1:
             pending["book_id"] = str(books[0].id)
             await self.state.set(key, pending)
-            return screens.quick_pick_flow(entry)
+            return screens.quick_pick_flow(entry, pending["nonce"])
 
-        return screens.quick_pick_book(entry, books)
+        return screens.quick_pick_book(entry, books, pending["nonce"])
 
-    async def _quick_callback(self, action: str, argument: str, user, key: str):
+    async def _quick_callback(self, action: str, argument: str, nonce: str, user, key: str):
         draft = await self.state.get(key)
-        if draft.get("flow") != "quick":
-            return screens.welcome(user.display_name)
+        if draft.get("flow") != "quick" or draft.get("nonce", "") != nonce:
+            # A draft made before nonces existed has none, and neither do its
+            # buttons, so it keeps working until it is replaced.
+            # The chat keeps every old message, so this button may belong to an
+            # earlier line than the draft now waiting. Acting on whatever is
+            # current would record the wrong thing; instead say it is old and
+            # show what is actually waiting.
+            return screens.stale(await self._quick_screen(draft, user), user.display_name)
 
         if action == "book":
             draft["book_id"] = argument
             await self.state.set(key, draft)
-            entry = quick.QuickEntry(draft["category"], Decimal(draft["amount"]))
-            return screens.quick_pick_flow(entry)
+            return await self._quick_screen(draft, user)
 
         if action == "flow":
-            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-            flow = Flow(argument)
-            transaction = await self.ledger.record(
-                book_id=book.id,
-                actor_user_id=user.id,
-                flow=flow,
-                scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
-                category=draft["category"],
-                amount=Decimal(draft["amount"]),
-                description=draft.get("description"),
-                occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
-            )
-            await self.state.clear(key)
+            # Claimed before it is recorded: two taps in flight (webhook mode)
+            # must not both see the draft. The loser gets the "old" answer.
+            draft = await self.state.pop(key)
+            if draft.get("flow") != "quick" or draft.get("nonce", "") != nonce:
+                if draft:
+                    await self.state.set(key, draft)
+                return screens.stale(None, user.display_name)
+            try:
+                book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+                flow = Flow(argument)
+                transaction = await self.ledger.record(
+                    book_id=book.id,
+                    actor_user_id=user.id,
+                    flow=flow,
+                    scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+                    category=draft["category"],
+                    amount=Decimal(draft["amount"]),
+                    description=draft.get("description"),
+                    occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
+                )
+            except Exception:
+                # A refused record must not eat the draft: give it back.
+                await self.state.set(key, draft)
+                raise
             return screens.transaction_saved(
                 book, flow, transaction.category,
                 transaction.converted_amount, book.base_currency,
             )
 
         return screens.welcome(user.display_name)
+
+    async def _quick_screen(self, draft: dict, user):
+        """The screen a quick draft is currently waiting on, or None."""
+        if draft.get("flow") != "quick":
+            return None
+        entry = quick.QuickEntry(draft["category"], Decimal(draft["amount"]))
+        if draft.get("book_id"):
+            return screens.quick_pick_flow(entry, draft.get("nonce", ""))
+        return screens.quick_pick_book(
+            entry, await self.books.books_for_user(user.id), draft.get("nonce", "")
+        )
 
     async def _budget_text(self, text: str, draft: dict, user, key: str):
         if not draft.get("target"):
@@ -2209,28 +2255,41 @@ class Conversation:
         return screens.ask_description()
 
     async def _save_tx(self, draft, user, key, description=None, attachment=None):
-        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+        # Claimed before it is recorded, so a second tap in flight finds nothing
+        # to record (webhook mode runs updates concurrently).
+        draft = await self.state.pop(key)
+        if draft.get("flow") != "tx" or draft.get("awaiting") != "description":
+            if draft:
+                # Somebody else's draft (another flow began in between) is not
+                # ours to consume.
+                await self.state.set(key, draft)
+            return screens.stale(None, user.display_name)
 
+        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
         flow = Flow(draft["direction"])
-        transaction = await self.ledger.record(
-            book_id=book.id,
-            actor_user_id=user.id,
-            flow=flow,
-            scope=(Scope(draft["scope"]) if draft.get("scope")
-                   else SCOPE_FOR_BOOK.get(book.type, Scope.WORK)),
-            category=draft["category"],
-            amount=Decimal(draft["amount"]),
-            currency=draft.get("currency"),
-            conversion_rate=Decimal(draft["rate"]) if draft.get("rate") else None,
-            occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
-            description=description,
-            receipt_file_id=attachment.file_id if attachment else None,
-            receipt_provider=self.provider.value if attachment else None,
-            receipt_kind=attachment.kind if attachment else None,
-            receipt_file_name=attachment.file_name if attachment else None,
-            receipt_mime_type=attachment.mime_type if attachment else None,
-        )
-        await self.state.clear(key)
+        try:
+            transaction = await self.ledger.record(
+                book_id=book.id,
+                actor_user_id=user.id,
+                flow=flow,
+                scope=(Scope(draft["scope"]) if draft.get("scope")
+                       else SCOPE_FOR_BOOK.get(book.type, Scope.WORK)),
+                category=draft["category"],
+                amount=Decimal(draft["amount"]),
+                currency=draft.get("currency"),
+                conversion_rate=Decimal(draft["rate"]) if draft.get("rate") else None,
+                occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
+                description=description,
+                receipt_file_id=attachment.file_id if attachment else None,
+                receipt_provider=self.provider.value if attachment else None,
+                receipt_kind=attachment.kind if attachment else None,
+                receipt_file_name=attachment.file_name if attachment else None,
+                receipt_mime_type=attachment.mime_type if attachment else None,
+            )
+        except Exception:
+            # A refused record must not eat the draft: give it back.
+            await self.state.set(key, draft)
+            raise
 
         back = draft.get("back")
         if back:
