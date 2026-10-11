@@ -357,3 +357,93 @@ async def test_a_late_catch_up_is_told_to_the_owner_once(db, session):
 
     # Nothing new came due, so nothing more is said.
     assert await loop.tick(now=at_hour(12), today=DAY) == 0
+
+
+async def test_recurring_booking_switched_off_books_nothing_and_loses_nothing(db, session):
+    """KASBBOOK_RECURRING=off holds rules where they are; on catches them all up."""
+    from datetime import timedelta
+
+    from kasbbook.modules.recurring.models import Period
+    from kasbbook.modules.recurring.service import RecurringService
+
+    user = await linked(session, digest_enabled=False)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await RecurringService(session).create(
+        book.id, user.id, Flow.EXPENSE, "قهوه", 100, Period.DAILY, DAY - timedelta(days=2)
+    )
+    await session.commit()
+
+    held = SpyAdapter()
+    assert await ReminderLoop(db, held, MemoryStateStore(), book_recurring=False).tick(
+        now=at_hour(11), today=DAY) == 0
+    async for check in db.session():
+        assert await LedgerService(check).transactions(book.id, user.id) == []
+
+    resumed = SpyAdapter()
+    assert await ReminderLoop(db, resumed, MemoryStateStore()).tick(
+        now=at_hour(11), today=DAY) == 1
+    async for check in db.session():
+        assert len(await LedgerService(check).transactions(book.id, user.id)) == 3
+
+
+async def test_a_long_catch_up_is_summarised_per_rule_and_fits_one_message(db, session):
+    """A daily rule a year behind is one line, not 365 — or the send fails outright."""
+    from datetime import timedelta
+
+    from kasbbook.modules.recurring.models import Period
+    from kasbbook.modules.recurring.service import MAX_CATCH_UP, RecurringService
+
+    user = await linked(session, digest_enabled=False)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await RecurringService(session).create(
+        book.id, user.id, Flow.EXPENSE, "قهوه", 100, Period.DAILY,
+        DAY - timedelta(days=MAX_CATCH_UP - 1),
+    )
+    await session.commit()
+
+    adapter = SpyAdapter()
+    assert await ReminderLoop(db, adapter, MemoryStateStore()).tick(
+        now=at_hour(11), today=DAY) == 1
+    text = adapter.sent[0][1]
+    # Telegram's limit is 4096 characters; Bale and Rubika's are no larger.
+    assert len(text) < 1000
+    assert f"{MAX_CATCH_UP - 1} بار" in text      # the late ones; today's is on time
+    assert f"جمع {(MAX_CATCH_UP - 1) * 100:,}" in text
+
+
+async def test_the_preview_reports_the_run_and_writes_nothing(db, session):
+    from datetime import timedelta
+
+    from apps.bot.recurring_preview import preview
+    from kasbbook.modules.recurring.models import Period, RecurringRule
+    from kasbbook.modules.recurring.service import RecurringService
+
+    user = await linked(session, digest_enabled=False)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    rule = await RecurringService(session).create(
+        book.id, user.id, Flow.EXPENSE, "قهوه", 100, Period.DAILY, DAY - timedelta(days=2)
+    )
+    await session.commit()
+    start = rule.next_run_on
+
+    report = await preview(db, DAY)
+
+    assert "would book: قهوه expense 100 x3" in report
+    assert "Total: 3 transaction(s) booked" in report
+    async for check in db.session():
+        assert await LedgerService(check).transactions(book.id, user.id) == []
+        assert await LedgerService(check).trial_balance(book.id) == (0, 0)
+        assert (await check.get(RecurringRule, rule.id)).next_run_on == start
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (None, True), ("on", True), ("ON", True), ("off", False), ("0", False), (" no ", False),
+])
+async def test_the_recurring_switch_reads_the_way_people_write_it(monkeypatch, raw, expected):
+    from kasbbook.shared.settings import Settings
+
+    if raw is None:
+        monkeypatch.delenv("KASBBOOK_RECURRING", raising=False)
+    else:
+        monkeypatch.setenv("KASBBOOK_RECURRING", raw)
+    assert Settings.from_env().recurring_booking is expected

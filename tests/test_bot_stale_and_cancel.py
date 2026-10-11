@@ -17,7 +17,7 @@ import pytest
 
 from kasbbook.adapters.base import ChannelIdentity, EventKind, IncomingEvent
 from kasbbook.bot.conversation import Conversation
-from kasbbook.bot.state import MemoryStateStore, RedisStateStore
+from kasbbook.bot.state import MemoryStateStore
 from kasbbook.modules.books.models import BookType
 from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.models import Provider
@@ -259,20 +259,9 @@ async def test_pop_takes_the_value_once():
     assert await store.get("k") == {}
 
 
-async def test_the_redis_store_pops_with_one_atomic_command():
-    class FakeRedis:
-        def __init__(self):
-            self.calls = []
-
-        async def getdel(self, key):
-            self.calls.append(("getdel", key))
-            return '{"flow": "quick"}'
-
-    fake = FakeRedis()
-    store = RedisStateStore(fake)
-    assert await store.pop("k") == {"flow": "quick"}
-    # One command, not GET then DELETE: two of those can interleave.
-    assert fake.calls == [("getdel", "kasbbook:state:k")]
+# The Redis store's pop is raced against a real Redis in
+# tests/test_concurrency_services.py (the CI `services` job): a fake here
+# could only restate which commands the code sends, not that they are atomic.
 
 
 # ------------------------------------------------------------------- B5

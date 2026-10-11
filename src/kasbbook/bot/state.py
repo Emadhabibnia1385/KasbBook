@@ -114,9 +114,14 @@ class RedisStateStore:
     async def pop(self, key: str) -> Dict[str, Any]:
         import json
 
-        # GETDEL (Redis 6.2+, deploy/ runs 7) reads and deletes in one command,
-        # so two workers cannot both receive the same draft.
-        raw = await self._redis.getdel(self._key(key))
+        # GET and DEL inside MULTI/EXEC run as one step, so two workers cannot
+        # both receive the same draft. Not GETDEL: that needs Redis 6.2, and an
+        # install without Docker brings its own Redis — Ubuntu 22.04's is 6.0,
+        # where GETDEL would fail every confirm with "unknown command".
+        async with self._redis.pipeline(transaction=True) as pipe:
+            pipe.get(self._key(key))
+            pipe.delete(self._key(key))
+            raw, _ = await pipe.execute()
         if not raw:
             return {}
         try:

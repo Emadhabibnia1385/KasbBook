@@ -81,6 +81,9 @@ class Settings:
     access_token_minutes: int = 30
     refresh_token_days: int = 30
     log_level: str = "INFO"
+    # Off holds every recurring rule where it is, so an operator can preview a
+    # first catch-up before it books anything. See docs/operations.md.
+    recurring_booking: bool = True
 
     @property
     def uses_postgres(self) -> bool:
@@ -141,6 +144,8 @@ class Settings:
             access_token_minutes=int(_env("KASBBOOK_ACCESS_MINUTES", "30") or 30),
             refresh_token_days=int(_env("KASBBOOK_REFRESH_DAYS", "30") or 30),
             log_level=_env("KASBBOOK_LOG_LEVEL", "INFO") or "INFO",
+            recurring_booking=(_env("KASBBOOK_RECURRING", "on") or "on").strip().lower()
+            not in ("off", "0", "false", "no"),
         )
 
     def require_token(self) -> str:

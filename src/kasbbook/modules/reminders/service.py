@@ -29,6 +29,31 @@ if TYPE_CHECKING:
     from ..recurring.service import RecurringRun
 
 
+# Past this many rules a section is cut short. Rules, not dates: each line
+# already sums a whole rule, so this only bites on a book with dozens of them.
+NOTICE_RULES_SHOWN = 15
+
+
+def _rule_line(rule, dates) -> str:
+    """One rule's late or skipped dates, as one line: count, span and total."""
+    dates = sorted(dates)
+    total = sum((amount for _, amount in dates), ZERO)
+    first, last = dates[0][0], dates[-1][0]
+    if len(dates) == 1:
+        return f"• {rule.category}: {total:,.0f} — {jalali.to_text(first)}"
+    return (
+        f"• {rule.category}: {len(dates)} بار، {jalali.to_text(first)} تا "
+        f"{jalali.to_text(last)} — جمع {total:,.0f}"
+    )
+
+
+def _shown(lines: List[str]) -> List[str]:
+    if len(lines) <= NOTICE_RULES_SHOWN:
+        return lines
+    rest = len(lines) - NOTICE_RULES_SHOWN
+    return lines[:NOTICE_RULES_SHOWN] + [f"… و {rest} قاعدهٔ دیگر"]
+
+
 @dataclass(frozen=True)
 class Reminder:
     """One thing to say to one person, on one messenger."""
@@ -161,20 +186,27 @@ class ReminderService:
         hold what they asked for.
         """
         when = today or date.today()
+
+        # Grouped per rule, not per date. A daily rule a year behind books 365
+        # dates; one line each passes the messenger's message limit, the send
+        # fails, and the owner hears nothing at all.
+        late: dict = {}
+        skipped: dict = {}
+        for rule, tx in run.booked:
+            if tx.occurred_on < when:
+                late.setdefault(rule, []).append((tx.occurred_on, tx.converted_amount))
+        for rule, day in run.skipped:
+            skipped.setdefault(rule, []).append((day, rule.amount))
+
         by_book: dict = {}
 
         def lines_for(book_id):
             return by_book.setdefault(book_id, {"late": [], "skipped": [], "paused": []})
 
-        for rule, tx in run.booked:
-            if tx.occurred_on < when:
-                lines_for(rule.book_id)["late"].append(
-                    f"• {rule.category}: {tx.converted_amount:,.0f} — {jalali.to_text(tx.occurred_on)}"
-                )
-        for rule, day in run.skipped:
-            lines_for(rule.book_id)["skipped"].append(
-                f"• {rule.category}: {rule.amount:,.0f} — {jalali.to_text(day)}"
-            )
+        for rule, dates in late.items():
+            lines_for(rule.book_id)["late"].append(_rule_line(rule, dates))
+        for rule, dates in skipped.items():
+            lines_for(rule.book_id)["skipped"].append(_rule_line(rule, dates))
         for rule in run.paused:
             lines_for(rule.book_id)["paused"].append(f"• {rule.category}: {rule.amount:,.0f}")
 
@@ -185,17 +217,17 @@ class ReminderService:
                 continue
             parts = [f"🔁 تراکنش‌های تکرارشونده — دفتر «{book.name}»"]
             if found["late"]:
-                parts.append("ثبت شد، با تاریخ خودش:\n" + "\n".join(found["late"]))
+                parts.append("ثبت شد، با تاریخ خودش:\n" + "\n".join(_shown(found["late"])))
             if found["skipped"]:
                 parts.append(
                     "ثبت نشد، چون دورهٔ آن روز بسته است. اگر لازم است، "
-                    "آن را در یک دورهٔ باز دستی ثبت کنید:\n" + "\n".join(found["skipped"])
+                    "آن را در یک دورهٔ باز دستی ثبت کنید:\n" + "\n".join(_shown(found["skipped"]))
                 )
             if found["paused"]:
                 parts.append(
                     "متوقف شد، چون سازندهٔ آن دیگر نمی‌تواند در این دفتر ثبت کند "
                     "یا دسته‌اش با این دفتر جور نیست. از بخش «تکرارشونده» "
-                    "اصلاح و دوباره فعالش کنید:\n" + "\n".join(found["paused"])
+                    "اصلاح و دوباره فعالش کنید:\n" + "\n".join(_shown(found["paused"]))
                 )
             notices.append(Reminder(book.owner_user_id, "recurring", "\n\n".join(parts)))
         return notices

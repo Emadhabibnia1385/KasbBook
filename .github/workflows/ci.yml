@@ -72,6 +72,58 @@ jobs:
           KASBBOOK_TEST_POSTGRES_URL: postgresql+asyncpg://kasbbook:kasbbook@localhost:5432/kasbbook_test
         run: python -m pytest tests/test_migrations_postgres.py -q
 
+  services:
+    name: races on real redis and postgres
+    runs-on: ubuntu-latest
+
+    # SQLite is single-writer and the in-memory state store runs on one event
+    # loop, so the main job can only show that the code means to be safe when
+    # two workers race. This one makes them race: a double tap claiming one
+    # draft, and two messengers' reminder loops booking the same recurring date.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kasbbook
+          POSTGRES_PASSWORD: kasbbook
+          POSTGRES_DB: kasbbook_race
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kasbbook"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Race the real services
+        env:
+          KASBBOOK_TEST_POSTGRES_URL: postgresql+asyncpg://kasbbook:kasbbook@localhost:5432/kasbbook_race
+          KASBBOOK_TEST_REDIS_URL: redis://localhost:6379/15
+        # -rs lists skips, so a missing variable shows up as a skip, not a pass.
+        run: python -m pytest tests/test_concurrency_services.py -q -rs
+
   scripts:
     name: shell scripts
     runs-on: ubuntu-latest

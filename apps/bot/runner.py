@@ -248,7 +248,11 @@ async def main() -> None:
     # process in both modes: nothing about a daily digest needs an inbound
     # request, and putting it in the API would mean two workers each sending
     # one.
-    reminders = ReminderLoop(database, adapter, state, provider=settings.provider)
+    if not settings.recurring_booking:
+        # Loud, because a forgotten `off` is rent that silently stops being booked.
+        logger.warning("KASBBOOK_RECURRING=off: recurring rules are not being booked")
+    reminders = ReminderLoop(database, adapter, state, provider=settings.provider,
+                             book_recurring=settings.recurring_booking)
     reminder_task = asyncio.create_task(reminders.run())
 
     try:

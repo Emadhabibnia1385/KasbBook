@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from kasbbook.bot.state import StateStore
 from kasbbook.modules.identity.models import Provider, User
-from kasbbook.modules.recurring.service import RecurringService
+from kasbbook.modules.recurring.service import RecurringRun, RecurringService
 from kasbbook.modules.reminders.service import ReminderService
 from kasbbook.shared.database import Database
 
@@ -54,11 +54,13 @@ class ReminderLoop:
         adapter,
         state: StateStore,
         provider: Provider = Provider.TELEGRAM,
+        book_recurring: bool = True,
     ) -> None:
         self.database = database
         self.adapter = adapter
         self.state = state
         self.provider = provider
+        self.book_recurring = book_recurring
         self._running = False
 
     async def _already_sent(self, kind: str, user_id, day: date) -> bool:
@@ -84,7 +86,10 @@ class ReminderLoop:
             # runs whether or not anybody is talking to the bot. They used to
             # be booked by nothing at all. Committed before anyone is told,
             # so a failed send never undoes a booking.
-            recurring = await RecurringService(session).run_due(until=day)
+            recurring = (
+                await RecurringService(session).run_due(until=day)
+                if self.book_recurring else RecurringRun()
+            )
             await session.commit()
             chats = dict(recipients)
             for notice in await service.recurring_notices(recurring, today=day):

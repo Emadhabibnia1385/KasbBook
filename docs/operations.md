@@ -182,6 +182,41 @@ add it and `update.sh` overwrites that file — the edit survived exactly until
 the next update and then vanished, dropping the second bot out of the restart
 and health loops without a word.
 
+## Recurring rules
+
+The reminder loop books every recurring rule that has come due, on each tick.
+It catches up on missed dates as well. A date inside a payroll period that has
+been moved past *open* is skipped, because that period's payslips were
+computed without it. A rule whose author can no longer record in the book is
+paused. The book's owner gets one message listing anything booked late,
+skipped or paused.
+
+**Upgrading from a release that did not book them.** Before this release,
+nothing called the booking at all, so an existing install has a backlog. Each
+rule waits at its start date, and the first tick books every missed date in an
+open period, up to 400 per rule. To see that before it happens:
+
+```bash
+# 1. hold booking before the update restarts the bot
+echo 'KASBBOOK_RECURRING=off' | sudo tee -a /opt/kasbbook/.env
+sudo bash /opt/kasbbook/scripts/update.sh
+
+# 2. see exactly what the first run would book (it runs the real thing and rolls back)
+sudo bash -c 'set -a; . /opt/kasbbook/.env; set +a; cd /opt/kasbbook && ./venv/bin/python apps/bot/recurring_preview.py'
+
+# 3. pause or delete any rule that should not catch up, then turn booking on
+sudo sed -i 's/^KASBBOOK_RECURRING=off$/KASBBOOK_RECURRING=on/' /opt/kasbbook/.env
+sudo systemctl restart 'kasbbook-bot*'
+```
+
+While booking is off, nothing is lost. Switching it back on catches up every
+missed date, and the bot logs a warning at start-up so that a forgotten `off`
+does not quietly stop the rent.
+
+With more than one messenger, each bot process runs the loop. A row lock stops
+two of them booking the same date. The owner's notice is sent from whichever
+process did the booking, so it can only reach the owner on that messenger.
+
 ## Switching between polling and webhook
 
 ```bash
@@ -222,12 +257,13 @@ has ended up in a journal here that way once already.
 
 ## CI
 
-Two jobs on every push, both on Python 3.12:
+Three jobs on every push, all on Python 3.12:
 
 | Job | What it runs |
 |---|---|
 | `tests` | pyflakes over `src/`, `apps/`, `tests`, then the whole suite |
 | `postgres` | the migration rehearsal against a real `postgres:16-alpine` |
+| `services` | `tests/test_concurrency_services.py`: concurrent draft claims on a real `redis:7-alpine`, concurrent recurring runs on a real PostgreSQL |
 
 The second exists because `ADD COLUMN NOT NULL` against a populated table is
 fine on SQLite and fails on PostgreSQL — and the only place that combination
