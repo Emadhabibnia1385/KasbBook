@@ -42,9 +42,26 @@ def rtl(text: str) -> str:
     return "\n".join(RLM + line for line in text.splitlines())
 
 
+def _problem(problem: Optional[str]) -> str:
+    """The cause line a prompt shows when the last answer was refused."""
+    return f"⚠️ {problem}\n\n" if problem else ""
+
+
+def with_notice(notice: str, screen: "Screen") -> "Screen":
+    """A one-line message above a screen, separated from it by a blank line.
+
+    `rtl()` splits on lines and a trailing newline is not a line, so gluing a
+    notice to the next screen with a newline inside `rtl()` loses the blank line and
+    welds "✅ ثبت شد" onto the first line of the screen.
+    """
+    text, buttons = screen
+    return rtl(notice) + "\n\n" + text, buttons
+
+
 def fmt(amount: Decimal, currency: str = "") -> str:
     grouped = f"{Decimal(amount):,.0f}"
-    return f"{grouped} {currency}".strip()
+    # A code like IRT means nothing to the reader; the word does.
+    return f"{grouped} {CURRENCY_NAMES.get(currency, currency)}".strip()
 
 
 # Currencies counted in whole units. Everything else is a token, where the
@@ -62,15 +79,24 @@ def fmt_currency(amount: Decimal, code: str) -> str:
 
 
 # ------------------------------------------------------------------ welcome
-def welcome(display_name: str) -> Screen:
+def welcome(display_name: str, first_run: bool = False) -> Screen:
+    """The home screen. A first run says what to do first: a book comes before anything."""
+    start = (
+        "اول یک دفتر بساز؛ مثلاً «خرج خانه» یا «کارگاه». بعد هر تراکنش را با یک خط ثبت می‌کنی."
+        if first_run
+        else "برای شروع بنویس: «فروش 250ک» — یا از منوی زیر استفاده کن."
+    )
     text = rtl(
-        f"سلام {display_name} 👋\n\n"
+        f"سلام {display_name}\n\n"
         "KasbBook دفتر حساب کسب‌وکارت است.\n"
         "درآمد و هزینه را ثبت کن، و هر جا باشی — تلگرام، وب یا هر پیام‌رسان دیگر — "
         "همان دفتر را ببین.\n\n"
-        "از منوی زیر شروع کن 👇"
+        + start
     )
-    return text, main_menu()
+    buttons = main_menu()
+    if first_run:
+        buttons = [[Button("➕ ساخت دفتر", data="book:new")]] + buttons
+    return text, buttons
 
 
 def not_linked(code: str) -> Screen:
@@ -78,10 +104,10 @@ def not_linked(code: str) -> Screen:
     text = rtl(
         "این حساب هنوز به KasbBook وصل نیست.\n\n"
         "دو راه داری:\n\n"
-        "۱. اگر حساب داری، در پنل وب وارد شو و این کد را وارد کن:\n"
+        "1. اگر حساب داری، در پنل وب وارد شو و این کد را وارد کن:\n"
         f"    {code}\n\n"
-        "۲. اگر نداری، همین‌جا یک حساب تازه بساز.\n\n"
-        "کد تا ۱۵ دقیقه معتبر است."
+        "2. اگر نداری، همین‌جا یک حساب تازه بساز.\n\n"
+        "کد تا 15 دقیقه معتبر است."
     )
     return text, [
         [Button("🆕 ساخت حساب تازه", data="acc:create")],
@@ -95,11 +121,32 @@ def main_menu() -> List[List[Button]]:
         [Button("📊 گزارش‌ها", data="rep:menu")],
         [Button("📚 دفترهای من", data="book:list")],
         [Button("🔔 یادآورها", data="rm:panel")],
-        [Button("👤 حساب من", data="acc:panel")],
+        [Button("👤 حساب کاربری", data="acc:panel")],
     ]
 
 
 # -------------------------------------------------------------------- books
+def _book_names(books: Sequence[Book]) -> dict:
+    """A name per book that is unique on screen.
+
+    Two books may share a name (nothing forbids it), and two identical buttons
+    send money to whichever one is tapped. The second is numbered so the person
+    can tell them apart; the books themselves are untouched.
+    """
+    seen: dict = {}
+    names: dict = {}
+    for book in books:
+        seen[book.name] = seen.get(book.name, 0) + 1
+        names[book.id] = book.name if seen[book.name] == 1 else f"{book.name} ({seen[book.name]})"
+    return names
+
+
+def _book_buttons(books: Sequence[Book], data) -> List[List[Button]]:
+    """One button per book: its mark and name, not its type spelled out."""
+    names = _book_names(books)
+    return [[Button(f"{_book_mark(b)} {names[b.id]}", data=data(b))] for b in books]
+
+
 def book_list(books: Sequence[Book]) -> Screen:
     if not books:
         return (
@@ -107,30 +154,43 @@ def book_list(books: Sequence[Book]) -> Screen:
             [[Button("➕ ساخت دفتر", data="book:new")], [Button("⬅️ بازگشت", data="nav:home")]],
         )
 
-    lines = ["📚 دفترهای تو:", ""]
-    buttons: List[List[Button]] = []
+    names = _book_names(books)
+    lines = ["دفترهای تو:", ""]
     for book in books:
-        label = BOOK_LABELS.get(book.type, book.type.value)
-        lines.append(f"• {label} — {book.name}")
-        buttons.append([Button(f"{label} {book.name}", data=f"book:open:{book.id}")])
-
+        kind = BOOK_LABELS.get(book.type, book.type.value).split(" ", 1)[-1]
+        lines.append(f"• {names[book.id]} — {kind}")
+    buttons = _book_buttons(books, lambda b: f"book:open:{b.id}")
     buttons.append([Button("➕ ساخت دفتر", data="book:new")])
     buttons.append([Button("⬅️ بازگشت", data="nav:home")])
     return rtl("\n".join(lines)), buttons
+
+
+def book_created(book: Book, first: bool) -> Screen:
+    """The first book is a beginning, not a list: say what to do with it."""
+    if first:
+        return rtl(
+            f"✅ دفتر «{book.name}» ساخته شد.\n\n"
+            "حالا اولین تراکنش را بنویس؛ مثلاً «فروش 250ک» — یا از دکمهٔ زیر شروع کن."
+        ), [
+            [Button("📌 ثبت تراکنش", data=f"tx:book:{book.id}")],
+            [Button("⬅️ بازگشت", data="nav:home")],
+        ]
+    return rtl(f"✅ دفتر «{book.name}» ساخته شد."), [
+        [Button("📌 ثبت تراکنش", data=f"tx:book:{book.id}")],
+        [Button("📚 دفترهای من", data="book:list")],
+        [Button("⬅️ بازگشت", data="nav:home")],
+    ]
 
 
 def pick_book(books: Sequence[Book], purpose: str = "tx") -> Screen:
     """The question every recording flow starts with: whose money is this?"""
     if not books:
         return (
-            rtl("برای ثبت تراکنش اول باید یک دفتر بسازی."),
+            rtl("هنوز دفتری نداری. اول یک دفتر بساز (مثلاً «مغازه»)، بعد تراکنش‌هایت را در آن ثبت کن."),
             [[Button("➕ ساخت دفتر", data="book:new")], [Button("⬅️ بازگشت", data="nav:home")]],
         )
 
-    buttons = [
-        [Button(f"{BOOK_LABELS.get(b.type, '')} {b.name}", data=f"{purpose}:book:{b.id}")]
-        for b in books
-    ]
+    buttons = _book_buttons(books, lambda b: f"{purpose}:book:{b.id}")
     buttons.append([Button("⬅️ بازگشت", data="nav:home")])
     return rtl("این تراکنش مربوط به کدام دفتر است؟"), buttons
 
@@ -138,15 +198,20 @@ def pick_book(books: Sequence[Book], purpose: str = "tx") -> Screen:
 def new_book_type() -> Screen:
     return rtl("چه نوع دفتری می‌خواهی؟"), [
         [Button("👤 مالی شخصی", data="book:type:personal")],
-        [Button("💼 کسب‌وکار شخصی", data="book:type:business")],
+        [Button("💼 کسب‌وکار", data="book:type:business")],
         [Button("👥 تیم", data="book:type:team")],
         [Button("⬅️ بازگشت", data="book:list")],
     ]
 
 
-def ask_book_name(book_type: BookType) -> Screen:
+def ask_book_name(book_type: BookType, problem: Optional[str] = None) -> Screen:
     label = BOOK_LABELS.get(book_type, "")
-    return rtl(f"اسم این دفتر چه باشد؟\n\nنوع: {label}"), [
+    return rtl(
+        _problem(problem)
+        + "اسم دفتر را بنویس.\n"
+        "مثال: مغازه، خرج خانه، تیم طراحی\n\n"
+        f"نوع دفتر: {label}"
+    ), [
         [Button("↩️ انصراف", data="nav:cancel")]
     ]
 
@@ -156,10 +221,12 @@ def ask_book_name(book_type: BookType) -> Screen:
 # letters because a daily-list button already spends forty-four of Telegram's
 # sixty-four callback bytes on a book id and a date.
 ENTRY_TYPES = {
-    "wi": (Flow.INCOME, Scope.WORK, "💰", "درآمد کاری"),
-    "we": (Flow.EXPENSE, Scope.WORK, "🏢", "هزینه کاری"),
-    "ti": (Flow.INCOME, Scope.TEAM, "💰", "درآمد تیم"),
-    "te": (Flow.EXPENSE, Scope.TEAM, "🏢", "هزینه تیم"),
+    # One word per concept: درآمد and هزینه. "شخصی" survives only where it is
+    # the thing that tells two entries in the same book apart.
+    "wi": (Flow.INCOME, Scope.WORK, "💰", "درآمد"),
+    "we": (Flow.EXPENSE, Scope.WORK, "🧾", "هزینه"),
+    "ti": (Flow.INCOME, Scope.TEAM, "💰", "درآمد"),
+    "te": (Flow.EXPENSE, Scope.TEAM, "🧾", "هزینه"),
     "pi": (Flow.INCOME, Scope.PERSONAL, "💵", "درآمد شخصی"),
     "pe": (Flow.EXPENSE, Scope.PERSONAL, "👤", "هزینه شخصی"),
 }
@@ -202,15 +269,24 @@ def _book_mark(book: Book) -> str:
     return BOOK_LABELS.get(book.type, "").split(" ")[0]
 
 
+def entry_label(code: str, book: Book) -> str:
+    """What a type button says. A personal book has no other kind of money."""
+    label = ENTRY_TYPES[code][3]
+    if book.type is BookType.PERSONAL:
+        label = label.replace(" شخصی", "")
+    return label
+
+
 def tx_home(today: date) -> Screen:
     """The two ways in that the first generation had, and people kept asking for."""
     return rtl(
         "📌 ثبت تراکنش\n\n"
-        "➕ ثبت تکی — یک تراکنش، با هر تاریخی\n"
-        "📅 لیست روزانه — همهٔ دفترهایت، روز به روز"
+        "• ثبت تراکنش — قدم‌به‌قدم، با هر تاریخی\n"
+        "• تراکنش‌های هر روز — دیدن، ویرایش، حذف\n\n"
+        "راه سریع: یک خط بنویس، مثلاً «فروش 250ک»."
     ), [
-        [Button("➕ ثبت تکی", data="tx:one")],
-        [Button("📅 لیست روزانه", data=f"dl:v:{day_token(today)}:a:0")],
+        [Button("➕ ثبت تراکنش", data="tx:one")],
+        [Button("📅 تراکنش‌های هر روز", data=f"dl:v:{day_token(today)}:a:0")],
         [Button("⬅️ بازگشت", data="nav:home")],
     ]
 
@@ -218,33 +294,31 @@ def tx_home(today: date) -> Screen:
 def pick_date(book: Book, today: date) -> Screen:
     from ..shared import jalali
 
-    label = BOOK_LABELS.get(book.type, "")
-    return rtl(f"{label} — {book.name}\n\n📅 تاریخ این تراکنش؟"), [
+    return rtl(f"دفتر {book.name}\n\nتاریخ این تراکنش؟"), [
         [Button(f"✅ امروز ({jalali.to_text(today)})", data="tx:on:today")],
         [Button("✍️ تاریخ دیگر", data="tx:on:ask")],
         [Button("⬅️ بازگشت", data="tx:new")],
     ]
 
 
-def ask_date(cancel_data: str) -> Screen:
+def ask_date(cancel_data: str, typed: Optional[str] = None) -> Screen:
     """One prompt for both calendars: the parser tells them apart by the year."""
     return rtl(
-        "📅 تاریخ را بنویس — شمسی یا میلادی.\n\n"
-        "مثال: 1404/12/28 یا 2026-03-19\n"
-        "«دیروز» و «فردا» هم می‌شود."
+        (f"⚠️ «{typed}» را به‌عنوان تاریخ نفهمیدم.\n\n" if typed else "")
+        + "تاریخ را بنویس؛ مثلاً 1404/12/28 یا «دیروز».\n"
+        "تاریخ میلادی هم می‌شود (2026-03-19). «امروز» و «فردا» هم می‌شود."
     ), [[Button("↩️ انصراف", data=cancel_data)]]
 
 
 def pick_type(book: Book, on: date) -> Screen:
     from ..shared import jalali
 
-    label = BOOK_LABELS.get(book.type, "")
     buttons = _pairs([
-        Button(f"{ENTRY_TYPES[code][2]} {ENTRY_TYPES[code][3]}", data=f"tx:type:{code}")
+        Button(f"{ENTRY_TYPES[code][2]} {entry_label(code, book)}", data=f"tx:type:{code}")
         for code in TYPES_FOR_BOOK.get(book.type, ("wi", "we"))
     ])
     buttons.append([Button("⬅️ بازگشت", data="tx:new")])
-    return rtl(f"{label} — {book.name}\n📅 {jalali.to_text(on)}\n\nنوع تراکنش؟"), buttons
+    return rtl(f"دفتر {book.name} · {jalali.to_text(on)}\n\nدرآمد است یا هزینه؟"), buttons
 
 
 def daily_pick_type(book: Book, on: date) -> Screen:
@@ -252,14 +326,13 @@ def daily_pick_type(book: Book, on: date) -> Screen:
     from ..shared import jalali
 
     token = day_token(on)
-    label = BOOK_LABELS.get(book.type, "")
     buttons = _pairs([
-        Button(f"{ENTRY_TYPES[code][2]} {ENTRY_TYPES[code][3]}",
+        Button(f"{ENTRY_TYPES[code][2]} {entry_label(code, book)}",
                data=f"dl:add:{token}:{book.id}:{code}:a")
         for code in TYPES_FOR_BOOK.get(book.type, ("wi", "we"))
     ])
     buttons.append([Button("⬅️ بازگشت", data=f"dl:v:{token}:a:0")])
-    return rtl(f"{label} — {book.name}\n📅 {jalali.to_text(on)}\n\nچه چیزی ثبت شود؟"), buttons
+    return rtl(f"دفتر {book.name} · {jalali.to_text(on)}\n\nچه چیزی ثبت شود؟"), buttons
 
 
 def _day_summary(sheet) -> List[str]:
@@ -267,7 +340,8 @@ def _day_summary(sheet) -> List[str]:
 
     A line is shown when the book's kind implies it or when there is money on
     it, so an unusual entry — a loan installment in a team book, say — is never
-    in the list below and missing from the totals above.
+    in the list below and missing from the totals above. A line that would only
+    say zero because it can't apply (no installment) is left out.
     """
     totals, kind = sheet.totals, sheet.book.type
     team = kind in (BookType.TEAM, BookType.ORGANIZATION)
@@ -283,18 +357,21 @@ def _day_summary(sheet) -> List[str]:
         word = "" if team else " کاری"
         lines += [
             f"💰 درآمد{word}: {fmt(totals.business_income)}",
-            f"🏢 هزینه{word}: {fmt(totals.business_expense)}",
-            f"➖ خالص{word}: {fmt(totals.business_net)}",
+            f"🧾 هزینه{word}: {fmt(totals.business_expense)}",
+            f"➖ سود{word}: {fmt(totals.business_net)}",
         ]
     if has_personal:
         if totals.personal_income or kind is BookType.PERSONAL:
             lines.append(f"💵 درآمد شخصی: {fmt(totals.personal_income)}")
-        lines += [
-            f"📄 قسط پرداختی: {fmt(totals.installment)}",
-            f"👤 هزینه شخصی (بدون قسط): {fmt(totals.personal_expense)}",
-            f"💾 پس‌انداز عملیاتی: {fmt(totals.savings_operational)}",
-            f"💾 پس‌انداز نهایی: {fmt(totals.savings_final)}",
-        ]
+        lines.append(f"👤 هزینه شخصی: {fmt(totals.personal_expense)}")
+        if totals.installment:
+            lines += [
+                f"قسط وام: {fmt(totals.installment)}",
+                f"💾 مانده پس از هزینه‌ها: {fmt(totals.savings_operational)}",
+                f"💾 مانده پس از قسط: {fmt(totals.savings_final)}",
+            ]
+        else:
+            lines.append(f"💾 مانده پس از هزینه‌ها: {fmt(totals.savings_final)}")
     return lines
 
 
@@ -322,10 +399,10 @@ def daily_view(
     single = len(sheets) == 1
     here = f"dl:v:{token}:{view}:{page}"
 
-    lines = [f"📅 {on.isoformat()}  |  {jalali.to_text(on)}"]
+    lines = [f"📅 {jalali.to_text(on)}"]
     if filter_book_id is not None and sheets:
         lines.append(f"🔎 فقط: {_book_mark(sheets[0].book)} {sheets[0].book.name}")
-    lines += ["", "📊 گزارش روز"]
+    lines += ["", "خلاصهٔ روز"]
 
     # One book is always summarised, zeros included, as the old list was. Of
     # several, only the ones that moved today — five blocks of zeros bury the
@@ -390,7 +467,7 @@ def daily_view(
             where = "" if single else f"{_book_mark(sheet.book)} {sheet.book.name} · "
             # A header is not a button anyone means to press. Pressing it
             # redraws this same list, rather than leaving for somewhere else.
-            buttons.append([Button(f"— {where}لیست {ENTRY_TYPES[code][3]} ({count}) —", data=here)])
+            buttons.append([Button(f"— {where}{ENTRY_TYPES[code][3]} ({count}) —", data=here)])
         buttons.append([
             Button(tx.category[:24], data=f"td:open:{tx.id}:{origin}"),
             Button(fmt(tx.converted_amount), data=f"td:open:{tx.id}:{origin}"),
@@ -409,7 +486,7 @@ def daily_view(
     return rtl("\n".join(lines)), buttons
 
 
-def ask_category(flow: Flow, recent: Sequence[str] = ()) -> Screen:
+def ask_category(flow: Flow, recent: Sequence[str] = (), problem: Optional[str] = None) -> Screen:
     """Ask, but offer what this book already uses.
 
     A category is typed on every single entry, so the recent ones are the
@@ -419,7 +496,7 @@ def ask_category(flow: Flow, recent: Sequence[str] = ()) -> Screen:
     overflow it and the button would silently fail to send.
     """
     word = "درآمد" if flow is Flow.INCOME else "هزینه"
-    text = rtl(f"دستهٔ این {word} چیست؟\n\nمثلاً: فروش، اجاره، حقوق")
+    text = rtl(_problem(problem) + f"دستهٔ این {word} چیست؟\n\nمثال: فروش، اجاره، حقوق")
 
     buttons: List[List[Button]] = []
     row: List[Button] = []
@@ -435,30 +512,37 @@ def ask_category(flow: Flow, recent: Sequence[str] = ()) -> Screen:
     return text, buttons
 
 
-def ask_amount(category: str, currency: str | None = None) -> Screen:
+def ask_amount(category: str, currency: str | None = None, problem: Optional[str] = None,
+               current: Optional[str] = None) -> Screen:
+    """`current` is shown when an existing amount is being changed."""
     return (
         rtl(
-            f"دسته: {category}\n\n"
-            + (f"مبلغ اصلی به {currency} است؛ نرخ تبدیل ثبت‌شده حفظ می‌شود.\n" if currency else "")
-            + "مبلغ را بنویس.\n"
-            "می‌توانی این‌طور هم بنویسی: ۲۵۰ک، 1.2م، 250,000"
+            _problem(problem)
+            + f"دسته: {category}\n"
+            + (f"مبلغ فعلی: {current}\n" if current else "")
+            + "\n"
+            + (f"مبلغ اصلی به {CURRENCY_NAMES.get(currency, currency)} است؛ نرخ تبدیل ثبت‌شده حفظ می‌شود.\n" if currency else "")
+            + "مبلغ را بنویس؛ مثلاً 250000 یا 250ک یا 1.2م"
         ),
         [[Button("↩️ انصراف", data="nav:cancel")]],
     )
 
 
 def transaction_saved(
-    book: Book, flow: Flow, category: str, amount: Decimal, currency: str
+    book: Book, flow: Flow, category: str, amount: Decimal, currency: str,
+    on: Optional[date] = None, note: Optional[str] = None,
 ) -> Screen:
+    """What was recorded, said back in full so a wrong reading is seen at once."""
+    from ..shared import jalali
+
     word = "درآمد" if flow is Flow.INCOME else "هزینه"
-    text = rtl(
-        "✅ ثبت شد.\n\n"
-        f"📚 {book.name}\n"
-        f"🔖 {word}\n"
-        f"🏷 {category}\n"
-        f"💵 {fmt(amount, currency)}"
-    )
-    return text, [
+    facts = [category, f"دفتر {book.name}"]
+    if on is not None:
+        facts.append(jalali.to_text(on))
+    lines = [f"✅ {word} {fmt(amount, currency)} ثبت شد", " · ".join(facts)]
+    if note:
+        lines.append(note)
+    return rtl("\n".join(lines)), [
         [Button("➕ ثبت بعدی", data="tx:new")],
         [Button("📊 گزارش این دفتر", data=f"rep:book:{book.id}")],
         [Button("⬅️ منوی اصلی", data="nav:home")],
@@ -470,10 +554,7 @@ def report_menu(books: Sequence[Book]) -> Screen:
     if not books:
         return rtl("هنوز دفتری نداری."), [[Button("⬅️ بازگشت", data="nav:home")]]
 
-    buttons = [
-        [Button(f"{BOOK_LABELS.get(b.type, '')} {b.name}", data=f"rep:book:{b.id}")]
-        for b in books
-    ]
+    buttons = _book_buttons(books, lambda b: f"rep:book:{b.id}")
     buttons.append([Button("⬅️ بازگشت", data="nav:home")])
     return rtl("گزارش کدام دفتر؟"), buttons
 
@@ -646,7 +727,7 @@ def ask_email() -> Screen:
 
 def ask_phone() -> Screen:
     return rtl(
-        "📱 شماره‌ات را بنویس.\n\nمثلاً: ۰۹۱۲۱۲۳۴۵۶۷"
+        "📱 شماره‌ات را بنویس.\n\nمثلاً: 09121234567"
     ), [[Button("⬅️ انصراف", data="acc:panel")]]
 
 
@@ -661,7 +742,7 @@ def ask_new_password(changing: bool) -> Screen:
     what = "رمز تازه" if changing else "رمزی که می‌خواهی"
     return rtl(
         f"🔑 {what} را بنویس.\n\n"
-        "دست‌کم ۸ نویسه.\n"
+        "دست‌کم 8 نویسه.\n"
         "پیامت بلافاصله پاک می‌شود، ولی جای امنی نگهش دار."
     ), [[Button("⬅️ انصراف", data="acc:panel")]]
 
@@ -757,7 +838,7 @@ def confirm_close(preview) -> Screen:
 def ask_close_word() -> Screen:
     return rtl(
         f"برای تأیید نهایی کلمهٔ «{CLOSE_WORD}» را بنویس.\n\n"
-        "هر چیز دیگری بنویسی، لغو می‌شود."
+        "هر چیز دیگری بنویسی، انصراف حساب می‌شود."
     ), [[Button("⬅️ منصرف شدم", data="acc:panel")]]
 
 
@@ -798,8 +879,8 @@ def identity_list(identities: Iterable[Identity], current: Provider) -> Screen:
 
 
 # ------------------------------------------------------------ jalali reports
-def period_menu(book: Book, years: Sequence[int]) -> Screen:
-    """Which stretch of time to look at."""
+def period_menu(book: Book, years: Sequence[int], today: Optional[date] = None) -> Screen:
+    """Which stretch of time to look at. `today` is the person's day, not the server's."""
     rows: List[List[Button]] = [
         [
             Button("این هفته", data=f"rp:{book.id}:w:0"),
@@ -809,9 +890,14 @@ def period_menu(book: Book, years: Sequence[int]) -> Screen:
 
     from ..shared import jalali
 
-    this_year, this_month, _ = jalali.to_parts(__import__("datetime").date.today())
-    rows.append([Button(f"{jalali.month_name(this_month)} {this_year}",
-                        data=f"rp:{book.id}:m:{this_year}:{this_month:02d}")])
+    this_year, this_month, _ = jalali.to_parts(today or date.today())
+    last_year, last_month = (this_year, this_month - 1) if this_month > 1 else (this_year - 1, 12)
+    rows.append([
+        Button(f"{jalali.month_name(this_month)} {this_year}",
+               data=f"rp:{book.id}:m:{this_year}:{this_month:02d}"),
+        Button(f"{jalali.month_name(last_month)} {last_year}",
+               data=f"rp:{book.id}:m:{last_year}:{last_month:02d}"),
+    ])
 
     buffer: List[Button] = []
     for year in years[:6]:
@@ -823,7 +909,7 @@ def period_menu(book: Book, years: Sequence[int]) -> Screen:
         rows.append(buffer)
 
     rows.append([Button("⬅️ بازگشت", data="rep:menu")])
-    return rtl(f"📊 {book.name}\n\nکدام بازه؟"), rows
+    return rtl(f"📊 {book.name}\n\nگزارش کدام بازه را ببینم؟"), rows
 
 
 def period_report(
@@ -835,14 +921,16 @@ def period_report(
         f"🧾 هزینه: {fmt(summary.expense, book.base_currency)}\n"
         f"➖ خالص: {fmt(summary.net, book.base_currency)}"
     )
+    if not summary.count:
+        # Three zeros read as a broken report; the sentence says it is a quiet one.
+        body += "\n\nدر این بازه تراکنشی ثبت نشده. بازهٔ دیگری را امتحان کن."
     if comparison:
         body += f"\n\n{comparison}"
 
     return rtl(body), [
         [Button("🏷 تفکیک دسته‌ها", data=f"rb:{book.id}:{spec}")],
         [Button("📥 خروجی CSV", data=f"rc:{book.id}:{spec}")],
-        [Button("📆 بازهٔ دیگر", data=f"rep:book:{book.id}")],
-        [Button("⬅️ منوی اصلی", data="nav:home")],
+        [Button("⬅️ بازگشت", data=f"rep:book:{book.id}")],
     ]
 
 
@@ -854,7 +942,7 @@ def category_breakdown(book: Book, period_label: str, buckets, spec: str) -> Scr
         rows = buckets.get(flow, [])
         lines += ["", title]
         if not rows:
-            lines.append("— خالی —")
+            lines.append("تراکنشی نیست.")
             continue
 
         grand = sum((total for _, total, _ in rows), Decimal("0"))
@@ -883,28 +971,44 @@ def comparison_line(previous_label: str, before, after) -> str:
 
 
 # --------------------------------------------------------------- quick entry
-def quick_pick_book(entry, books: Sequence[Book], nonce: str) -> Screen:
+def _quick_facts(entry, book: Optional[Book], today: Optional[date]) -> str:
+    """Everything the line was understood as, so a wrong reading is seen before the tap.
+
+    The amount, the category, the day (said as «امروز» when none was typed, since
+    that is what will be recorded), the book and the note. A person who typed
+    «۲ عدد نان ۲۰۰۰۰» can see here that 20,000 was taken as the amount.
+    """
+    from ..shared import jalali
+
+    lines = [f"{entry.category} — {fmt(entry.amount, 'IRT')}"]
+    when = entry.on or today
+    if when is not None:
+        day = jalali.to_text(when)
+        lines.append(f"{day}" if entry.on else f"امروز ({day})")
+    if book is not None:
+        lines[-1] += f" · دفتر {book.name}"
+    if entry.description:
+        lines.append(f"توضیح: {entry.description}")
+    return "\n".join(lines)
+
+
+def quick_pick_book(entry, books: Sequence[Book], nonce: str,
+                    today: Optional[date] = None) -> Screen:
     """A one-line entry still has to say which book it belongs to.
 
     Every button carries the draft's nonce: the chat keeps old messages, and a
     button from an earlier line must not act on a later one.
     """
-    text = rtl(
-        f"🏷 {entry.category}\n"
-        f"💵 {fmt(entry.amount)}\n\n"
-        "در کدام دفتر ثبت شود؟"
-    )
-    rows = [
-        [Button(f"{BOOK_LABELS.get(b.type, '')} {b.name}", data=f"qk:book:{b.id}:{nonce}")]
-        for b in books
-    ]
+    text = rtl(_quick_facts(entry, None, today) + "\n\nدر کدام دفتر ثبت شود؟")
+    rows = _book_buttons(books, lambda b: f"qk:book:{b.id}:{nonce}")
     rows.append([Button("↩️ انصراف", data="nav:cancel")])
     return text, rows
 
 
-def quick_pick_flow(entry, nonce: str) -> Screen:
+def quick_pick_flow(entry, nonce: str, book: Optional[Book] = None,
+                    today: Optional[date] = None) -> Screen:
     return (
-        rtl(f"🏷 {entry.category}\n💵 {fmt(entry.amount)}\n\nدرآمد است یا هزینه؟"),
+        rtl(_quick_facts(entry, book, today) + "\n\nهمین را ثبت کنم؟ درآمد است یا هزینه؟"),
         [
             [Button("💰 درآمد", data=f"qk:flow:income:{nonce}"), Button("🧾 هزینه", data=f"qk:flow:expense:{nonce}")],
             [Button("↩️ انصراف", data="nav:cancel")],
@@ -919,50 +1023,117 @@ def stale(current: Optional[Screen], display_name: str) -> Screen:
     on with that one instead of wondering what the tap did.
     """
     if current is None:
-        text, buttons = welcome(display_name)
-        return rtl("این پیام قدیمی است یا قبلاً ثبت شده.") + "\n\n" + text, buttons
-    text, buttons = current
-    return rtl("این پیام قدیمی است؛ پیش‌نویس فعلی:") + "\n\n" + text, buttons
+        return with_notice("این دکمه قدیمی است یا کارش قبلاً انجام شده؛ ادامه از همین‌جا:",
+                           welcome(display_name))
+    return with_notice("این پیام قدیمی است؛ پیش‌نویس فعلی:", current)
 
 
 def cancelled(display_name: str) -> Screen:
     """Said whenever انصراف clears a draft, so nobody wonders if it was kept."""
-    text, buttons = welcome(display_name)
-    return rtl("لغو شد.") + "\n\n" + text, buttons
+    return with_notice("انصراف دادی؛ چیزی ثبت نشد.", welcome(display_name))
 
 
 def unreadable_line() -> Screen:
     return (
         rtl(
-            "❓ متوجه نشدم.\n\n"
+            "❓ مبلغی در این پیام ندیدم.\n\n"
             "برای ثبت سریع بنویس: «دسته مبلغ»\n"
             "مثال‌ها:\n"
             "• فروش 250000\n"
-            "• اجاره ۱٫۲م بابت مرداد\n\n"
-            "یا از منو استفاده کن:"
+            "• اجاره 1.2م بابت مرداد\n\n"
+            "یا دکمهٔ «ثبت تراکنش» را بزن:"
         ),
         main_menu(),
     )
 
 
-def error(message: str) -> Screen:
+# What each way a line can be unclear tells the person, with an example that works.
+_UNCLEAR = {
+    "several": "چند عدد دیدم ({numbers}) و نفهمیدم کدام مبلغ است.\nمبلغ را بلافاصله بعد از دسته بنویس و تعداد را بعدش؛ مثلاً: «خرید نان 20000 2 عدد»",
+    "grouping": "«{numbers}» را نمی‌شود با اطمینان خواند: 1.5 است یا 15؟\nبرای اعشار از نقطه بنویس و برای هزارگان از ویرگول؛ مثلاً: 1.5م یا 1,500,000",
+    "dots": "«{numbers}» 250 است یا 250,000؟\nبرای هزارگان از ویرگول بنویس؛ مثلاً: 250,000",
+    "rial": "«{numbers}» ریال است؟ دفتر با تومان حساب می‌شود.\nمبلغ را به تومان بنویس؛ مثلاً: «فروش 25000»",
+    "nocategory": "مبلغ {numbers} را دیدم ولی نفهمیدم برای چیست.\nاول دسته را بنویس؛ مثلاً: «فروش 250000»",
+    "zero": "مبلغ باید بیشتر از صفر باشد.\nمثال: «فروش 250000»",
+    "compound": "نفهمیدم «{numbers}» یک مبلغ است یا دو مبلغ.\nمبلغ را یک‌جا بنویس؛ مثلاً 2500000 یا «2 میلیون و 500 هزار».",
+}
+
+
+def unclear_reason(reason: str, numbers: Sequence[str]) -> str:
+    """Why an amount could not be read, and how to write it so it can."""
+    return _UNCLEAR.get(reason, _UNCLEAR["several"]).format(numbers=" و ".join(numbers))
+
+
+def unclear_line(reason: str, numbers: Sequence[str]) -> Screen:
+    """A line with numbers in it that could not be read as one amount.
+
+    Nothing is recorded and nothing is guessed: the person is told which
+    numbers were seen and how to write the line so it is unambiguous.
+    """
+    return rtl("❓ " + unclear_reason(reason, numbers)), main_menu()
+
+
+def error(message: str, back: Optional[str] = None) -> Screen:
+    """A refusal. With `back` the person returns to where they were, not home."""
+    if back:
+        return rtl(f"⚠️ {message}"), [[Button("⬅️ بازگشت", data=back)]]
     return rtl(f"⚠️ {message}"), [[Button("⬅️ منوی اصلی", data="nav:home")]]
+
+
+# Domain errors reach the bot in whatever language the service wrote them. The
+# services' own English messages are for logs and the API; a person reads
+# Persian. Mapped here, at the boundary, so no rule moves and no message is lost.
+_ENGLISH_ERRORS = {
+    "an entry of zero moves nothing": "مبلغ باید بیشتر از صفر باشد.",
+    "an amount is never negative; use the other flow": "مبلغ نمی‌تواند منفی باشد.",
+    "a conversion rate must be positive": "نرخ تبدیل باید بیشتر از صفر باشد.",
+    "a journal line is never negative": "مبلغ نمی‌تواند منفی باشد.",
+    "the owner cannot be removed from their own book": "مالک دفتر را نمی‌شود از دفتر خودش حذف کرد.",
+    "this person is already a member": "این شخص قبلاً عضو دفتر شده است.",
+    "only the owner may delete a book": "فقط مالک دفتر می‌تواند آن را حذف کند.",
+    "only the owner may hand a book over": "فقط مالک دفتر می‌تواند آن را واگذار کند.",
+    "a period cannot end before it starts": "پایان دوره نمی‌تواند قبل از شروعش باشد.",
+    "this period is locked; record a correction in a later one":
+        "این دوره قفل است؛ اصلاح را در دورهٔ بعدی ثبت کن.",
+}
+
+
+def user_message(exc: Exception) -> str:
+    """The sentence a person sees for a domain error: Persian, with a way forward."""
+    from ..shared.errors import (
+        BalanceError, NotFound, PermissionDenied, ValidationError,
+    )
+
+    message = str(exc).strip()
+    if any("\u0600" <= ch <= "\u06ff" for ch in message):
+        return message
+    if message in _ENGLISH_ERRORS:
+        return _ENGLISH_ERRORS[message]
+    if isinstance(exc, NotFound):
+        return "این مورد پیدا نشد؛ شاید حذف شده یا مال تو نیست."
+    if isinstance(exc, PermissionDenied):
+        return "اجازهٔ این کار را نداری."
+    if isinstance(exc, BalanceError):
+        return "ثبت انجام نشد؛ مبلغ را بررسی کن و دوباره امتحان کن."
+    if isinstance(exc, ValidationError):
+        return "ورودی درست نیست؛ بررسی کن و دوباره امتحان کن."
+    return "کار انجام نشد؛ دوباره امتحان کن."
 
 
 # =========================================================== book workspace
 def book_menu(book: Book) -> Screen:
     """Everything that belongs to one book, one press away."""
-    label = BOOK_LABELS.get(book.type, "")
-    return rtl(f"{label} — {book.name}"), [
+    kind = BOOK_LABELS.get(book.type, "").split(" ", 1)[-1]
+    return rtl(f"{_book_mark(book)} {book.name} — {kind}"), [
         [Button("📌 ثبت تراکنش", data=f"tx:book:{book.id}")],
-        [Button("🏷 دسته‌بندی‌ها", data=f"cg:list:{book.id}")],
+        [Button("🏷 دسته‌ها", data=f"cg:list:{book.id}")],
         [Button("📄 تراکنش‌ها", data=f"td:list:{book.id}"),
          Button("🔎 جست‌وجو", data=f"sr:new:{book.id}")],
         [Button("📊 گزارش", data=f"rep:book:{book.id}")],
         [Button("🎯 بودجه‌ها", data=f"bg:list:{book.id}"),
          Button("🤝 طلب و بدهی", data=f"dt:list:{book.id}")],
-        [Button("📄 وام و اقساط", data=f"ln:list:{book.id}"),
-         Button("🔁 تکرارشونده", data=f"rr:list:{book.id}")],
+        [Button("💳 وام و اقساط", data=f"ln:list:{book.id}"),
+         Button("🔁 تراکنش تکرارشونده", data=f"rr:list:{book.id}")],
         [Button("👛 کیف پول و ارزها", data=f"cu:home:{book.id}")],
         # Only where there is more than one person to pay. On a personal book
         # the whole idea is noise, so it is not offered.
@@ -970,7 +1141,7 @@ def book_menu(book: Book) -> Screen:
           if book.type in (BookType.TEAM, BookType.ORGANIZATION) else []),
         *([[Button("👤 افزودن هم‌تیمی", data=f"iv:new:{book.id}")]]
           if book.type in (BookType.TEAM, BookType.ORGANIZATION) else []),
-        [Button("⬅️ دفترها", data="book:list")],
+        [Button("⬅️ بازگشت", data="book:list")],
     ]
 
 
@@ -984,7 +1155,7 @@ def budget_list(book: Book, statuses, month_label: str) -> Screen:
     if not statuses:
         text = rtl(
             f"🎯 بودجه‌های {book.name}\n\n"
-            "هنوز سقفی تعیین نشده.\n"
+            "هنوز بودجه‌ای نساخته‌ای.\n"
             "برای یک دسته یا کل هزینه‌ها سقف ماهانه بگذار تا ربات خبر بدهد."
         )
     else:
@@ -1000,12 +1171,11 @@ def budget_list(book: Book, statuses, month_label: str) -> Screen:
                 lines.append(f"  بیش از سقف: {fmt(-status.remaining)}")
         text = rtl("\n".join(lines))
 
-    rows = [[Button("➕ تعیین بودجه", data=f"bg:add:{book.id}")]]
+    rows = [[Button("➕ ساخت بودجه", data=f"bg:add:{book.id}")]]
     for status in statuses:
-        rows.append([
-            Button(status.label[:22], data="noop:x"),
-            Button("🗑", data=f"bg:del:{status.budget.id}"),
-        ])
+        # The name rides on the delete button itself: a separate label button
+        # had nothing to do and sent the person home when pressed.
+        rows.append([Button(f"🗑 حذف بودجهٔ {status.label[:22]}", data=f"bg:del:{status.budget.id}")])
     rows.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
     return text, rows
 
@@ -1019,12 +1189,17 @@ def budget_pick_kind(book: Book) -> Screen:
     ]
 
 
-def budget_ask_target() -> Screen:
-    return rtl("نام دقیق دسته را بنویس:"), [[Button("↩️ انصراف", data="nav:cancel")]]
+def budget_ask_target(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "نام دسته را همان‌طور که ثبت کرده‌ای بنویس.\nمثال: اجاره"), [
+        [Button("↩️ انصراف", data="nav:cancel")]
+    ]
 
 
-def budget_ask_amount(label: str) -> Screen:
-    return rtl(f"سقف ماهانه برای «{label}» چقدر باشد؟"), [
+def budget_ask_amount(label: str, problem: Optional[str] = None) -> Screen:
+    return rtl(
+        _problem(problem)
+        + f"سقف ماهانهٔ «{label}» چقدر باشد؟\nمثال: 500ک یا 2 میلیون"
+    ), [
         [Button("↩️ انصراف", data="nav:cancel")]
     ]
 
@@ -1040,7 +1215,7 @@ def debt_list(book: Book, debts, totals) -> Screen:
     ]
 
     if not debts:
-        lines += ["", "چیزی ثبت نشده.", "نسیه‌ها و قرض‌ها اینجا می‌مانند و روی درآمد اثر نمی‌گذارند."]
+        lines += ["", "مورد بازی نیست.", "نسیه‌ها و قرض‌ها اینجا می‌مانند و روی درآمد اثر نمی‌گذارند."]
     else:
         lines.append("")
         for debt in debts:
@@ -1053,35 +1228,38 @@ def debt_list(book: Book, debts, totals) -> Screen:
                 line += f"\n  {debt.note[:40]}"
             lines.append(line)
 
-    rows = [[Button("➕ ثبت طلب/بدهی", data=f"dt:add:{book.id}")]]
+    rows = [[Button("➕ ثبت طلب یا بدهی", data=f"dt:add:{book.id}")]]
     for debt in debts[:10]:
         rows.append([
-            Button(debt.person[:18], data="noop:x"),
-            Button("✅ تسویه", data=f"dt:settle:{debt.id}"),
-            Button("🗑", data=f"dt:del:{debt.id}"),
+            Button(f"✅ تسویه {debt.person[:14]}", data=f"dt:settle:{debt.id}"),
+            Button("🗑 حذف", data=f"dt:del:{debt.id}"),
         ])
     rows.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
     return rtl("\n".join(lines)), rows
 
 
 def debt_ask_person() -> Screen:
-    return rtl("نام طرف حساب را بنویس:"), [[Button("↩️ انصراف", data="nav:cancel")]]
+    return rtl("نام طرف حساب را بنویس.\nمثال: آقای رضایی"), [[Button("↩️ انصراف", data="nav:cancel")]]
 
 
-def debt_pick_direction(person: str) -> Screen:
-    return rtl(f"{person}\n\nجهت را انتخاب کن:"), [
-        [Button("📥 به من بدهکار است", data="dt:dir:owed_to_me")],
-        [Button("📤 من بدهکارم", data="dt:dir:i_owe")],
+def debt_pick_direction(person: str, problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + f"{person}\n\nکدام است؟"), [
+        [Button("📥 طلب من (او بدهکار است)", data="dt:dir:owed_to_me")],
+        [Button("📤 بدهی من (من بدهکارم)", data="dt:dir:i_owe")],
         [Button("↩️ انصراف", data="nav:cancel")],
     ]
 
 
-def debt_ask_amount() -> Screen:
-    return rtl("مبلغ را بنویس:"), [[Button("↩️ انصراف", data="nav:cancel")]]
+def debt_ask_amount(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "مبلغ را بنویس؛ مثلاً 2000000 یا 2م"), [[Button("↩️ انصراف", data="nav:cancel")]]
 
 
-def debt_ask_due() -> Screen:
-    return rtl("سررسید کِی است؟\n\nتاریخ بنویس، یا «ندارد» بزن."), [
+def debt_ask_due(typed: Optional[str] = None) -> Screen:
+    return rtl(
+        (f"⚠️ «{typed}» را به‌عنوان تاریخ نفهمیدم.\n\n" if typed else "")
+        + "سررسید کِی است؟\n\n"
+        "تاریخ بنویس (مثلاً 1405/08/15) یا دکمهٔ «بدون سررسید» را بزن."
+    ), [
         [Button("بدون سررسید", data="dt:nodue")],
         [Button("↩️ انصراف", data="nav:cancel")],
     ]
@@ -1154,24 +1332,29 @@ def loan_detail(book: Book, progress) -> Screen:
     return rtl("\n".join(lines)), buttons
 
 
-def loan_ask_title() -> Screen:
-    return rtl("نام وام چیست؟\n\nمثلاً: وام مسکن"), [
+def loan_ask_title(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "نام وام چیست؟\n\nمثال: وام مسکن"), [
         [Button("↩️ انصراف", data="nav:cancel")]
     ]
 
 
-def loan_ask_amount(title: str) -> Screen:
-    return rtl(f"{title}\n\nمبلغ هر قسط چقدر است؟"), [
+def loan_ask_amount(title: str, problem: Optional[str] = None) -> Screen:
+    return rtl(
+        _problem(problem) + f"{title}\n\nمبلغ هر قسط چقدر است؟ مثال: 5م یا 5000000"
+    ), [
         [Button("↩️ انصراف", data="nav:cancel")]
     ]
 
 
-def loan_ask_count() -> Screen:
-    return rtl("تعداد کل اقساط چند تاست؟"), [[Button("↩️ انصراف", data="nav:cancel")]]
+def loan_ask_count(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "تعداد کل اقساط چند تاست؟ مثال: 24"), [[Button("↩️ انصراف", data="nav:cancel")]]
 
 
-def loan_ask_start() -> Screen:
-    return rtl("تاریخ اولین قسط؟\n\nشمسی یا میلادی، یا «امروز»."), [
+def loan_ask_start(typed: Optional[str] = None) -> Screen:
+    return rtl(
+        (f"⚠️ «{typed}» را به‌عنوان تاریخ نفهمیدم.\n\n" if typed else "")
+        + "تاریخ اولین قسط؟\n\nمثال: 1405/08/01 یا «فردا»؛ یا دکمهٔ «امروز» را بزن."
+    ), [
         [Button("امروز", data="ln:today")],
         [Button("↩️ انصراف", data="nav:cancel")],
     ]
@@ -1198,10 +1381,10 @@ def transaction_list(book: Book, rows, page: int, total: int, per_page: int = 8)
     buttons: List[List[Button]] = []
     for tx in rows:
         mark = "💰" if tx.flow is Flow.INCOME else "🧾"
-        clip = "🧾" if tx.receipt_file_id else ""
+        clip = " 🧾" if tx.receipt_file_id else ""
         lines.append(
             f"{mark} {jalali.to_text(tx.occurred_on)} | {tx.category}: "
-            f"{fmt(tx.converted_amount, book.base_currency)} {clip}"
+            f"{fmt(tx.converted_amount, book.base_currency)}{clip}"
         )
         buttons.append([
             Button(f"{tx.category[:16]} — {fmt(tx.converted_amount)}", data=f"td:open:{tx.id}")
@@ -1212,7 +1395,9 @@ def transaction_list(book: Book, rows, page: int, total: int, per_page: int = 8)
         nav: List[Button] = []
         if page > 0:
             nav.append(Button("◀️ قبلی", data=f"td:page:{book.id}:{page - 1}"))
-        nav.append(Button(f"{page + 1}/{last + 1}", data="noop:x"))
+        # The counter is a label, not a command; pressing it redraws this page
+        # instead of sending the person somewhere else.
+        nav.append(Button(f"{page + 1}/{last + 1}", data=f"td:page:{book.id}:{page}"))
         if page < last:
             nav.append(Button("بعدی ▶️", data=f"td:page:{book.id}:{page + 1}"))
         buttons.append(nav)
@@ -1249,25 +1434,28 @@ def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Scree
     from ..shared import jalali
 
     word = "درآمد" if tx.flow is Flow.INCOME else "هزینه"
+    # Words, not an emoji per line: nine pictograms made the card harder to
+    # scan than the labels they stood in for.
     lines = [
-        "🧾 جزئیات تراکنش",
+        "جزئیات تراکنش",
         "",
-        f"📚 {book.name}",
-        f"📅 {jalali.to_text(tx.occurred_on)}  ({tx.occurred_on.isoformat()})",
-        f"🔖 {word}",
-        f"🏷 {tx.category}",
-        f"💵 {fmt(tx.converted_amount, book.base_currency)}",
+        f"دفتر: {book.name}",
+        f"تاریخ: {jalali.to_text(tx.occurred_on)}",
+        f"نوع: {word}",
+        f"دسته: {tx.category}",
+        f"مبلغ: {fmt(tx.converted_amount, book.base_currency)}",
     ]
     if tx.original_currency != book.base_currency:
-        lines.append(f"💱 اصل: {fmt(tx.original_amount, tx.original_currency)}"
+        lines.append(f"مبلغ اصلی: {fmt(tx.original_amount, tx.original_currency)}"
                      f" (نرخ {tx.conversion_rate})")
     if tx.description:
-        lines.append(f"📝 {tx.description}")
-    lines.append("🧾 رسید: " + _receipt_line(tx))
+        lines.append(f"توضیح: {tx.description}")
+    if tx.receipt_file_id:
+        lines.append("رسید: " + _receipt_line(tx))
     if activity is not None:
         label = "ویرایش‌شده توسط" if activity.kind == "edited" else "ثبت‌شده توسط"
-        lines.append(f"👤 {label}: {activity.display_name}")
-        lines.append(f"🕒 {jalali.datetime_text(activity.at, book.timezone)}")
+        lines.append(f"{label}: {activity.display_name}")
+        lines.append(f"زمان: {jalali.datetime_text(activity.at, book.timezone)}")
 
     tail = f":{origin}" if origin in ("a", "b") else ""
     buttons: List[List[Button]] = []
@@ -1297,15 +1485,17 @@ def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Scree
 
 
 def ask_receipt() -> Screen:
-    return rtl("🧾 عکس یا فایل رسید را بفرست.\n\nبرای انصراف /cancel بزن."), []
+    return rtl("🧾 عکس یا فایل رسید را بفرست.\n\nبرای انصراف /cancel بزن."), [
+        [Button("↩️ انصراف", data="nav:cancel")]
+    ]
 
 
 def ask_description(editing=False) -> Screen:
-    text = "توضیحات تراکنش را بفرست (حداکثر ۵۰۰ حرف)."
+    text = "توضیحات تراکنش را بنویس (حداکثر 500 حرف)؛ مثلاً: «بابت مرداد»."
     if not editing:
         text += "\nاگر رسید، عکس یا فایلی داری، همراه توضیحات بفرست."
     data = "td:clear_description" if editing else "tx:skip"
-    return rtl(text), [[Button("پاک کردن توضیحات" if editing else "ثبت بدون توضیحات", data=data)],
+    return rtl(text), [[Button("حذف توضیحات" if editing else "ثبت بدون توضیحات", data=data)],
                        [Button("↩️ انصراف", data="nav:cancel")]]
 
 
@@ -1315,7 +1505,7 @@ def ask_description_with_rate(code: str, rate, base_code: str, converted) -> Scr
     return rtl(
         f"💱 نرخ امروز {name}: {fmt(rate, CURRENCY_NAMES.get(base_code, base_code))}\n"
         f"معادل: {fmt(converted, CURRENCY_NAMES.get(base_code, base_code))}\n\n"
-        "توضیحات تراکنش را بفرست (حداکثر ۵۰۰ حرف).\n"
+        "توضیحات تراکنش را بنویس (حداکثر 500 حرف)؛ مثلاً: «بابت مرداد».\n"
         "اگر رسید، عکس یا فایلی داری، همراه توضیحات بفرست."
     ), [
         [Button("ثبت بدون توضیحات", data="tx:skip")],
@@ -1325,25 +1515,26 @@ def ask_description_with_rate(code: str, rate, base_code: str, converted) -> Scr
 
 
 def category_list(book, categories) -> Screen:
-    rows = [[Button("➕ افزودن دسته‌بندی", data=f"cg:new:{book.id}")]]
+    rows = [[Button("➕ افزودن دسته", data=f"cg:new:{book.id}")]]
     for category in categories:
         kind = "درآمد" if category.flow is Flow.INCOME else "هزینه" if category.flow is Flow.EXPENSE else "تعیین‌نشده"
         rows.append([Button(f"{category.name[:18]} · {kind}", data=f"cg:open:{category.id}"),
                      Button("ویرایش", data=f"cg:edit:{category.id}"),
                      Button("حذف", data=f"cg:del:{category.id}")])
-    rows.append([Button("⬅️ دفتر", data=f"book:open:{book.id}")])
-    return rtl(f"🏷 دسته‌بندی‌های {book.name}\n\n" +
-               ("یک دسته‌بندی انتخاب کن." if categories else "هنوز دسته‌بندی نداری؛ از دکمهٔ بالا اضافه کن.")), rows
+    rows.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
+    return rtl(f"🏷 دسته‌های {book.name}\n\n" +
+               ("برای ویرایش یا حذف یک دسته، دکمهٔ کنارش را بزن." if categories
+                else "هنوز دسته‌ای نداری؛ از دکمهٔ بالا اضافه کن.")), rows
 
 
 def ask_category_name(current_name=None) -> Screen:
     rows = [[Button("حفظ نام و ویرایش نوع", data="cg:keep")]] if current_name else []
     rows.append([Button("↩️ انصراف", data="nav:cancel")])
-    return rtl("نام دسته‌بندی را بفرست (۱ تا ۸۰ حرف)."), rows
+    return rtl("نام دسته را بنویس (1 تا 80 حرف)؛ مثلاً: اجاره."), rows
 
 
 def ask_category_flow() -> Screen:
-    return rtl("این دسته‌بندی برای درآمد است یا هزینه؟"), [
+    return rtl("این دسته برای درآمد است یا هزینه؟"), [
         [Button("درآمد", data="cg:type:income"), Button("هزینه", data="cg:type:expense")],
         [Button("↩️ انصراف", data="nav:cancel")]]
 
@@ -1375,17 +1566,19 @@ def ask_login_destination() -> Screen:
 
 def ask_login_code() -> Screen:
     return rtl("اگر حساب مقصد در همین پیام‌رسان متصل باشد، کد ورود برایش ارسال می‌شود.\n"
-               "کد را اینجا بفرست؛ اعتبار آن ۵ دقیقه است."), [[Button("↩️ انصراف", data="acc:panel")]]
+               "کد را اینجا بفرست؛ اعتبار آن 5 دقیقه است."), [[Button("↩️ انصراف", data="acc:panel")]]
 
 
 def login_proof(code) -> Screen:
-    return rtl(f"🔐 کد ورود به حساب کسب‌بوک: {code}\nاعتبار: ۵ دقیقه.\n"
+    return rtl(f"🔐 کد ورود به حساب کسب‌بوک: {code}\nاعتبار: 5 دقیقه.\n"
                "فقط در ربات رسمی یا API رسمی کسب‌بوک وارد کن. اگر درخواست نداده‌ای، این پیام را نادیده بگیر."), []
 
 
 # ================================================================== search
-def ask_search() -> Screen:
-    return rtl("🔎 جست‌وجو\n\nبخشی از نام دسته یا توضیح را بنویس."), [
+def ask_search(problem: Optional[str] = None) -> Screen:
+    return rtl(
+        _problem(problem) + "🔎 جست‌وجو\n\nبخشی از نام دسته یا توضیح را بنویس؛ مثلاً: اجاره"
+    ), [
         [Button("↩️ انصراف", data="nav:cancel")]
     ]
 
@@ -1401,6 +1594,7 @@ def search_results(book: Book, query: str, rows, total: int, amount, page: int,
         ]
 
     lines = [f"🔎 «{query}» — {total} نتیجه", f"جمع کل: {fmt(amount, book.base_currency)}", ""]
+    buttons: List[List[Button]] = []
     for tx in rows:
         mark = "💰" if tx.flow is Flow.INCOME else "🧾"
         note = f" — {tx.description[:24]}" if tx.description else ""
@@ -1408,14 +1602,18 @@ def search_results(book: Book, query: str, rows, total: int, amount, page: int,
             f"{mark} {jalali.to_text(tx.occurred_on)} | {tx.category}: "
             f"{fmt(tx.converted_amount)}{note}"
         )
+        # A result you cannot open is a dead end: finding a transaction is
+        # nearly always the first step of editing or deleting it.
+        buttons.append([
+            Button(f"{mark} {tx.category[:16]} — {fmt(tx.converted_amount)}", data=f"td:open:{tx.id}")
+        ])
 
-    buttons: List[List[Button]] = []
     last = max(0, (total - 1) // per_page)
     if last:
         nav: List[Button] = []
         if page > 0:
             nav.append(Button("◀️ قبلی", data=f"sr:page:{page - 1}"))
-        nav.append(Button(f"{page + 1}/{last + 1}", data="noop:x"))
+        nav.append(Button(f"{page + 1}/{last + 1}", data=f"sr:page:{page}"))
         if page < last:
             nav.append(Button("بعدی ▶️", data=f"sr:page:{page + 1}"))
         buttons.append(nav)
@@ -1426,7 +1624,10 @@ def search_results(book: Book, query: str, rows, total: int, amount, page: int,
 
 
 # =============================================================== recurring
-PERIOD_LABELS = {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}
+# Not PERIOD_LABELS: payroll defines that name further down for its period
+# statuses, and the later definition silently replaced this one, so every
+# recurring rule was listed with an empty frequency.
+RECURRING_PERIOD_LABELS = {"daily": "روزانه", "weekly": "هفتگی", "monthly": "ماهانه"}
 
 
 def recurring_list(book: Book, rules) -> Screen:
@@ -1434,53 +1635,54 @@ def recurring_list(book: Book, rules) -> Screen:
 
     if not rules:
         text = rtl(
-            f"🔁 تکرارشونده‌های {book.name}\n\n"
-            "چیزی تعریف نشده.\n"
+            f"🔁 تراکنش‌های تکرارشونده — {book.name}\n\n"
+            "هنوز چیزی تعریف نشده.\n"
             "اجاره یا حقوق را یک بار تعریف کن تا خودکار ثبت شوند."
         )
     else:
-        lines = [f"🔁 تکرارشونده‌های {book.name}", ""]
+        lines = [f"🔁 تراکنش‌های تکرارشونده — {book.name}", ""]
         for rule in rules:
             state = "فعال ✅" if rule.is_active else "متوقف ⏸"
             word = "درآمد" if rule.flow is Flow.INCOME else "هزینه"
             lines.append(
                 f"• {rule.category} — {fmt(rule.amount, book.base_currency)}\n"
-                f"  {word} | {PERIOD_LABELS.get(rule.period.value, '')} | {state}\n"
+                f"  {word} | {RECURRING_PERIOD_LABELS.get(rule.period.value, '')} | {state}\n"
                 f"  بعدی: {jalali.to_text(rule.next_run_on)}"
             )
         text = rtl("\n".join(lines))
 
-    buttons = [[Button("➕ افزودن قاعده", data=f"rr:add:{book.id}")]]
+    buttons = [[Button("➕ افزودن تراکنش تکرارشونده", data=f"rr:add:{book.id}")]]
     for rule in rules[:10]:
-        toggle = "⏸" if rule.is_active else "▶️"
+        toggle = f"⏸ توقف {rule.category[:12]}" if rule.is_active else f"▶️ ادامهٔ {rule.category[:12]}"
         buttons.append([
-            Button(rule.category[:18], data="noop:x"),
             Button(toggle, data=f"rr:tog:{rule.id}"),
-            Button("🗑", data=f"rr:del:{rule.id}"),
+            Button("🗑 حذف", data=f"rr:del:{rule.id}"),
         ])
     buttons.append([Button("⬅️ بازگشت", data=f"book:open:{book.id}")])
     return text, buttons
 
 
 def recurring_pick_flow() -> Screen:
-    return rtl("درآمد است یا هزینه؟"), [
+    return rtl("این تراکنش تکرارشونده درآمد است یا هزینه؟"), [
         [Button("💰 درآمد", data="rr:flow:income"), Button("🧾 هزینه", data="rr:flow:expense")],
         [Button("↩️ انصراف", data="nav:cancel")],
     ]
 
 
-def recurring_ask_category() -> Screen:
-    return rtl("دسته چیست؟\n\nمثلاً: اجاره، حقوق، اشتراک"), [
+def recurring_ask_category(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "دسته چیست؟\n\nمثال: اجاره، حقوق، اشتراک"), [
         [Button("↩️ انصراف", data="nav:cancel")]
     ]
 
 
-def recurring_ask_amount(category: str) -> Screen:
-    return rtl(f"{category}\n\nمبلغ چقدر است؟"), [[Button("↩️ انصراف", data="nav:cancel")]]
+def recurring_ask_amount(category: str, problem: Optional[str] = None) -> Screen:
+    return rtl(
+        _problem(problem) + f"{category}\n\nمبلغ چقدر است؟ مثال: 5000000 یا 5م"
+    ), [[Button("↩️ انصراف", data="nav:cancel")]]
 
 
-def recurring_pick_period() -> Screen:
-    return rtl("هر چند وقت تکرار شود؟"), [
+def recurring_pick_period(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "هر چند وقت تکرار شود؟"), [
         [Button("ماهانه", data="rr:period:monthly")],
         [Button("هفتگی", data="rr:period:weekly")],
         [Button("روزانه", data="rr:period:daily")],
@@ -1488,8 +1690,11 @@ def recurring_pick_period() -> Screen:
     ]
 
 
-def recurring_ask_start() -> Screen:
-    return rtl("از چه تاریخی شروع شود؟"), [
+def recurring_ask_start(typed: Optional[str] = None) -> Screen:
+    return rtl(
+        (f"⚠️ «{typed}» را به‌عنوان تاریخ نفهمیدم.\n\n" if typed else "")
+        + "از چه تاریخی شروع شود؟\n\nمثال: 1405/08/01 یا «فردا»؛ یا دکمهٔ «امروز» را بزن."
+    ), [
         [Button("امروز", data="rr:today")],
         [Button("↩️ انصراف", data="nav:cancel")],
     ]
@@ -1511,14 +1716,14 @@ def reminder_settings(user) -> Screen:
     ]
 
 
-def ask_hour() -> Screen:
-    return rtl("ساعت ارسال خلاصه را بنویس (۰ تا ۲۳):"), [
+def ask_hour(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "ساعت ارسال خلاصه را بنویس (0 تا 23)؛ مثلاً: 21"), [
         [Button("↩️ انصراف", data="rm:panel")]
     ]
 
 
-def ask_days() -> Screen:
-    return rtl("چند روز قبل از سررسید خبر بدهم؟"), [
+def ask_days(problem: Optional[str] = None) -> Screen:
+    return rtl(_problem(problem) + "چند روز قبل از سررسید خبر بدهم؟ مثال: 3"), [
         [Button("↩️ انصراف", data="rm:panel")]
     ]
 
@@ -1670,10 +1875,10 @@ def rule_pick_basis(fund_name: str) -> Screen:
 
 def rule_ask_value(basis: str) -> Screen:
     if basis == "fixed":
-        return rtl("چه مبلغی هر دوره کنار گذاشته شود؟\n\nمثلاً: ۵م"), [
+        return rtl("چه مبلغی هر دوره کنار گذاشته شود؟\n\nمثلاً: 5م"), [
             [Button("⬅️ انصراف", data="nav:cancel")]
         ]
-    return rtl("چند درصد؟\n\nفقط عدد بنویس. مثلاً: ۱۰"), [
+    return rtl("چند درصد؟\n\nفقط عدد بنویس. مثلاً: 10"), [
         [Button("⬅️ انصراف", data="nav:cancel")]
     ]
 
@@ -1721,7 +1926,7 @@ def period_ask_date(period, which: str) -> Screen:
     edge = "قبل از" if which == "start" else "بعد از"
     return rtl(
         f"📅 تاریخ {what} «{period.label}» را بفرست.\n\n"
-        f"مثل ۱۴۰۵/۰۶/۳۱ — باید {edge} {jalali.to_text(other)} نباشد."
+        f"مثل 1405/06/31 — باید {edge} {jalali.to_text(other)} نباشد."
     ), [[Button("⬅️ انصراف", data=f"pr:dates:{period.id}")]]
 
 
@@ -1973,7 +2178,7 @@ def payslip_detail(book: Book, slip, name: str) -> Screen:
         # A figure typed wrongly, or against the wrong person, was permanent.
         last = slip.payments[-1]
         buttons.append([Button(
-            f"↩️ لغو آخرین پرداخت ({_payment_amount(last, currency)})",
+            f"↩️ برگرداندن آخرین پرداخت ({_payment_amount(last, currency)})",
             data=f"pr:unpay:{last.id}")])
     buttons.append([Button("⬅️ بازگشت", data=f"pr:slips:{slip.period_id}")])
     return rtl("\n".join(lines)), buttons
@@ -1983,7 +2188,7 @@ def payslip_ask_amount(name: str, outstanding: Decimal, currency: str) -> Screen
     return rtl(
         f"چقدر به {name} پرداخت شد؟\n\n"
         f"مانده: {fmt(outstanding, currency)}\n"
-        "مثلاً: ۵م"
+        "مثلاً: 5م"
     ), [[Button("⬅️ انصراف", data="nav:cancel")]]
 
 
@@ -2030,7 +2235,7 @@ def adjustment_ask_value(name: str) -> Screen:
     return rtl(
         f"چه مبلغی برای {name}؟\n\n"
         "برای پاداش عدد مثبت، برای کسر عدد منفی بنویس.\n"
-        "مثلاً: ۲م یا ‎-۵۰۰ک"
+        "مثلاً: 2م یا ‎-500ک"
     ), [[Button("⬅️ انصراف", data="nav:cancel")]]
 
 
@@ -2080,7 +2285,7 @@ def share_list(book: Book, members, names, rules) -> Screen:
     if percent_total:
         lines += ["", f"مجموع درصدها: {percent_total:,.0f}٪"]
         if percent_total > 100:
-            lines.append("⚠️ بیشتر از ۱۰۰٪ است — بیش از قابل‌تقسیم پرداخت می‌شود.")
+            lines.append("⚠️ بیشتر از 100٪ است — بیش از قابل‌تقسیم پرداخت می‌شود.")
         elif percent_total < 100:
             lines.append(f"باقی‌مانده: {100 - percent_total:,.0f}٪ تقسیم نمی‌شود.")
 
@@ -2121,11 +2326,11 @@ def share_pick_basis(name: str, current) -> Screen:
 
 def share_ask_value(name: str, basis: str) -> Screen:
     if basis == "percent":
-        return rtl(f"{name} چند درصد بگیرد؟\n\nفقط عدد. مثلاً: ۵۰"), [
+        return rtl(f"{name} چند درصد بگیرد؟\n\nفقط عدد. مثلاً: 50"), [
             [Button("⬅️ انصراف", data="sh:list")]
         ]
     if basis == "fixed":
-        return rtl(f"{name} هر دوره چه مبلغی بگیرد؟\n\nمثلاً: ۱۵م"), [
+        return rtl(f"{name} هر دوره چه مبلغی بگیرد؟\n\nمثلاً: 15م"), [
             [Button("⬅️ انصراف", data="sh:list")]
         ]
 
@@ -2133,7 +2338,7 @@ def share_ask_value(name: str, basis: str) -> Screen:
     return rtl(
         f"ضریب {name} چند باشد؟\n\n"
         f"سهمش به نسبت {unit}هایی که در هر دوره ثبت می‌شود حساب می‌شود، "
-        f"ضربدر این عدد.\nبرای وزن برابر ۱ بنویس."
+        f"ضربدر این عدد.\nبرای وزن برابر 1 بنویس."
     ), [[Button("⬅️ انصراف", data="sh:list")]]
 
 
@@ -2321,12 +2526,13 @@ def pick_currency(codes, balances_by_code) -> Screen:
     return rtl("\n".join(lines)), buttons
 
 
-def ask_rate(code: str, base_code: str) -> Screen:
+def ask_rate(code: str, base_code: str, problem: Optional[str] = None) -> Screen:
     """A foreign amount needs a rate, because the book reports in its own currency."""
     name = CURRENCY_NAMES.get(code, code)
     base = CURRENCY_NAMES.get(base_code, base_code)
     return rtl(
-        f"💱 نرخ هر {name} به {base} چند است؟\n\n"
+        _problem(problem)
+        + f"💱 نرخ هر {name} به {base} چند است؟\n\n"
         f"همین عدد در تراکنش ثبت و قفل می‌شود، تا گزارش این ماه با نرخ فردا عوض نشود."
     ), [[Button("⬅️ انصراف", data="nav:cancel")]]
 

@@ -863,7 +863,7 @@ async def test_the_bot_can_take_back_the_last_payment(session):
     assert len(slip.payments) == 1
 
     detail = await convo.handle(press(f"pr:slip:{slip.id}"))
-    assert any("لغو آخرین پرداخت" in label for label in labels(detail))
+    assert any("برگرداندن آخرین پرداخت" in label for label in labels(detail))
 
     await convo.handle(press(f"pr:unpay:{slip.payments[0].id}"))
     await session.refresh(slip, attribute_names=["payments"])
@@ -902,7 +902,7 @@ async def test_a_paid_period_takes_a_late_receipt_and_leaves_the_rest_owed(sessi
     assert "مانده پرداخت: 50,000,000" in after.text      # 5m to one, 45m to the other
 
     listed = await convo.handle(press(f"pr:slips:{period.id}"))
-    assert "🟡 عماد: 45,000,000 IRT — مانده 5,000,000 IRT" in listed.text
+    assert "🟡 عماد: 45,000,000 تومان — مانده 5,000,000 تومان" in listed.text
 
     slip = await convo.handle(press(f"pr:slip:{slips[owner.id].id}"))
     assert "مانده: 5,000,000" in slip.text

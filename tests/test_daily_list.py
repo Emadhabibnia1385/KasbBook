@@ -225,15 +225,15 @@ async def test_the_daily_list_reads_like_the_old_one(session):
 
     reply = await convo.handle(press(f"dl:v:{TOKEN}:a:0"))
 
-    for line in ("2026-03-19", "1404/12/28", "📊 گزارش روز",
-                 "💰 درآمد کاری: 1,000", "🏢 هزینه کاری: 300", "➖ خالص کاری: 700",
-                 "💵 درآمد شخصی: 50", "📄 قسط پرداختی: 20",
-                 "👤 هزینه شخصی (بدون قسط): 80",
-                 "💾 پس‌انداز عملیاتی: 670", "💾 پس‌انداز نهایی: 650"):
+    for line in ("1404/12/28", "خلاصهٔ روز",
+                 "💰 درآمد کاری: 1,000", "🧾 هزینه کاری: 300", "➖ سود کاری: 700",
+                 "💵 درآمد شخصی: 50", "قسط وام: 20",
+                 "👤 هزینه شخصی: 80",
+                 "💾 مانده پس از هزینه‌ها: 670", "💾 مانده پس از قسط: 650"):
         assert line in reply.text, line
 
     assert ["نت ملی", "1,000"] in rows(reply)
-    assert any("لیست درآمد کاری" in label for label in labels(reply))
+    assert any(label.startswith("— درآمد (") for label in labels(reply))
     assert "فردا" not in labels(reply)  # tomorrow's line stays on tomorrow
     # One book: "new" offers its four kinds directly, as the old list did.
     assert len([b for row in reply.buttons for b in row
@@ -272,8 +272,8 @@ async def test_the_filter_shows_only_the_book_it_names(session):
     only_team = await convo.handle(press(f"dl:v:{TOKEN}:{team.id}:0"))
     assert "ناهار تیم" in labels(only_team) and "نت ملی" not in labels(only_team)
     assert "🔎 فقط: 👥 تیم الف" in only_team.text
-    assert "🏢 هزینه: 40" in only_team.text
-    assert "پس‌انداز" not in only_team.text  # a team's money is not anyone's savings
+    assert "🧾 هزینه: 40" in only_team.text
+    assert "مانده پس از" not in only_team.text  # a team's money is not anyone's savings
 
 
 async def test_adding_from_the_list_lands_on_that_day_and_comes_back(session):
@@ -287,7 +287,7 @@ async def test_adding_from_the_list_lands_on_that_day_and_comes_back(session):
     reply = await convo.handle(press("tx:skip"))
 
     assert "1404/12/28" in reply.text
-    assert "🏢 هزینه کاری: 550" in reply.text
+    assert "🧾 هزینه کاری: 550" in reply.text
     assert ["کرایه", "250"] in rows(reply)
 
     added = [tx for tx in await LedgerService(session).transactions(shop.id, user.id, DAY, DAY)
@@ -338,7 +338,7 @@ async def test_deleting_from_the_list_comes_back_to_the_list(session):
     assert yes == f"td:delok:{target.id}:b"
 
     reply = await convo.handle(press(yes))
-    assert "1404/12/28" in reply.text and "🏢 هزینه کاری: 0" in reply.text
+    assert "1404/12/28" in reply.text and "🧾 هزینه کاری: 0" in reply.text
 
     debit, credit = await ledger.trial_balance(shop.id)
     assert debit == credit
@@ -350,7 +350,7 @@ async def test_a_typed_date_jumps_the_list(session):
 
     await convo.handle(press("dl:go:a"))
     reply = await convo.handle(says("2026-03-19"))
-    assert "1404/12/28" in reply.text and "💾 پس‌انداز نهایی: 650" in reply.text
+    assert "1404/12/28" in reply.text and "💾 مانده پس از قسط: 650" in reply.text
 
 
 async def test_every_button_on_the_list_fits_a_callback_payload(session):

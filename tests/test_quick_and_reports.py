@@ -153,7 +153,7 @@ async def test_an_unreadable_line_offers_help_rather_than_guessing(session):
     user, (book,), convo = await setup(session)
 
     reply = await convo.handle(says("یه چیزی بنویس"))
-    assert "متوجه نشدم" in reply.text
+    assert "مبلغی در این پیام ندیدم" in reply.text
     assert await LedgerService(session).transactions(book.id, user.id) == []
 
 

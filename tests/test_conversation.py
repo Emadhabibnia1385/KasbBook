@@ -224,7 +224,7 @@ async def test_cancel_drops_a_half_finished_flow(session):
     # The next typed line is not mistaken for a category. It falls through to
     # quick entry, which refuses a line with no amount rather than guessing.
     reply = await convo.handle(says("فروش"))
-    assert "متوجه نشدم" in reply.text
+    assert "مبلغی در این پیام ندیدم" in reply.text
     assert await LedgerService(session).transactions(book.id, user.id) == []
 
 

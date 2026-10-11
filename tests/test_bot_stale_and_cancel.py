@@ -271,7 +271,7 @@ async def test_cancel_button_on_the_new_book_prompt_creates_no_book(session):
     await convo.handle(press("book:new"))
     prompt = await convo.handle(press("book:type:business"))
     reply = await convo.handle(press(button(prompt, "nav:")))
-    assert "لغو شد" in reply.text
+    assert "انصراف دادی" in reply.text
 
     follow_up = await convo.handle(says("فروش 250000"))
 
@@ -287,7 +287,7 @@ async def test_typing_cancel_on_the_new_book_prompt_creates_no_book(session):
     await convo.handle(press("book:type:business"))
     reply = await convo.handle(says("انصراف"))
 
-    assert "لغو شد" in reply.text
+    assert "انصراف دادی" in reply.text
     assert await BookService(session).books_for_user(user.id) == []
     assert (await convo.state.get("telegram:555001")) == {}
 
@@ -309,7 +309,7 @@ async def test_the_cancel_word_clears_every_text_input_state(session, opening):
     reply = await convo.handle(says("انصراف"))
 
     if state_before.get("flow"):
-        assert "لغو شد" in reply.text
+        assert "انصراف دادی" in reply.text
     assert (await convo.state.get("telegram:555001")) == {}
     assert len(await BookService(session).books_for_user(user.id)) == 1
 

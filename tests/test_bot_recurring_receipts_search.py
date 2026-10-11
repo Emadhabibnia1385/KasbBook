@@ -22,6 +22,7 @@ from kasbbook.modules.identity.service import IdentityService
 from kasbbook.modules.ledger.models import Flow, Scope
 from kasbbook.modules.ledger.service import LedgerService
 from kasbbook.modules.recurring.service import RecurringService
+from kasbbook.shared import jalali
 
 pytestmark = pytest.mark.asyncio
 TG = Provider.TELEGRAM
@@ -87,7 +88,9 @@ async def test_transactions_can_be_listed_and_opened(session):
     detail = await convo.handle(press(f"td:open:{tx.id}"))
     assert "جزئیات" in detail.text
     assert "500,000" in detail.text
-    assert "ندارد" in detail.text  # no receipt yet
+    # No receipt yet: the card says nothing about one, and offers to add it.
+    assert "رسید:" not in detail.text
+    assert any("افزودن رسید" in b.text for row in detail.buttons for b in row)
 
 
 async def test_a_long_list_pages(session):
@@ -173,7 +176,8 @@ async def test_a_receipt_can_be_removed(session):
     reply = await convo.handle(press(f"td:rcpd:{tx.id}"))
     stored = await ledger.get_transaction(book.id, user.id, tx.id)
     assert stored.receipt_file_id is None
-    assert "ندارد" in reply.text
+    assert "رسید:" not in reply.text
+    assert any("افزودن رسید" in b.text for row in reply.buttons for b in row)
 
 
 # ------------------------------------------------------------------ search
@@ -222,7 +226,7 @@ async def test_a_recurring_rule_can_be_defined_from_the_bot(session):
     assert rules[0].category == "اجاره"
     assert rules[0].amount == Decimal("5000000")
     assert rules[0].flow is Flow.EXPENSE
-    assert rules[0].next_run_on == date.today()
+    assert rules[0].next_run_on == jalali.today_in(user.timezone)
     assert "اجاره" in reply.text
 
 
@@ -238,7 +242,12 @@ async def test_a_rule_can_be_paused_and_deleted_from_its_list(session):
     rules = await RecurringService(session).list_rules(book.id, user.id)
     assert rules[0].is_active is False
 
-    await convo.handle(press(f"rr:del:{rule.id}"))
+    # Deleting asks first; nothing is removed by the first tap.
+    confirm = await convo.handle(press(f"rr:del:{rule.id}"))
+    assert await RecurringService(session).list_rules(book.id, user.id) != []
+    yes = next(b.data for row in confirm.buttons for b in row if "حذف کن" in b.text)
+
+    await convo.handle(press(yes))
     assert await RecurringService(session).list_rules(book.id, user.id) == []
 
 
@@ -314,7 +323,7 @@ async def test_one_account_cannot_open_another_accounts_transaction(session):
     convo = Conversation(session, MemoryStateStore(), TG)
     reply = await convo.handle(press(f"td:open:{tx.id}", external_id="999"))
 
-    assert "پیدا نشد" in reply.text
+    assert "دیگر وجود ندارد" in reply.text
     assert "خصوصی" not in reply.text
 
 
@@ -383,7 +392,7 @@ async def test_removing_a_receipt_takes_its_name_with_it(session):
     assert stored.receipt_kind is None
     assert stored.receipt_file_name is None
     assert stored.receipt_mime_type is None
-    assert "ندارد" in reply.text
+    assert "رسید:" not in reply.text
     assert "invoice" not in reply.text
 
 

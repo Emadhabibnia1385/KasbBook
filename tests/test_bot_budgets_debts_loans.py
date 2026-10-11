@@ -134,8 +134,12 @@ async def test_a_budget_can_be_removed_from_its_list(session):
     budget = await BudgetService(session).set_budget(
         book.id, user.id, BudgetKind.CATEGORY, "اجاره", 1_000
     )
-    await convo.handle(press(f"bg:del:{budget.id}"))
+    # Deleting asks first; nothing is removed by the first tap.
+    confirm = await convo.handle(press(f"bg:del:{budget.id}"))
+    assert await BudgetService(session).list_budgets(book.id, user.id) != []
+    yes = next(b.data for row in confirm.buttons for b in row if "حذف کن" in b.text)
 
+    await convo.handle(press(yes))
     assert await BudgetService(session).list_budgets(book.id, user.id) == []
 
 
@@ -228,7 +232,8 @@ async def test_today_is_offered_as_a_start_date(session):
     await convo.handle(press("ln:today"))
 
     loan = (await LoanService(session).list_loans(book.id, user.id))[0]
-    assert loan.starts_on == date.today()
+    # The person's day, not the server's: they differ for hours every night.
+    assert loan.starts_on == jalali.today_in(user.timezone)
 
 
 async def test_a_non_numeric_installment_count_asks_again(session):
@@ -305,5 +310,5 @@ async def test_one_account_cannot_reach_another_accounts_loan(session):
     convo = Conversation(session, MemoryStateStore(), TG)
     reply = await convo.handle(press(f"ln:open:{loan.id}", external_id="999"))
 
-    assert "پیدا نشد" in reply.text
+    assert "دیگر وجود ندارد" in reply.text
     assert "خصوصی" not in reply.text

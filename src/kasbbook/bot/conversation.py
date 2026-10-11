@@ -45,7 +45,7 @@ from ..modules.treasury.models import FundKind, RuleBasis
 from ..modules.exchange.service import ExchangeService
 from ..modules.treasury.service import TreasuryService
 from ..modules.reports.service import ReportService
-from ..shared.errors import KasbBookError
+from ..shared.errors import KasbBookError, ValidationError
 from ..shared import jalali
 from ..shared.money import SCALE
 from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
@@ -55,6 +55,34 @@ from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
 # What a person types to back out of a half-finished flow. The button's label
 # is included because some people type exactly what they see.
 CANCEL_WORDS = ("انصراف", "لغو", "↩️ انصراف", "⬅️ انصراف")
+
+# What fits on a button next to its emoji. Longer names stay readable in the
+# list text but would be cut mid-word on the button that opens the book.
+BOOK_NAME_LIMIT = 40
+
+# What a person types when a due date does not apply.
+NO_DUE_WORDS = ("ندارد", "ندارم", "بدون سررسید", "-")
+
+
+def read_amount(text: str):
+    """(amount, None) or (None, why): the answer to every "how much?" prompt.
+
+    One reader for every prompt, so «۳۰ هزار و ۵۰۰» means the same thing in a
+    quick line, a budget and a loan, and a refusal always says why: not a
+    number, zero, or written in a way that could mean two different sums.
+    """
+    got = quick.read_amount(text)
+    if isinstance(got, quick.Unclear):
+        return None, screens.unclear_reason(got.reason, got.numbers)
+    if got is None:
+        typed = (text or "").strip()
+        if typed[:1] in ("-", "−") and isinstance(quick.read_amount(typed[1:]), Decimal):
+            return None, "مبلغ منفی نمی‌شود؛ بدون علامت منفی بنویس. برای برداشت، نوع «هزینه» را بزن."
+        return None, f"«{typed[:30]}» مبلغ نیست. فقط عدد بنویس؛ مثلاً 250000 یا 250ک."
+    if got <= 0:
+        return None, "مبلغ باید بیشتر از صفر باشد."
+    return got, None
+
 
 # Which book type a scope belongs to, so a team book never records personal money.
 SCOPE_FOR_BOOK = {
@@ -112,7 +140,7 @@ class Conversation:
             text, buttons = await self._route(event, key)
         except KasbBookError as exc:
             # Domain errors are answers, not crashes: the user sees why.
-            text, buttons = screens.error(str(exc))
+            text, buttons = screens.error(screens.user_message(exc))
 
         return OutgoingMessage(
             chat_id=event.chat_id,
@@ -169,7 +197,7 @@ class Conversation:
                 display_name=event.identity.display_name,
             )
             user = await self.identity.get_user(identity.user_id)
-            return screens.welcome(user.display_name)
+            return await self._home(user)
 
         user = await self.identity.create_account_from_messenger(
             self.provider,
@@ -177,16 +205,20 @@ class Conversation:
             display_name=event.identity.display_name,
             external_username=event.identity.username,
         )
-        return screens.welcome(user.display_name)
+        return await self._home(user)
 
     # ------------------------------------------------------------ commands
     async def _command(self, event: IncomingEvent, user, key: str):
         if event.command == "cancel":
             await self.state.clear(key)
-            return screens.welcome(user.display_name)
+            return screens.cancelled(user.display_name)
         # /start on an already-linked account is just "go home".
         await self.state.clear(key)
-        return screens.welcome(user.display_name)
+        return await self._home(user)
+
+    async def _home(self, user):
+        """The home screen; with no book yet it says a book comes first."""
+        return screens.welcome(user.display_name, first_run=not await self.books.books_for_user(user.id))
 
     # ----------------------------------------------------------- callbacks
     async def _callback(self, event: IncomingEvent, user, key: str):
@@ -199,7 +231,7 @@ class Conversation:
             await self.state.clear(key)
             if action == "cancel":
                 return screens.cancelled(user.display_name)
-            return screens.welcome(user.display_name)
+            return await self._home(user)
 
         if area == "book":
             return await self._book_callback(action, argument, user, key)
@@ -263,13 +295,16 @@ class Conversation:
             return await self._performance_callback(action, argument, user, key)
 
         if area == "noop":
-            # An inert label; the screen stays as it is.
-            return screens.welcome(user.display_name)
+            # No screen emits this any more: a label that cannot act is a dead
+            # end, so lists put the name on the button that does something. An
+            # old message may still carry one, and it is told so rather than
+            # silently sent home.
+            return screens.stale(None, user.display_name)
 
         if area == "acc":
             return await self._account_callback(action, argument, user, key, event)
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _book_callback(self, action: str, argument: str, user, key: str):
         if action == "list":
@@ -354,7 +389,7 @@ class Conversation:
         if action == "cur":
             draft = await self.state.get(key)
             if draft.get("awaiting") != "currency" or not draft.get("book_id"):
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
 
             book = await self.books.get_book(uuid.UUID(draft["book_id"]))
             if argument not in await self.exchange.allowed(book.id):
@@ -387,7 +422,7 @@ class Conversation:
         if action == "rate":
             draft = await self.state.get(key)
             if not draft.get("currency") or not draft.get("book_id"):
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             book = await self.books.get_book(uuid.UUID(draft["book_id"]))
             draft["awaiting"] = "rate"
             await self.state.set(key, draft)
@@ -501,7 +536,7 @@ class Conversation:
         if action == "book":
             book = await self.books.get_book(uuid.UUID(argument))
             years = await self.reports.years_with_data(book.id, user.id)
-            return screens.period_menu(book, years)
+            return screens.period_menu(book, years, self._today(user))
 
         return screens.report_menu(await self.books.books_for_user(user.id))
 
@@ -512,7 +547,7 @@ class Conversation:
         period = reports_service.parse_spec(spec)
         if period is None:
             years = await self.reports.years_with_data(book.id, user.id)
-            return screens.period_menu(book, years)
+            return screens.period_menu(book, years, self._today(user))
 
         if kind == "rb":
             buckets = await self.reports.by_category(book.id, user.id, period)
@@ -583,7 +618,7 @@ class Conversation:
         if action == "clear_description":
             draft = await self.state.get(key)
             if draft.get("flow") != "tx_edit" or draft.get("field") != "description":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             return await self._edit_tx_text(None, draft, user, key)
         parts = (event.callback_data or "").split(":")
 
@@ -602,7 +637,7 @@ class Conversation:
         target = uuid.UUID(argument)
         book, tx = await self._tx_and_book(user, target)
         if tx is None:
-            return screens.error("این تراکنش پیدا نشد")
+            return screens.error("این تراکنش دیگر وجود ندارد؛ شاید حذف شده است.", back="tx:new")
 
         if action == "open":
             return await self._transaction_screen(book, tx, user, origin)
@@ -619,7 +654,10 @@ class Conversation:
                 await self.state.set(key, draft)
                 return screens.ask_category(tx.flow, draft["recent"])
             if field == "amount":
-                return screens.ask_amount(tx.category, tx.original_currency)
+                return screens.ask_amount(
+                    tx.category, self._foreign(tx, book),
+                    current=screens.fmt(tx.original_amount, tx.original_currency),
+                )
             if field == "occurred_on":
                 return screens.ask_date(f"td:open:{tx.id}{origin and ':' + origin}")
             return screens.ask_description(editing=True)
@@ -655,6 +693,12 @@ class Conversation:
 
         return await self._transaction_screen(book, tx, user, origin)
 
+    @staticmethod
+    def _foreign(tx, book):
+        """The transaction's currency when it is not the book's, else None: the
+        "original amount is in X" sentence is only true of foreign money."""
+        return tx.original_currency if tx.original_currency != book.base_currency else None
+
     async def _transaction_screen(self, book, tx, user, origin=""):
         activity = (await self.ledger.activities(user.id, [tx]))[tx.id]
         text, buttons = screens.transaction_detail(book, tx, origin, activity)
@@ -668,19 +712,30 @@ class Conversation:
     async def _edit_tx_text(self, text, draft, user, key):
         field = draft["field"]
         value = text
+        origin = draft.get("origin", "")
         if field == "amount":
-            value = parse_amount(text or "")
-            if value is None:
-                return screens.error("مبلغ معتبر وارد کن.")
+            value, problem = read_amount(text or "")
+            if problem:
+                # Stay on this step: the old prompt is what the next line answers.
+                tx = await self.ledger.get_transaction(
+                    uuid.UUID(draft["book_id"]), user.id, uuid.UUID(draft["tx_id"])
+                )
+                book = await self.books.get_book(tx.book_id)
+                return screens.ask_amount(
+                    tx.category, self._foreign(tx, book), problem,
+                    screens.fmt(tx.original_amount, tx.original_currency),
+                )
         if field == "occurred_on":
             value = parse_date(text or "", self._today(user))
             if value is None:
-                return screens.error("تاریخ معتبر وارد کن، مثل ۱۴۰۵/۰۶/۲۸.")
+                return screens.ask_date(
+                    f"td:open:{draft['tx_id']}{origin and ':' + origin}", (text or "")[:30]
+                )
         tx = await self.ledger.update(uuid.UUID(draft["book_id"]), user.id,
                                       uuid.UUID(draft["tx_id"]), **{field: value})
         await self.state.clear(key)
         book = await self.books.get_book(tx.book_id)
-        return await self._transaction_screen(book, tx, user, draft.get("origin", ""))
+        return screens.with_notice("✅ ویرایش شد", await self._transaction_screen(book, tx, user, origin))
 
     # --------------------------------------------------------------- search
     async def _search_callback(self, action: str, argument: str, user, key: str):
@@ -691,10 +746,10 @@ class Conversation:
         if action == "page":
             draft = await self.state.get(key)
             if draft.get("flow") != "search" or not draft.get("query"):
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             return await self._search_screen(user, draft, int(argument))
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _search_screen(self, user, draft: dict, page: int):
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
@@ -718,7 +773,7 @@ class Conversation:
         if action == "flow":
             draft = await self.state.get(key)
             if draft.get("flow") != "recurring":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             draft["direction"] = argument
             await self.state.set(key, draft)
             return screens.recurring_ask_category()
@@ -726,32 +781,40 @@ class Conversation:
         if action == "period":
             draft = await self.state.get(key)
             if draft.get("flow") != "recurring":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             draft["period"] = argument
             await self.state.set(key, draft)
             return screens.recurring_ask_start()
 
         if action == "today":
-            return await self._save_recurring(user, key, date.today())
+            return await self._save_recurring(user, key, self._today(user))
 
         target = uuid.UUID(argument)
         for book in await self.books.books_for_user(user.id):
             for rule in await self.recurring.list_rules(book.id, user.id):
                 if rule.id != target:
                     continue
+                if action == "del":
+                    return screens.confirm_delete(
+                        f"تراکنش تکرارشونده «{rule.category}»",
+                        f"rr:delok:{target}", f"rr:list:{book.id}",
+                    )
+                notice = None
                 if action == "tog":
                     await self.recurring.toggle(book.id, user.id, target)
-                elif action == "del":
+                elif action == "delok":
                     await self.recurring.delete(book.id, user.id, target)
+                    notice = "✅ حذف شد."
                 rules = await self.recurring.list_rules(book.id, user.id)
-                return screens.recurring_list(book, rules)
+                screen = screens.recurring_list(book, rules)
+                return screens.with_notice(notice, screen) if notice else screen
 
-        return screens.error("این قاعده پیدا نشد")
+        return screens.error("این مورد دیگر وجود ندارد؛ شاید حذف شده است.", back="book:list")
 
     async def _save_recurring(self, user, key: str, starts_on):
         draft = await self.state.get(key)
         if draft.get("flow") != "recurring" or not draft.get("period"):
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
         await self.recurring.create(
@@ -783,7 +846,7 @@ class Conversation:
     # -------------------------------------------------------------- budgets
     async def _budget_screen(self, book, user):
         statuses = await self.budgets.status(book.id, user.id)
-        year, month, _ = jalali.to_parts(date.today())
+        year, month, _ = jalali.to_parts(self._today(user))
         label = f"{jalali.month_name(month)} {year}"
         return screens.budget_list(book, statuses, label)
 
@@ -801,7 +864,7 @@ class Conversation:
         if action == "kind":
             draft = await self.state.get(key)
             if draft.get("flow") != "budget":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
 
             if argument == "category":
                 draft["kind"] = BudgetKind.CATEGORY.value
@@ -811,21 +874,27 @@ class Conversation:
             draft["kind"] = BudgetKind.FLOW.value
             draft["target"] = argument
             await self.state.set(key, draft)
-            label = "درآمد" if argument == Flow.INCOME.value else "هزینه"
-            return screens.budget_ask_amount(label)
+            return screens.budget_ask_amount(self._budget_label(draft))
 
-        if action == "del":
+        if action in ("del", "delok"):
             budget_id = uuid.UUID(argument)
             # The delete button lives on a list, so the book is whichever one
             # owns the budget; look it up rather than trusting stale state.
             for book in await self.books.books_for_user(user.id):
                 for status in await self.budgets.status(book.id, user.id):
                     if status.budget.id == budget_id:
+                        if action == "del":
+                            return screens.confirm_delete(
+                                f"بودجهٔ «{status.label}»",
+                                f"bg:delok:{budget_id}", f"bg:list:{book.id}",
+                            )
                         await self.budgets.delete(book.id, user.id, budget_id)
-                        return await self._budget_screen(book, user)
-            return screens.error("این بودجه پیدا نشد")
+                        return screens.with_notice(
+                            "✅ بودجه حذف شد.", await self._budget_screen(book, user)
+                        )
+            return screens.error("این بودجه دیگر وجود ندارد؛ شاید حذف شده است.", back="book:list")
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     # ---------------------------------------------------------------- debts
     async def _debt_screen(self, book, user):
@@ -846,7 +915,7 @@ class Conversation:
         if action == "dir":
             draft = await self.state.get(key)
             if draft.get("flow") != "debt":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             draft["direction"] = argument
             await self.state.set(key, draft)
             return screens.debt_ask_amount()
@@ -854,24 +923,30 @@ class Conversation:
         if action == "nodue":
             return await self._save_debt(user, key, None)
 
-        if action in ("settle", "del"):
+        if action in ("settle", "del", "delok"):
             target = uuid.UUID(argument)
             for book in await self.books.books_for_user(user.id):
                 for debt in await self.debts.list_debts(book.id, user.id, True):
                     if debt.id == target:
+                        if action == "del":
+                            return screens.confirm_delete(
+                                f"مورد «{debt.person}»", f"dt:delok:{target}", f"dt:list:{book.id}",
+                            )
                         if action == "settle":
                             await self.debts.settle(book.id, user.id, target)
+                            notice = f"✅ «{debt.person}» تسویه شد."
                         else:
                             await self.debts.delete(book.id, user.id, target)
-                        return await self._debt_screen(book, user)
-            return screens.error("این مورد پیدا نشد")
+                            notice = f"✅ «{debt.person}» حذف شد."
+                        return screens.with_notice(notice, await self._debt_screen(book, user))
+            return screens.error("این مورد دیگر وجود ندارد؛ شاید حذف شده است.", back="book:list")
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _save_debt(self, user, key: str, due):
         draft = await self.state.get(key)
         if draft.get("flow") != "debt" or not draft.get("amount"):
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
         await self.debts.create(
@@ -905,12 +980,12 @@ class Conversation:
             return screens.loan_ask_title()
 
         if action == "today":
-            return await self._save_loan(user, key, date.today())
+            return await self._save_loan(user, key, self._today(user))
 
         target = uuid.UUID(argument)
         book, loan = await self._loan_for(user, target)
         if loan is None:
-            return screens.error("این وام پیدا نشد")
+            return screens.error("این وام دیگر وجود ندارد؛ شاید حذف شده است.")
 
         if action == "open":
             progress = await self.loans.progress(book.id, user.id, loan)
@@ -930,12 +1005,12 @@ class Conversation:
             await self.loans.delete(book.id, user.id, loan.id)
             return await self._loan_screen(book, user)
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _save_loan(self, user, key: str, starts_on):
         draft = await self.state.get(key)
         if draft.get("flow") != "loan" or not draft.get("count"):
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
         await self.loans.create(
@@ -1118,8 +1193,8 @@ class Conversation:
             # again, except for a wrong current password, which starts over.
             if field == "password_new" and draft.get("current"):
                 await self.state.clear(key)
-                return screens.error(str(exc))
-            return screens.error(str(exc))
+                return screens.error(screens.user_message(exc))
+            return screens.error(screens.user_message(exc))
 
         await self.state.clear(key)
         return await self._account_panel(user)
@@ -1167,7 +1242,7 @@ class Conversation:
 
         if action == "tog":
             if draft.get("flow") != "currency":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             book = await self.books.get_book(uuid.UUID(draft["book_id"]))
             enabled = {o.code for o in await self.exchange.options(user.id, book.id) if o.enabled}
             await self.exchange.set_enabled(
@@ -1179,7 +1254,7 @@ class Conversation:
 
         if action == "from":
             if draft.get("flow") != "conversion":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             book = await self.books.get_book(uuid.UUID(draft["book_id"]))
             held = await self.exchange.balance_of(book.id, argument)
             draft["from"] = argument
@@ -1189,7 +1264,7 @@ class Conversation:
 
         if action == "to":
             if draft.get("flow") != "conversion" or not draft.get("amount"):
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             book = await self.books.get_book(uuid.UUID(draft["book_id"]))
             draft["to"] = argument
             draft["awaiting"] = "target"
@@ -1198,7 +1273,7 @@ class Conversation:
                 draft["from"], Decimal(draft["amount"]), argument
             )
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _conversion_text(self, text: str, draft: dict, user, key: str):
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
@@ -1236,7 +1311,7 @@ class Conversation:
             draft["base"] = str(amount)
             return await self._save_conversion(draft, user, key)
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _save_conversion(self, draft: dict, user, key: str):
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
@@ -1274,7 +1349,7 @@ class Conversation:
             # was checked against that book when the picker was opened.
             draft = await self.state.get(key)
             if draft.get("flow") != "costpolicy":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
 
             book = await self.books.set_cost_policy(
                 user.id, uuid.UUID(draft["book_id"]), CostPolicy(argument)
@@ -1285,7 +1360,7 @@ class Conversation:
         if action == "kind":
             draft = await self.state.get(key)
             if draft.get("flow") != "fund" or not draft.get("name"):
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
 
             book = await self.books.get_book(uuid.UUID(draft["book_id"]))
             await self.treasury.create_fund(
@@ -1297,7 +1372,7 @@ class Conversation:
         if action == "basis":
             draft = await self.state.get(key)
             if draft.get("flow") != "rule":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
 
             draft["basis"] = argument
             await self.state.set(key, draft)
@@ -1311,7 +1386,7 @@ class Conversation:
 
             rule = await self.session.get(TreasuryRule, uuid.UUID(argument))
             if rule is None:
-                return screens.error("این قاعده پیدا نشد")
+                return screens.error("این قاعده دیگر وجود ندارد؛ شاید حذف شده است.")
 
             book = await self.books.get_book(rule.book_id)
             fund_id = rule.fund_id
@@ -1327,7 +1402,7 @@ class Conversation:
 
         fund = await self.session.get(TreasuryFund, uuid.UUID(argument))
         if fund is None:
-            return screens.error("این صندوق پیدا نشد")
+            return screens.error("این صندوق دیگر وجود ندارد؛ شاید حذف شده است.")
         book = await self.books.get_book(fund.book_id)
 
         if action == "open":
@@ -1347,7 +1422,7 @@ class Conversation:
             await self.treasury.delete_fund(book.id, user.id, fund.id)
             return await self._fund_screen(book, user)
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     # ----------------------------------------------------------- payroll
     async def _member_names(self, book_id) -> dict:
@@ -1360,7 +1435,7 @@ class Conversation:
 
     async def _period_list_screen(self, book, user):
         periods = await self.payroll.periods(book.id, user.id)
-        year, month, _ = jalali.to_parts(date.today())
+        year, month, _ = jalali.to_parts(self._today(user))
         return screens.period_list(book, periods, f"{jalali.month_name(month)} {year}")
 
     @staticmethod
@@ -1405,7 +1480,7 @@ class Conversation:
 
         if action == "new":
             book = await self.books.get_book(uuid.UUID(argument))
-            today = date.today()
+            today = self._today(user)
             year, month, _ = jalali.to_parts(today)
             start, end = jalali.month_range(year, month)
             period = await self.payroll.open_period(
@@ -1461,7 +1536,7 @@ class Conversation:
             # answered before anything tries to read one.
             draft = await self.state.get(key)
             if draft.get("flow") != "payslip":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
             return await self._pay_in(draft, argument, user, key)
 
         if action in ("slip", "pay", "payall"):
@@ -1502,14 +1577,14 @@ class Conversation:
             period = await self.payroll.get_period(period.id)
             return await self._period_detail(book, user, period)
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _payslip_action(self, action: str, argument: str, user, key: str):
         from ..modules.payroll.models import Payslip
 
         slip = await self.session.get(Payslip, uuid.UUID(argument))
         if slip is None:
-            return screens.error("این فیش پیدا نشد")
+            return screens.error("این فیش دیگر وجود ندارد؛ شاید حذف شده است.")
 
         book = await self.books.get_book(slip.book_id)
         names = await self._member_names(book.id)
@@ -1547,7 +1622,7 @@ class Conversation:
             await self.session.refresh(slip)
             return screens.payslip_detail(book, slip, name)
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _adjustment_action(self, action: str, argument: str, user, key: str):
         from ..modules.payroll.models import Adjustment
@@ -1565,7 +1640,7 @@ class Conversation:
         if action == "adjwho":
             draft = await self.state.get(key)
             if draft.get("flow") != "adjustment":
-                return screens.welcome(user.display_name)
+                return screens.stale(None, user.display_name)
 
             draft["user_id"] = argument
             await self.state.set(key, draft)
@@ -1579,7 +1654,7 @@ class Conversation:
         if action == "adjok":
             adjustment = await self.session.get(Adjustment, uuid.UUID(argument))
             if adjustment is None:
-                return screens.error("این مورد پیدا نشد")
+                return screens.error("این مورد دیگر وجود ندارد؛ شاید حذف شده است.")
 
             await self.payroll.approve_adjustment(user.id, adjustment.id)
             period = await self.payroll.get_period(adjustment.period_id)
@@ -1590,12 +1665,12 @@ class Conversation:
                 await self._member_names(book.id),
             )
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _save_adjustment(self, user, key: str, reason):
         draft = await self.state.get(key)
         if draft.get("flow") != "adjustment" or "value" not in draft:
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
         book = await self.books.get_book(period.book_id)
@@ -1624,7 +1699,7 @@ class Conversation:
     async def _rule_text(self, text: str, draft: dict, user, key: str):
         basis = draft.get("basis")
         if not basis:
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         if basis == "fixed":
             value = parse_amount(text)
@@ -1694,7 +1769,7 @@ class Conversation:
         slip = await self.session.get(Payslip, uuid.UUID(draft["slip_id"]))
         if slip is None:
             await self.state.clear(key)
-            return screens.error("این فیش پیدا نشد")
+            return screens.error("این فیش دیگر وجود ندارد؛ شاید حذف شده است.")
 
         book = await self.books.get_book(slip.book_id)
         names = await self._member_names(book.id)
@@ -1724,7 +1799,7 @@ class Conversation:
 
     async def _adjustment_text(self, text: str, draft: dict, user, key: str):
         if "user_id" not in draft:
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         # A deduction is a negative number, and the amount parser only reads
         # magnitudes — so the sign has to be taken off the front first.
@@ -1765,7 +1840,7 @@ class Conversation:
 
         book, draft = await self._share_book(user, key)
         if book is None:
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         if action == "list":
             await self.state.set(key, {"flow": "share", "book_id": str(book.id)})
@@ -1850,7 +1925,7 @@ class Conversation:
 
         draft = await self.state.get(key)
         if not draft.get("period_id"):
-            return screens.welcome(user.display_name)
+            return screens.stale(None, user.display_name)
 
         period = await self.payroll.get_period(uuid.UUID(draft["period_id"]))
         book = await self.books.get_book(period.book_id)
@@ -1949,9 +2024,19 @@ class Conversation:
             return screens.welcome(target.display_name)
 
         if draft.get("flow") == "new_book":
-            await self.books.create_book(user.id, text, BookType(draft["type"]))
+            book_type = BookType(draft["type"])
+            name = " ".join(text.split())
+            if not name:
+                return screens.ask_book_name(book_type, "اسم دفتر خالی است.")
+            if len(name) > BOOK_NAME_LIMIT:
+                return screens.ask_book_name(
+                    book_type,
+                    f"اسم دفتر {len(name)} حرف است؛ حداکثر {BOOK_NAME_LIMIT} حرف بنویس.",
+                )
+            book = await self.books.create_book(user.id, name, book_type)
             await self.state.clear(key)
-            return screens.book_list(await self.books.books_for_user(user.id))
+            first = len(await self.books.books_for_user(user.id)) == 1
+            return screens.book_created(book, first)
 
         if draft.get("flow") == "tx":
             return await self._tx_text(text, draft, user, key)
@@ -1960,7 +2045,9 @@ class Conversation:
             view = draft.get("view", "a")
             on = parse_date(text, self._today(user))
             if on is None:
-                return screens.ask_date(f"dl:v:{screens.day_token(self._today(user))}:{view}:0")
+                return screens.ask_date(
+                    f"dl:v:{screens.day_token(self._today(user))}:{view}:0", text[:30]
+                )
             await self.state.clear(key)
             return await self._daily_screen(user, on, view, 0)
 
@@ -1975,7 +2062,7 @@ class Conversation:
 
         if draft.get("flow") == "search":
             if len(text) < 2:
-                return screens.ask_search()
+                return screens.ask_search("حداقل دو حرف بنویس.")
             draft["query"] = text[:60]
             await self.state.set(key, draft)
             return await self._search_screen(user, draft, 0)
@@ -2010,7 +2097,11 @@ class Conversation:
             return await self._adjustment_text(text, draft, user, key)
 
         # Nothing in flight, so try to read the line as a transaction.
-        entry = quick.parse(text)
+        entry = quick.read(text, self._today(user))
+        if isinstance(entry, quick.Unclear):
+            # Numbers were seen but none can be trusted as the amount: nothing
+            # is recorded, and the person is told which ones were seen.
+            return screens.unclear_line(entry.reason, entry.numbers)
         if entry is None:
             return screens.unreadable_line()
 
@@ -2032,9 +2123,9 @@ class Conversation:
         if len(books) == 1:
             pending["book_id"] = str(books[0].id)
             await self.state.set(key, pending)
-            return screens.quick_pick_flow(entry, pending["nonce"])
+            return screens.quick_pick_flow(entry, pending["nonce"], books[0], self._today(user))
 
-        return screens.quick_pick_book(entry, books, pending["nonce"])
+        return screens.quick_pick_book(entry, books, pending["nonce"], self._today(user))
 
     async def _quick_callback(self, action: str, argument: str, nonce: str, user, key: str):
         draft = await self.state.get(key)
@@ -2048,6 +2139,9 @@ class Conversation:
             return screens.stale(await self._quick_screen(draft, user), user.display_name)
 
         if action == "book":
+            # Checked before the next screen names the book: a crafted button
+            # must not be a way to read another account's book name.
+            await self.books.require(uuid.UUID(argument), user.id, Permission.VIEW_TRANSACTIONS)
             draft["book_id"] = argument
             await self.state.set(key, draft)
             return await self._quick_screen(draft, user)
@@ -2080,30 +2174,44 @@ class Conversation:
             return screens.transaction_saved(
                 book, flow, transaction.category,
                 transaction.converted_amount, book.base_currency,
+                transaction.occurred_on, transaction.description,
             )
 
-        return screens.welcome(user.display_name)
+        return screens.stale(None, user.display_name)
 
     async def _quick_screen(self, draft: dict, user):
         """The screen a quick draft is currently waiting on, or None."""
         if draft.get("flow") != "quick":
             return None
-        entry = quick.QuickEntry(draft["category"], Decimal(draft["amount"]))
-        if draft.get("book_id"):
-            return screens.quick_pick_flow(entry, draft.get("nonce", ""))
-        return screens.quick_pick_book(
-            entry, await self.books.books_for_user(user.id), draft.get("nonce", "")
+        entry = quick.QuickEntry(
+            draft["category"], Decimal(draft["amount"]), draft.get("description"),
+            date.fromisoformat(draft["on"]) if draft.get("on") else None,
         )
+        if draft.get("book_id"):
+            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
+            return screens.quick_pick_flow(entry, draft.get("nonce", ""), book, self._today(user))
+        return screens.quick_pick_book(
+            entry, await self.books.books_for_user(user.id), draft.get("nonce", ""),
+            self._today(user),
+        )
+
+    @staticmethod
+    def _budget_label(draft: dict) -> str:
+        """What the budget is for, in words. The raw target of a flow budget is
+        the enum value «expense», which is not something to show a person."""
+        if draft.get("kind") == BudgetKind.FLOW.value:
+            return "درآمدها" if draft.get("target") == Flow.INCOME.value else "هزینه‌ها"
+        return draft.get("target") or ""
 
     async def _budget_text(self, text: str, draft: dict, user, key: str):
         if not draft.get("target"):
             draft["target"] = text[:80]
             await self.state.set(key, draft)
-            return screens.budget_ask_amount(draft["target"])
+            return screens.budget_ask_amount(self._budget_label(draft))
 
-        amount = parse_amount(text)
-        if amount is None:
-            return screens.budget_ask_amount(draft["target"])
+        amount, problem = read_amount(text)
+        if problem:
+            return screens.budget_ask_amount(self._budget_label(draft), problem)
 
         book = await self.books.get_book(uuid.UUID(draft["book_id"]))
         await self.budgets.set_budget(
@@ -2119,19 +2227,24 @@ class Conversation:
             return screens.debt_pick_direction(draft["person"])
 
         if not draft.get("direction"):
-            return screens.debt_pick_direction(draft["person"])
+            return screens.debt_pick_direction(
+                draft["person"], "برای ادامه یکی از دو دکمهٔ زیر را بزن."
+            )
 
         if not draft.get("amount"):
-            amount = parse_amount(text)
-            if amount is None:
-                return screens.debt_ask_amount()
+            amount, problem = read_amount(text)
+            if problem:
+                return screens.debt_ask_amount(problem)
             draft["amount"] = str(amount)
             await self.state.set(key, draft)
             return screens.debt_ask_due()
 
-        due = parse_date(text)
+        # The prompt used to tell people to type «ندارد» and then refuse it.
+        if text.strip() in NO_DUE_WORDS:
+            return await self._save_debt(user, key, None)
+        due = parse_date(text, self._today(user))
         if due is None:
-            return screens.debt_ask_due()
+            return screens.debt_ask_due(text[:30])
         return await self._save_debt(user, key, due)
 
     async def _loan_text(self, text: str, draft: dict, user, key: str):
@@ -2141,9 +2254,9 @@ class Conversation:
             return screens.loan_ask_amount(draft["title"])
 
         if not draft.get("amount"):
-            amount = parse_amount(text)
-            if amount is None or amount <= 0:
-                return screens.loan_ask_amount(draft["title"])
+            amount, problem = read_amount(text)
+            if problem:
+                return screens.loan_ask_amount(draft["title"], problem)
             draft["amount"] = str(amount)
             await self.state.set(key, draft)
             return screens.loan_ask_count()
@@ -2151,47 +2264,52 @@ class Conversation:
         if not draft.get("count"):
             digits = to_ascii_digits(text).strip()
             if not digits.isdigit() or int(digits) <= 0:
-                return screens.loan_ask_count()
+                return screens.loan_ask_count("تعداد اقساط باید یک عدد صحیح بیشتر از صفر باشد؛ مثلاً 24.")
             draft["count"] = int(digits)
             await self.state.set(key, draft)
             return screens.loan_ask_start()
 
-        starts_on = parse_date(text)
+        starts_on = parse_date(text, self._today(user))
         if starts_on is None:
-            return screens.loan_ask_start()
+            return screens.loan_ask_start(text[:30])
         return await self._save_loan(user, key, starts_on)
 
     async def _recurring_text(self, text: str, draft: dict, user, key: str):
         if not draft.get("category"):
-            draft["category"] = self.categories.name(text)
+            try:
+                draft["category"] = self.categories.name(text)
+            except ValidationError:
+                return screens.recurring_ask_category("نام دسته باید بین 1 تا 80 حرف باشد.")
             await self.state.set(key, draft)
             return screens.recurring_ask_amount(draft["category"])
 
         if not draft.get("amount"):
-            amount = parse_amount(text)
-            if amount is None or amount <= 0:
-                return screens.recurring_ask_amount(draft["category"])
+            amount, problem = read_amount(text)
+            if problem:
+                return screens.recurring_ask_amount(draft["category"], problem)
             draft["amount"] = str(amount)
             await self.state.set(key, draft)
             return screens.recurring_pick_period()
 
         if not draft.get("period"):
-            return screens.recurring_pick_period()
+            return screens.recurring_pick_period("برای ادامه یکی از دکمه‌های زیر را بزن.")
 
-        starts_on = parse_date(text)
+        starts_on = parse_date(text, self._today(user))
         if starts_on is None:
-            return screens.recurring_ask_start()
+            return screens.recurring_ask_start(text[:30])
         return await self._save_recurring(user, key, starts_on)
 
     async def _reminder_text(self, text: str, draft: dict, user, key: str):
         digits = to_ascii_digits(text).strip()
+        hour = draft["field"] == "hour"
         if not digits.isdigit():
-            return screens.ask_hour() if draft["field"] == "hour" else screens.ask_days()
+            problem = f"«{text[:30]}» عدد نیست. فقط یک عدد بنویس."
+            return screens.ask_hour(problem) if hour else screens.ask_days(problem)
 
         value = int(digits)
-        if draft["field"] == "hour":
+        if hour:
             if value > 23:
-                return screens.ask_hour()
+                return screens.ask_hour("ساعت باید بین 0 تا 23 باشد.")
             user.digest_hour = value
         else:
             user.reminder_days = min(value, 60)
@@ -2209,7 +2327,10 @@ class Conversation:
         if draft.get("awaiting") == "rate":
             rate = parse_amount(text)
             if rate is None or rate <= Decimal("0"):
-                return screens.ask_rate(draft["currency"], book.base_currency)
+                return screens.ask_rate(
+                    draft["currency"], book.base_currency,
+                    f"«{text[:30]}» نرخ معتبر نیست؛ یک عدد بیشتر از صفر بنویس.",
+                )
             draft["rate"] = str(rate)
             draft["awaiting"] = "description"
             await self.state.set(key, draft)
@@ -2218,7 +2339,7 @@ class Conversation:
         if draft.get("awaiting") == "date":
             on = parse_date(text, self._today(user))
             if on is None:
-                return screens.ask_date("tx:new")
+                return screens.ask_date("tx:new", text[:30])
             draft.pop("awaiting")
             draft["on"] = on.isoformat()
             await self.state.set(key, draft)
@@ -2229,13 +2350,21 @@ class Conversation:
             return screens.pick_type(book, on)
 
         if not draft.get("category"):
-            draft["category"] = self.categories.name(text)
+            try:
+                draft["category"] = self.categories.name(text)
+            except ValidationError:
+                return screens.ask_category(
+                    Flow(draft["direction"]), draft.get("recent") or [],
+                    "نام دسته باید بین 1 تا 80 حرف باشد.",
+                )
             await self.state.set(key, draft)
             return screens.ask_amount(draft["category"])
 
-        amount = parse_amount(text)
-        if amount is None:
-            return screens.ask_amount(draft["category"])
+        # Refused here, with the reason and the same prompt, rather than let it
+        # through to a ledger error that used to trap the person in this step.
+        amount, problem = read_amount(text)
+        if problem:
+            return screens.ask_amount(draft["category"], problem=problem)
 
         draft["amount"] = str(amount)
         codes = await self.exchange.allowed(book.id)
@@ -2300,7 +2429,10 @@ class Conversation:
             )
 
         text, buttons = await self._transaction_screen(book, transaction, user)
-        return screens.rtl("✅ ثبت شد\n") + text, buttons
+        # The notice is joined with a blank line; it used to be glued onto the
+        # card's first line because a trailing newline is not a line.
+        saved = screens.with_notice("✅ تراکنش ثبت شد", (text, buttons))
+        return saved[0], saved[1] + [[screens.Button("➕ ثبت بعدی", data="tx:new")]]
 
     async def _category_screen(self, book_id, user):
         rows = await self.categories.list(book_id, user.id)
@@ -2310,15 +2442,15 @@ class Conversation:
         if action in ("keep", "type"):
             draft = await self.state.get(key)
             if draft.get("flow") != "category_manage":
-                return screens.error("ابتدا افزودن یا ویرایش دسته‌بندی را انتخاب کن.")
+                return screens.error("ابتدا «افزودن دسته» یا «ویرایش» را بزن.")
             if action == "keep":
                 if not draft.get("category_id") or not draft.get("name"):
-                    return screens.error("نام دسته‌بندی را بفرست.")
+                    return screens.error("نام دسته را بنویس؛ مثلاً: اجاره.")
                 draft["stage"] = "type"
                 await self.state.set(key, draft)
                 return screens.ask_category_flow()
             if draft.get("stage") != "type":
-                return screens.error("ابتدا نام دسته‌بندی را بفرست.")
+                return screens.error("ابتدا نام دسته را بنویس؛ مثلاً: اجاره.")
             book_id = uuid.UUID(draft["book_id"])
             if draft.get("category_id"):
                 await self.categories.update(book_id, user.id, uuid.UUID(draft["category_id"]),
@@ -2351,7 +2483,7 @@ class Conversation:
                                           "category_id": str(row.id), "name": row.name})
                 return screens.ask_category_name(row.name)
             return await self._category_screen(book.id, user)
-        return screens.error("این دسته‌بندی پیدا نشد.")
+        return screens.error("این دسته دیگر وجود ندارد؛ شاید حذف شده است.")
 
     async def _invitation_callback(self, action, argument, user, key):
         if action == "new":

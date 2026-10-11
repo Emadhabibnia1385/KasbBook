@@ -590,10 +590,10 @@ async def test_the_bot_pays_a_whole_payslip_in_tether(session):
     from kasbbook.shared import jalali
 
     detail = await convo.handle(press(f"pr:slip:{slip.id}"))
-    assert "50 تتر (≈ 10,000,000 IRT)" in detail.text
+    assert "50 تتر (≈ 10,000,000 تومان)" in detail.text
     assert jalali.to_text(slip.payments[0].paid_on) in detail.text
     assert str(slip.payments[0].paid_on) not in detail.text
-    assert any("لغو آخرین پرداخت (50 تتر)" in b.text
+    assert any("برگرداندن آخرین پرداخت (50 تتر)" in b.text
                for row in detail.buttons for b in row)
 
 
