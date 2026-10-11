@@ -16,28 +16,30 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingFile, OutgoingMessage
-from ..modules.books.models import BookType, Permission
+from ..modules.books.models import Permission
 from ..modules.identity.models import Provider
 from ..modules.ledger.models import Flow, Scope
 from ..modules.reports import service as reports_service
 from ..shared.errors import KasbBookError, ValidationError
-from ..shared.parsing import parse_amount, parse_date, to_ascii_digits
+from ..shared.parsing import parse_amount, parse_date
 from . import quick, screens
 from .features.base import (
-    BOOK_NAME_LIMIT, CANCEL_WORDS, SCOPE_FOR_BOOK, Context, index,
+    CANCEL_WORDS, SCOPE_FOR_BOOK, Context, index,
     read_amount,
 )
 from .features.account import AccountFeature
+from .features.books import BooksFeature
 from .features.payroll import PayrollFeature
 from .features.planning import PlanningFeature
 from .features.wallet import WalletFeature
-from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
+from .state import StateStore, conversation_key
 
 # Every feature moved out of this file, in one list. `index` refuses two that
 # claim the same callback prefix or draft flow — at import, not at the first
 # unlucky button press.
 FEATURES: tuple = (
     AccountFeature,
+    BooksFeature,
     PayrollFeature,
     PlanningFeature,
     WalletFeature,
@@ -186,15 +188,6 @@ class Conversation:
                 return screens.cancelled(user.display_name)
             return await self._home(user)
 
-        if area == "book":
-            return await self._book_callback(action, argument, user, key)
-
-        if area == "cg":
-            return await self._category_callback(action, argument, user, key)
-
-        if area == "iv":
-            return await self._invitation_callback(action, argument, user, key)
-
         if area == "tx":
             return await self._tx_callback(action, argument, user, key)
 
@@ -225,27 +218,6 @@ class Conversation:
             return screens.stale(None, user.display_name)
 
         return screens.stale(None, user.display_name)
-
-    async def _book_callback(self, action: str, argument: str, user, key: str):
-        if action == "list":
-            return screens.book_list(await self.books.books_for_user(user.id))
-
-        if action == "new":
-            return screens.new_book_type()
-
-        if action == "type":
-            book_type = BookType(argument)
-            await self.state.set(
-                key, {"flow": "new_book", "type": book_type.value}, DEFAULT_TTL_SECONDS
-            )
-            return screens.ask_book_name(book_type)
-
-        if action == "open":
-            await self.books.require(uuid.UUID(argument), user.id, Permission.VIEW_TRANSACTIONS)
-            book = await self.books.get_book(uuid.UUID(argument))
-            return screens.book_menu(book)
-
-        return screens.book_list(await self.books.books_for_user(user.id))
 
     async def _tx_callback(self, action: str, argument: str, user, key: str):
         if action == "skip":
@@ -697,37 +669,8 @@ class Conversation:
         if feature is not None:
             return await feature.text(text, draft, user, key, event)
 
-        if draft.get("flow") == "category_manage":
-            draft["name"] = self.categories.name(text)
-            draft["stage"] = "type"
-            await self.state.set(key, draft)
-            return screens.ask_category_flow()
-
         if draft.get("flow") == "tx_edit":
             return await self._edit_tx_text(text, draft, user, key)
-
-        if draft.get("flow") == "team_invite":
-            row = await self.invitations.create(uuid.UUID(draft["book_id"]), user.id, self.provider,
-                                                 to_ascii_digits(text))
-            await self.state.clear(key)
-            person = await self.identity.get_user(row.recipient_user_id)
-            return screens.rtl(f"✅ دعوت برای «{person.display_name}» ثبت شد و برای ارسال در صف قرار گرفت."), [
-                [screens.Button("⬅️ دفتر", data=f"book:open:{row.book_id}")]]
-
-        if draft.get("flow") == "new_book":
-            book_type = BookType(draft["type"])
-            name = " ".join(text.split())
-            if not name:
-                return screens.ask_book_name(book_type, "اسم دفتر خالی است.")
-            if len(name) > BOOK_NAME_LIMIT:
-                return screens.ask_book_name(
-                    book_type,
-                    f"اسم دفتر {len(name)} حرف است؛ حداکثر {BOOK_NAME_LIMIT} حرف بنویس.",
-                )
-            book = await self.books.create_book(user.id, name, book_type)
-            await self.state.clear(key)
-            first = len(await self.books.books_for_user(user.id)) == 1
-            return screens.book_created(book, first)
 
         if draft.get("flow") == "tx":
             return await self._tx_text(text, draft, user, key)
@@ -964,73 +907,3 @@ class Conversation:
         saved = screens.with_notice("✅ تراکنش ثبت شد", (text, buttons))
         return saved[0], saved[1] + [[screens.Button("➕ ثبت بعدی", data="tx:new")]]
 
-    async def _category_screen(self, book_id, user):
-        rows = await self.categories.list(book_id, user.id)
-        return screens.category_list(await self.books.get_book(book_id), rows)
-
-    async def _category_callback(self, action, argument, user, key):
-        if action in ("keep", "type"):
-            draft = await self.state.get(key)
-            if draft.get("flow") != "category_manage":
-                return screens.error("ابتدا «افزودن دسته» یا «ویرایش» را بزن.")
-            if action == "keep":
-                if not draft.get("category_id") or not draft.get("name"):
-                    return screens.error("نام دسته را بنویس؛ مثلاً: اجاره.")
-                draft["stage"] = "type"
-                await self.state.set(key, draft)
-                return screens.ask_category_flow()
-            if draft.get("stage") != "type":
-                return screens.error("ابتدا نام دسته را بنویس؛ مثلاً: اجاره.")
-            book_id = uuid.UUID(draft["book_id"])
-            if draft.get("category_id"):
-                await self.categories.update(book_id, user.id, uuid.UUID(draft["category_id"]),
-                                             name=draft["name"], flow=argument)
-            else:
-                await self.categories.create(book_id, user.id, draft["name"], argument)
-            await self.state.clear(key)
-            return await self._category_screen(book_id, user)
-        if action in ("list", "new"):
-            book_id = uuid.UUID(argument)
-            if action == "list":
-                await self.state.clear(key)
-                return await self._category_screen(book_id, user)
-            await self.categories.require_create(book_id, user.id)
-            await self.state.set(key, {"flow": "category_manage", "book_id": argument})
-            return screens.ask_category_name()
-        for book in await self.books.books_for_user(user.id):
-            rows = await self.categories.list(book.id, user.id)
-            row = next((r for r in rows if str(r.id) == argument), None)
-            if row is None:
-                continue
-            if action == "del":
-                return screens.confirm_delete(row.name, f"cg:delok:{row.id}", f"cg:list:{book.id}")
-            if action == "delok":
-                await self.categories.delete(book.id, user.id, row.id)
-                return await self._category_screen(book.id, user)
-            if action == "edit":
-                await self.books.require(book.id, user.id, Permission.EDIT_TRANSACTION)
-                await self.state.set(key, {"flow": "category_manage", "book_id": str(book.id),
-                                          "category_id": str(row.id), "name": row.name})
-                return screens.ask_category_name(row.name)
-            return await self._category_screen(book.id, user)
-        return screens.error("این دسته دیگر وجود ندارد؛ شاید حذف شده است.")
-
-    async def _invitation_callback(self, action, argument, user, key):
-        if action == "new":
-            await self.books.require(uuid.UUID(argument), user.id, Permission.MANAGE_MEMBERS)
-            await self.state.set(key, {"flow": "team_invite", "book_id": argument})
-            return screens.ask_teammate()
-        if action in ("yes", "no"):
-            row = await self.invitations.respond(uuid.UUID(argument), user.id, action == "yes")
-            await self.state.clear(key)
-            if action == "yes":
-                return screens.book_menu(await self.books.get_book(row.book_id))
-            return screens.rtl("دعوت رد شد."), [[screens.Button("⬅️ حساب", data="acc:panel")]]
-        rows = await self.invitations.incoming(user.id)
-        if action == "open":
-            row = next((r for r in rows if str(r.id) == argument), None)
-            if row is None:
-                return screens.error("دعوت پیدا نشد.")
-            return screens.team_invitation(await self.books.get_book(row.book_id), row)
-        books = {row.book_id: await self.books.get_book(row.book_id) for row in rows}
-        return screens.invitation_inbox(rows, books)
