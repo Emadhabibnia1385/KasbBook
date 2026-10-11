@@ -73,8 +73,15 @@ Shown once, at creation. Does not expire on its own, because a nightly job
 should not stop at 3am. An 8-character prefix is kept in the clear so a key can
 be recognised in a list and revoked without being produced.
 
-Sent as `X-API-Key`. Resolves to the same `User` as a bearer token, so no route
-below has to care which arrived.
+Sent as `X-API-Key`. Resolves to the same `User` as a bearer token, so a route
+that reads or writes books does not have to care which arrived.
+
+Managing the account is the exception, and it refuses a key with 403: issuing,
+listing and revoking keys; the profile, contact and password; sessions and
+logout-everywhere; closing the account; and linking or switching messengers.
+A key that could mint keys made revoking a leaked one pointless — its holder
+had already made a successor — and a key that could change the contact or
+close a passwordless account was the account.
 
 ## Showing a secret on a screen
 

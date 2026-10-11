@@ -15,7 +15,7 @@ from ...modules.identity.auth import AuthError
 from ...modules.identity.service import IdentityService
 from ...shared.security import verify_password
 from ...shared.errors import ValidationError
-from ..deps import AuthDep, CurrentUser, LimiterDep, SessionDep, client_fingerprint
+from ..deps import AuthDep, CurrentUser, LimiterDep, Person, SessionDep, client_fingerprint
 from ..schemas import (
     ApiKeyCreated,
     ContactRequest,
@@ -125,7 +125,7 @@ async def logout(body: RefreshRequest, auth: AuthDep) -> None:
 
 
 @router.post("/logout-everywhere", status_code=204)
-async def logout_everywhere(user: CurrentUser, auth: AuthDep) -> None:
+async def logout_everywhere(user: Person, auth: AuthDep) -> None:
     await auth.revoke_all_for_user(user.id)
 
 
@@ -135,7 +135,7 @@ async def me(user: CurrentUser) -> UserResponse:
 
 
 @router.get("/sessions", response_model=List[SessionResponse])
-async def sessions(user: CurrentUser, auth: AuthDep) -> List[SessionResponse]:
+async def sessions(user: Person, auth: AuthDep) -> List[SessionResponse]:
     """Where this account is currently signed in."""
     return [SessionResponse.model_validate(row) for row in await auth.sessions(user.id)]
 
@@ -143,7 +143,7 @@ async def sessions(user: CurrentUser, auth: AuthDep) -> List[SessionResponse]:
 # -------------------------------------------------------------- account
 @router.patch("/me", response_model=UserResponse)
 async def update_profile(
-    body: ProfileRequest, user: CurrentUser, session: SessionDep
+    body: ProfileRequest, user: Person, session: SessionDep
 ) -> UserResponse:
     updated = await IdentityService(session).update_profile(
         user.id, display_name=body.display_name,
@@ -154,7 +154,7 @@ async def update_profile(
 
 @router.put("/me/contact", response_model=UserResponse)
 async def set_contact(
-    body: ContactRequest, user: CurrentUser, session: SessionDep
+    body: ContactRequest, user: Person, session: SessionDep
 ) -> UserResponse:
     """The address or number this account can be reached and recovered by."""
     updated = await IdentityService(session).set_contact(
@@ -165,7 +165,7 @@ async def set_contact(
 
 @router.put("/me/password", status_code=204)
 async def set_password(
-    body: PasswordRequest, user: CurrentUser, session: SessionDep, auth: AuthDep
+    body: PasswordRequest, user: Person, session: SessionDep, auth: AuthDep
 ) -> None:
     """Set or change the password, and end every session including this one.
 
@@ -194,7 +194,7 @@ async def deletion_preview(
 
 @router.delete("/me", status_code=204)
 async def close_account(
-    body: CloseAccountRequest, user: CurrentUser, session: SessionDep
+    body: CloseAccountRequest, user: Person, session: SessionDep
 ) -> None:
     """Close the account. There is no undo, and no grace period.
 
@@ -214,7 +214,7 @@ async def close_account(
 # ------------------------------------------------------------- api keys
 @router.post("/api-keys", response_model=ApiKeyCreated, status_code=201)
 async def create_api_key(
-    body: ApiKeyRequest, user: CurrentUser, auth: AuthDep
+    body: ApiKeyRequest, user: Person, auth: AuthDep
 ) -> ApiKeyCreated:
     """Issue a key for a program. This is the only response that contains it."""
     issued = await auth.issue_api_key(user.id, body.name, body.expires_in_days)
@@ -224,10 +224,10 @@ async def create_api_key(
 
 
 @router.get("/api-keys", response_model=List[ApiKeyResponse])
-async def list_api_keys(user: CurrentUser, auth: AuthDep) -> List[ApiKeyResponse]:
+async def list_api_keys(user: Person, auth: AuthDep) -> List[ApiKeyResponse]:
     return [ApiKeyResponse.model_validate(row) for row in await auth.list_api_keys(user.id)]
 
 
 @router.delete("/api-keys/{key_id}", status_code=204)
-async def revoke_api_key(key_id: uuid.UUID, user: CurrentUser, auth: AuthDep) -> None:
+async def revoke_api_key(key_id: uuid.UUID, user: Person, auth: AuthDep) -> None:
     await auth.revoke_api_key(user.id, key_id)

@@ -60,7 +60,10 @@ second key nobody remembers creating.
 
 ## Authenticating
 
-Either a bearer token or an API key. Both resolve to the same account.
+Either a bearer token or an API key. Both resolve to the same account, but
+only a person's bearer token may manage the account itself — keys, profile,
+contact, password, sessions, closing it, and messenger links answer an API key
+with 403.
 
 ```bash
 curl -H "Authorization: Bearer $ACCESS_TOKEN" ...

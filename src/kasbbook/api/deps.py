@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..modules.identity.auth import AuthError, AuthService
 from ..modules.identity.models import User
 from ..shared.database import Database
+from ..shared.errors import PermissionDenied
 from ..shared.settings import Settings
 from .ratelimit import RateLimiter
 
@@ -88,6 +89,27 @@ async def current_user(
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
+
+
+async def current_person(
+    user: CurrentUser,
+    x_api_key: Annotated[Optional[str], Header()] = None,
+) -> User:
+    """The account, but only when a person signed in — never a program's key.
+
+    A key is for a program that reads and writes books. Managing the account
+    is the person's: a key that could mint keys made revoking a leaked one
+    pointless, because the holder had already minted its successor; and a key
+    that could change the contact, link a messenger or close a passwordless
+    account was the account. A valid key is told 403, an invalid one is still
+    401 — `CurrentUser` has already refused it.
+    """
+    if x_api_key:
+        raise PermissionDenied("an API key cannot manage the account; sign in as a person")
+    return user
+
+
+Person = Annotated[User, Depends(current_person)]
 
 
 def client_fingerprint(request: Request) -> str:

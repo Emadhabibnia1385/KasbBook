@@ -17,7 +17,7 @@ from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.identity.login import AccountLoginService
 from ...shared.errors import ValidationError
-from ..deps import CurrentUser, SessionDep, SettingsDep
+from ..deps import CurrentUser, Person, SessionDep, SettingsDep
 from ..schemas import (
     ClaimLinkRequest,
     IdentityResponse,
@@ -53,7 +53,7 @@ async def list_identities(user: CurrentUser, session: SessionDep) -> List[Identi
 
 @router.post("/link", response_model=StartLinkResponse, status_code=201)
 async def start_link(
-    body: StartLinkRequest, user: CurrentUser, session: SessionDep, settings: SettingsDep
+    body: StartLinkRequest, user: Person, session: SessionDep, settings: SettingsDep
 ) -> StartLinkResponse:
     """Issue a one-time code, and a link that hands it to the bot directly."""
     try:
@@ -81,7 +81,7 @@ async def start_link(
 
 @router.post("/claim", response_model=IdentityResponse, status_code=201)
 async def claim_link(
-    body: ClaimLinkRequest, user: CurrentUser, session: SessionDep
+    body: ClaimLinkRequest, user: Person, session: SessionDep
 ) -> IdentityResponse:
     """Redeem a code the messenger side produced, attaching it to this account."""
     identity = await IdentityService(session).complete_link_from_web(body.code, user.id)
@@ -93,12 +93,12 @@ async def claim_link(
 
 
 @router.delete("/{identity_id}", status_code=204)
-async def unlink(identity_id: uuid.UUID, user: CurrentUser, session: SessionDep) -> None:
+async def unlink(identity_id: uuid.UUID, user: Person, session: SessionDep) -> None:
     await IdentityService(session).unlink(user.id, identity_id)
 
 
 @router.post("/account-login/request", response_model=AccountLoginResponse, status_code=201)
-async def request_account_login(body: AccountLoginRequest, user: CurrentUser, session: SessionDep,
+async def request_account_login(body: AccountLoginRequest, user: Person, session: SessionDep,
                                  settings: SettingsDep, request: Request):
     identity = await IdentityService(session).owned_identity(user.id, body.identity_id)
     adapter = getattr(request.app.state, "adapters", {}).get(identity.provider.value)
@@ -127,7 +127,7 @@ async def request_account_login(body: AccountLoginRequest, user: CurrentUser, se
 
 
 @router.post("/account-login/complete", response_model=AccountLoginResult)
-async def complete_account_login(body: AccountLoginComplete, user: CurrentUser, session: SessionDep):
+async def complete_account_login(body: AccountLoginComplete, user: Person, session: SessionDep):
     # An invalid code is a normal result so the caller commits the attempt count.
     target = await AccountLoginService(session).complete(user.id, body.identity_id,
                                                           body.challenge_id, body.code)

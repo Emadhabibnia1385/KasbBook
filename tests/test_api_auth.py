@@ -606,3 +606,67 @@ async def test_one_account_cannot_close_another(api):
     assert (await api.post("/api/v1/auth/login", json={
         "identifier": "victim@example.com", "password": "a-good-password",
     })).status_code == 200
+
+
+# ------------------------------------------------- what a key may not do
+PERSON_ONLY = [
+    ("post", "/api/v1/auth/api-keys", {"name": "successor"}),
+    ("get", "/api/v1/auth/api-keys", None),
+    ("post", "/api/v1/auth/logout-everywhere", None),
+    ("get", "/api/v1/auth/sessions", None),
+    ("patch", "/api/v1/auth/me", {"display_name": "someone else"}),
+    ("put", "/api/v1/auth/me/contact", {"email": "attacker@example.com"}),
+    ("put", "/api/v1/auth/me/password", {"new_password": "attacker-chosen-1"}),
+    ("delete", "/api/v1/auth/me", {}),
+    ("post", "/api/v1/identities/link", {"provider": "telegram"}),
+    ("post", "/api/v1/identities/claim", {"code": "123456"}),
+    ("delete", "/api/v1/identities/00000000-0000-0000-0000-000000000001", None),
+    ("post", "/api/v1/identities/account-login/request",
+     {"identity_id": "00000000-0000-0000-0000-000000000001", "identifier": "x@example.com"}),
+]
+
+
+@pytest.mark.parametrize("method,path,body", PERSON_ONLY)
+async def test_an_api_key_cannot_manage_the_account_it_belongs_to(api, method, path, body):
+    """A key is for a program reading and writing books, not for being the person.
+
+    A key could mint another key, so revoking one that leaked locked nobody
+    out: the holder had already made its successor. It could also take the
+    account itself — change the contact, link a messenger, or close an account
+    that has no password, which the close route documents as "proven by the
+    bearer token alone".
+    """
+    tokens = await register(api)
+    key = (await api.post("/api/v1/auth/api-keys", json={"name": "nightly"},
+                          headers=bearer(tokens))).json()["key"]
+
+    response = await api.request(method.upper(), path, json=body,
+                                 headers={"X-API-Key": key})
+
+    assert response.status_code == 403, (path, response.status_code, response.text)
+    # Nothing was changed on the way to the refusal.
+    me = (await api.get("/api/v1/auth/me", headers=bearer(tokens))).json()
+    assert me["display_name"] == "عماد"
+    keys = (await api.get("/api/v1/auth/api-keys", headers=bearer(tokens))).json()
+    assert len(keys) == 1
+
+
+async def test_a_key_still_does_the_work_it_was_made_for(api):
+    tokens = await register(api)
+    key = (await api.post("/api/v1/auth/api-keys", json={"name": "nightly"},
+                          headers=bearer(tokens))).json()["key"]
+    as_key = {"X-API-Key": key}
+
+    assert (await api.get("/api/v1/auth/me", headers=as_key)).status_code == 200
+    book = await api.post("/api/v1/books", json={"name": "مغازه", "type": "business"},
+                          headers=as_key)
+    assert book.status_code == 201, book.text
+    tx = await api.post(f"/api/v1/books/{book.json()['id']}/transactions", headers=as_key,
+                        json={"flow": "income", "category": "فروش", "amount": "1000"})
+    assert tx.status_code == 201, tx.text
+
+
+async def test_a_bad_key_is_still_unauthenticated_not_forbidden(api):
+    response = await api.post("/api/v1/auth/api-keys", json={"name": "x"},
+                              headers={"X-API-Key": "kb_not-a-real-key"})
+    assert response.status_code == 401
