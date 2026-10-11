@@ -12,11 +12,16 @@ UNITS is now discovered from disk. These tests run the real shell.
 from __future__ import annotations
 
 import pathlib
+import shlex
 import subprocess
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-LIB = REPO / "scripts" / "lib.sh"
-MESSENGER = REPO / "scripts" / "messenger.sh"
+# These go into bash source, so they are shell words: POSIX paths, quoted. A
+# checkout under "C:\Users\Some Name\..." has a space and backslashes, and
+# unquoted bash splits it at the space and eats the backslashes.
+REPO_SH = shlex.quote(REPO.as_posix())
+LIB = shlex.quote((REPO / "scripts" / "lib.sh").as_posix())
+MESSENGER = shlex.quote((REPO / "scripts" / "messenger.sh").as_posix())
 
 
 def _sh(script: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -61,7 +66,7 @@ def test_a_discovered_unit_list_includes_a_second_messenger(tmp_path):
     source {LIB}
     discover() {{
         local found=() f
-        for f in {fake}/kasbbook-*.service; do
+        for f in {shlex.quote(fake.as_posix())}/kasbbook-*.service; do
             [ -e "$f" ] || continue
             found+=("$(basename "$f" .service)")
         done
@@ -76,7 +81,7 @@ def test_the_generated_unit_loads_both_environment_files():
     """The shared .env first, the provider's second, so the second wins."""
     result = _sh(f'''
     set -euo pipefail
-    KASBBOOK_HOME={REPO}
+    KASBBOOK_HOME={REPO_SH}
     source {LIB}
     write_provider_unit() {{
         awk -v desc="Description=KasbBook bot (bale)" \\
@@ -84,7 +89,7 @@ def test_the_generated_unit_loads_both_environment_files():
             /^Description=/     {{ print desc; next }}
             /^EnvironmentFile=/ {{ print; print extra; next }}
                                 {{ print }}
-        ' "{REPO}/deploy/kasbbook-bot.service"
+        ' {shlex.quote((REPO / "deploy" / "kasbbook-bot.service").as_posix())}
     }}
     write_provider_unit
     ''')

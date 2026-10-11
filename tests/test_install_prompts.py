@@ -17,10 +17,14 @@ from __future__ import annotations
 
 import pathlib
 import re
+import shlex
 import subprocess
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-LIB = REPO / "scripts" / "lib.sh"
+# Interpolated into bash source, so it is a shell word: a POSIX path, quoted. A
+# checkout under "C:\Users\Some Name\..." has a space and backslashes, and
+# unquoted bash splits it at the space and eats the backslashes.
+LIB = shlex.quote((REPO / "scripts" / "lib.sh").as_posix())
 
 
 def _piped(script: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:

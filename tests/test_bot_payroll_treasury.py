@@ -35,6 +35,28 @@ TG = Provider.TELEGRAM
 DAY = date(2026, 8, 24)
 
 
+class _PinnedDate(date):
+    @classmethod
+    def today(cls):
+        return DAY
+
+
+@pytest.fixture(autouse=True)
+def pinned_clock(monkeypatch):
+    """Make "today" inside the bot the pinned DAY, whatever the real date is.
+
+    The bot opens "this month" from `date.today()` as imported into
+    kasbbook.bot.conversation, so that is the name to replace. The fixtures are
+    dated DAY; without this they only line up during the month they were written.
+    """
+    monkeypatch.setattr("kasbbook.bot.conversation.date", _PinnedDate)
+    # A share set or cleared from the bot is dated "today" by the service, not
+    # the bot, and by either clock (date.today() or the book's timezone day), so
+    # every clock has to agree or the period cannot see the share.
+    monkeypatch.setattr("kasbbook.modules.payroll.service.date", _PinnedDate)
+    monkeypatch.setattr("kasbbook.shared.jalali.today_in", lambda *a, **k: DAY)
+
+
 def press(data, external_id="555001"):
     return IncomingEvent(
         kind=EventKind.CALLBACK,
@@ -491,15 +513,31 @@ async def test_a_fixed_share_is_read_as_money(session):
 
 async def test_the_screen_warns_when_the_percentages_do_not_add_up(session):
     owner, colleague, book, convo = await bare_team(session)
-    payroll = PayrollService(session)
-    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 60,
-                            effective_from=date(2026, 1, 1))
-    await payroll.set_share(book.id, owner.id, colleague.id, ShareBasis.PERCENT, 60,
-                            effective_from=date(2026, 1, 1))
+    # set_share now refuses a total past 100, so this is a book whose rules were
+    # written before it did — which is exactly when the warning still matters.
+    for member in (owner, colleague):
+        session.add(ShareRule(book_id=book.id, user_id=member.id, basis=ShareBasis.PERCENT,
+                              value=Decimal("60"), effective_from=date(2026, 1, 1)))
+    await session.flush()
 
     reply = await convo.handle(press(f"sh:open:{book.id}"))
     assert "۱۰۰" in reply.text or "100" in reply.text
     assert "بیشتر" in reply.text
+
+
+async def test_a_share_that_would_pass_100_is_refused_in_the_bot_with_the_free_room(session):
+    owner, colleague, book, convo = await bare_team(session)
+
+    for person, typed in ((owner, "۶۰"), (colleague, "۶۰")):
+        await convo.handle(press(f"sh:open:{book.id}"))
+        await convo.handle(press(f"sh:set:{person.id}"))
+        await convo.handle(press("sh:basis:percent"))
+        reply = await convo.handle(says(typed))
+
+    # The second 60 is refused with the room that is left, and nothing is saved.
+    assert "۴۰" in reply.text, reply.text
+    rules = await PayrollService(session).share_rules_for(book.id, DAY)
+    assert list(rules) == [owner.id]
 
 
 async def test_a_member_with_no_share_is_shown_as_such(session):
