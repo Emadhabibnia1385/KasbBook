@@ -71,9 +71,9 @@ async def test_a_due_rule_books_a_transaction(session):
         book.id, user.id, Flow.EXPENSE, "اجاره", 500_000,
         Period.MONTHLY, date.today(),
     )
-    created = await service.run_due()
+    run = await service.run_due()
 
-    assert created == 1
+    assert len(run.booked) == 1
     rows = await LedgerService(session).transactions(book.id, user.id)
     assert len(rows) == 1
     assert rows[0].category == "اجاره"
@@ -87,8 +87,8 @@ async def test_running_twice_does_not_book_twice(session):
     await service.create(
         book.id, user.id, Flow.EXPENSE, "اجاره", 500, Period.MONTHLY, date.today()
     )
-    assert await service.run_due() == 1
-    assert await service.run_due() == 0
+    assert len((await service.run_due()).booked) == 1
+    assert len((await service.run_due()).booked) == 0
 
     assert len(await LedgerService(session).transactions(book.id, user.id)) == 1
 
@@ -103,7 +103,7 @@ async def test_downtime_is_caught_up_rather_than_skipped(session):
         book.id, user.id, Flow.EXPENSE, "قهوه", 100, Period.DAILY, start
     )
 
-    assert await service.run_due() == 7
+    assert len((await service.run_due()).booked) == 7
     rows = await LedgerService(session).transactions(book.id, user.id)
     assert len(rows) == 7
     assert {row.occurred_on for row in rows} == {
@@ -119,7 +119,7 @@ async def test_a_future_rule_waits(session):
         book.id, user.id, Flow.EXPENSE, "اجاره", 500, Period.MONTHLY,
         date.today() + timedelta(days=10),
     )
-    assert await service.run_due() == 0
+    assert (await service.run_due()).booked == []
 
 
 async def test_a_paused_rule_never_fires(session):
@@ -131,7 +131,7 @@ async def test_a_paused_rule_never_fires(session):
     )
     await service.toggle(book.id, user.id, rule.id)
 
-    assert await service.run_due() == 0
+    assert (await service.run_due()).booked == []
     assert await LedgerService(session).transactions(book.id, user.id) == []
 
 
@@ -147,6 +147,68 @@ async def test_deleting_a_rule_keeps_what_it_already_booked(session):
 
     assert await service.list_rules(book.id, user.id) == []
     assert len(await LedgerService(session).transactions(book.id, user.id)) == 1
+
+
+async def test_a_date_in_a_closed_period_is_skipped_and_the_rest_still_book(session):
+    """One closed month used to roll back every rule in the run.
+
+    A missed date that falls inside a period someone has closed is not forced
+    into it — its payslips were computed without it — but it must not stop
+    the dates after it, or anybody else's rules, from booking.
+    """
+    from kasbbook.modules.payroll.models import PeriodStatus
+    from kasbbook.modules.payroll.service import PayrollService
+
+    user, book = await setup(session, BookType.TEAM)
+    other_user, other_book = await setup(session)
+    service = RecurringService(session)
+
+    start = date.today() - timedelta(days=4)
+    closed_day = start + timedelta(days=1)
+    payroll = PayrollService(session)
+    period = await payroll.open_period(user.id, book.id, "بسته", closed_day, closed_day)
+    await payroll.advance_period(user.id, period.id, PeriodStatus.CALCULATING)
+
+    await service.create(book.id, user.id, Flow.EXPENSE, "قهوه", 100, Period.DAILY, start)
+    await service.create(other_book.id, other_user.id, Flow.EXPENSE, "اجاره", 500,
+                         Period.DAILY, start)
+
+    run = await service.run_due()
+
+    assert [day for _, day in run.skipped] == [closed_day]
+    assert len(run.booked) == 4 + 5
+    days = {row.occurred_on for row in await LedgerService(session).transactions(book.id, user.id)}
+    assert closed_day not in days and len(days) == 4
+    debit, credit = await LedgerService(session).trial_balance(book.id)
+    assert debit == credit == Decimal("400")
+
+    # The skip is final: the next run does not try the closed day again.
+    again = await service.run_due()
+    assert again.booked == [] and again.skipped == []
+
+
+async def test_a_rule_whose_author_left_the_book_is_paused_not_retried(session):
+    from kasbbook.modules.books.models import Role
+
+    owner, book = await setup(session, BookType.TEAM)
+    identity = IdentityService(session)
+    books = BookService(session)
+    member = await identity.create_user("سارا")
+    await books.add_member(owner.id, book.id, member.id, Role.MEMBER)
+    service = RecurringService(session)
+
+    rule = await service.create(book.id, member.id, Flow.EXPENSE, "اجاره", 500,
+                                Period.MONTHLY, date.today())
+    await service.create(book.id, owner.id, Flow.INCOME, "حقوق", 900,
+                         Period.MONTHLY, date.today())
+    await books.deactivate_member(owner.id, book.id, member.id)
+
+    run = await service.run_due()
+
+    assert run.paused == [rule] and rule.is_active is False
+    assert [r.category for r, _ in run.booked] == ["حقوق"]
+    # Paused rules are reported once, not on every tick after.
+    assert (await service.run_due()).paused == []
 
 
 async def test_a_rule_needs_a_category_and_a_positive_amount(session):

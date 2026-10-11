@@ -303,3 +303,57 @@ async def test_a_failed_send_is_not_retried_the_same_day(db, session):
     assert await ReminderLoop(db, working, state).tick(
         now=at_hour(21), today=DAY
     ) == 0
+
+
+# ---------------------------------------------------------------- recurring
+async def test_the_loop_books_recurring_rules_that_came_due(db, session):
+    """Rent defined once is booked when due — by this loop, which nothing did before.
+
+    `RecurringService.run_due` existed, was tested, and had no caller, so not
+    one recurring rule had ever been booked on a running bot.
+    """
+    from kasbbook.modules.recurring.models import Period
+    from kasbbook.modules.recurring.service import RecurringService
+
+    user = await linked(session, digest_enabled=False)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await RecurringService(session).create(
+        book.id, user.id, Flow.EXPENSE, "اجاره", 9_000_000, Period.MONTHLY, DAY
+    )
+    await session.commit()
+
+    adapter = SpyAdapter()
+    assert await ReminderLoop(db, adapter, MemoryStateStore()).tick(
+        now=at_hour(11), today=DAY
+    ) == 0                                   # on time: the digest will show it
+
+    async for check in db.session():
+        rows = await LedgerService(check).transactions(book.id, user.id)
+        assert [(r.category, r.converted_amount, r.occurred_on) for r in rows] == [
+            ("اجاره", 9_000_000, DAY)
+        ]
+        assert await LedgerService(check).trial_balance(book.id) == (9_000_000, 9_000_000)
+
+
+async def test_a_late_catch_up_is_told_to_the_owner_once(db, session):
+    from datetime import timedelta
+
+    from kasbbook.modules.recurring.models import Period
+    from kasbbook.modules.recurring.service import RecurringService
+
+    user = await linked(session, digest_enabled=False)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await RecurringService(session).create(
+        book.id, user.id, Flow.EXPENSE, "قهوه", 100, Period.DAILY, DAY - timedelta(days=2)
+    )
+    await session.commit()
+
+    adapter = SpyAdapter()
+    loop = ReminderLoop(db, adapter, MemoryStateStore())
+    assert await loop.tick(now=at_hour(11), today=DAY) == 1
+    chat, text = adapter.sent[0]
+    assert chat == "555001"
+    assert "مغازه" in text and "قهوه" in text and "ثبت شد" in text
+
+    # Nothing new came due, so nothing more is said.
+    assert await loop.tick(now=at_hour(12), today=DAY) == 0

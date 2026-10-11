@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import List, Optional, Sequence
+from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,13 +25,16 @@ from ..loans.service import LoanService
 from ..reports import service as reports
 from ..reports.service import ReportService
 
+if TYPE_CHECKING:
+    from ..recurring.service import RecurringRun
+
 
 @dataclass(frozen=True)
 class Reminder:
     """One thing to say to one person, on one messenger."""
 
     user_id: uuid.UUID
-    kind: str            # digest | installment | debt_due
+    kind: str            # digest | installment | debt_due | recurring
     text: str
 
 
@@ -144,6 +147,58 @@ class ReminderService:
         if not lines:
             return None
         return Reminder(user_id, "debt_due", "\n".join(["🤝 سررسید نزدیک", ""] + lines))
+
+    async def recurring_notices(
+        self, run: "RecurringRun", today: Optional[date] = None
+    ) -> List[Reminder]:
+        """Tell each book's owner what a recurring pass did that they would not expect.
+
+        A rule booked on its own day needs no message — the digest shows it.
+        What does need one: a date booked late (the first run after downtime,
+        or after this loop started booking at all), a date skipped because its
+        period was closed, and a rule paused because it can no longer book.
+        Silence about any of those would leave the owner believing the books
+        hold what they asked for.
+        """
+        when = today or date.today()
+        by_book: dict = {}
+
+        def lines_for(book_id):
+            return by_book.setdefault(book_id, {"late": [], "skipped": [], "paused": []})
+
+        for rule, tx in run.booked:
+            if tx.occurred_on < when:
+                lines_for(rule.book_id)["late"].append(
+                    f"• {rule.category}: {tx.converted_amount:,.0f} — {jalali.to_text(tx.occurred_on)}"
+                )
+        for rule, day in run.skipped:
+            lines_for(rule.book_id)["skipped"].append(
+                f"• {rule.category}: {rule.amount:,.0f} — {jalali.to_text(day)}"
+            )
+        for rule in run.paused:
+            lines_for(rule.book_id)["paused"].append(f"• {rule.category}: {rule.amount:,.0f}")
+
+        notices: List[Reminder] = []
+        for book_id, found in by_book.items():
+            book = await self.session.get(Book, book_id)
+            if book is None:
+                continue
+            parts = [f"🔁 تراکنش‌های تکرارشونده — دفتر «{book.name}»"]
+            if found["late"]:
+                parts.append("ثبت شد، با تاریخ خودش:\n" + "\n".join(found["late"]))
+            if found["skipped"]:
+                parts.append(
+                    "ثبت نشد، چون دورهٔ آن روز بسته است. اگر لازم است، "
+                    "آن را در یک دورهٔ باز دستی ثبت کنید:\n" + "\n".join(found["skipped"])
+                )
+            if found["paused"]:
+                parts.append(
+                    "متوقف شد، چون سازندهٔ آن دیگر نمی‌تواند در این دفتر ثبت کند "
+                    "یا دسته‌اش با این دفتر جور نیست. از بخش «تکرارشونده» "
+                    "اصلاح و دوباره فعالش کنید:\n" + "\n".join(found["paused"])
+                )
+            notices.append(Reminder(book.owner_user_id, "recurring", "\n\n".join(parts)))
+        return notices
 
     async def for_user(
         self, user_id: uuid.UUID, today: Optional[date] = None

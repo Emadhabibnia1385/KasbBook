@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
-from ...shared.errors import NotFound, ValidationError
+from ...shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Book, BookType, Permission
 from ..books.service import BookService
-from ..ledger.models import Flow, Scope
+from ..ledger.models import Flow, Scope, Transaction
 from ..ledger.service import LedgerService
 from .models import Period, RecurringRule
 
@@ -120,45 +121,87 @@ class RecurringService:
         await self.session.delete(await self._owned(book_id, rule_id))
         await self.session.flush()
 
-    async def run_due(self, until: Optional[date] = None) -> int:
+    async def run_due(self, until: Optional[date] = None) -> "RecurringRun":
         """
         Book every rule that has come due, catching up on anything missed.
 
-        Returns how many transactions were created. Safe to call repeatedly: a
-        rule only fires for dates it has not already produced, because its own
-        next-due date moves forward as it goes.
+        Safe to call repeatedly: a rule only fires for dates it has not already
+        produced, because its own next-due date moves forward as it goes.
+
+        One rule's trouble is that rule's alone. This used to raise on the
+        first rule it could not book, which rolled back every other rule in the
+        same run — and since nothing ever called it, nobody noticed that rent
+        and salaries defined "once" were never booked at all.
+
+        A missed date inside a period someone has closed is skipped, not
+        forced in: the closed month's payslips were computed without it. The
+        skip is reported so the owner can record it in an open month by hand.
+        A rule whose author can no longer record in the book is paused and
+        reported once, rather than retried — and reported — every tick.
         """
         cutoff = until or date.today()
-        created = 0
+        run = RecurringRun()
 
         rules = (
             await self.session.execute(
-                select(RecurringRule).where(
+                select(RecurringRule)
+                .where(
                     RecurringRule.is_active.is_(True),
                     RecurringRule.next_run_on <= cutoff,
                 )
+                # One bot process runs per messenger, and each has a reminder
+                # loop. Without the lock two of them could book the same date
+                # twice; with it the second skips what the first is holding.
+                # SQLite has no FOR UPDATE and is single-writer anyway.
+                .with_for_update(skip_locked=True)
             )
         ).scalars().all()
 
         for rule in rules:
             book = await self.session.get(Book, rule.book_id)
-            if book is None:
+            if book is None or not book.is_active:
+                continue
+
+            needed = (
+                Permission.RECORD_INCOME if rule.flow is Flow.INCOME
+                else Permission.RECORD_EXPENSE
+            )
+            try:
+                await self.books.require(rule.book_id, rule.created_by_user_id, needed)
+            except (NotFound, PermissionDenied):
+                rule.is_active = False
+                run.paused.append(rule)
                 continue
 
             when = rule.next_run_on
             fired = 0
             while when <= cutoff and fired < MAX_CATCH_UP:
-                await self.ledger.record(
-                    book_id=rule.book_id,
-                    actor_user_id=rule.created_by_user_id,
-                    flow=rule.flow,
-                    scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
-                    category=rule.category,
-                    amount=rule.amount,
-                    description=rule.description,
-                    occurred_on=when,
-                )
-                created += 1
+                try:
+                    tx = await self.ledger.record(
+                        book_id=rule.book_id,
+                        actor_user_id=rule.created_by_user_id,
+                        flow=rule.flow,
+                        scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+                        category=rule.category,
+                        amount=rule.amount,
+                        description=rule.description,
+                        occurred_on=when,
+                    )
+                except PermissionDenied:
+                    # The author's permission was just confirmed, so this is
+                    # the ledger refusing a date inside a closed period. Every
+                    # check in record() runs before it writes, so nothing is
+                    # left half-booked.
+                    run.skipped.append((rule, when))
+                except (ValidationError, BalanceError):
+                    # The rule itself no longer fits the book — its category
+                    # now belongs to the other flow, say. Retrying will not
+                    # change that, so it waits, paused, at the date it failed.
+                    rule.is_active = False
+                    run.paused.append(rule)
+                    break
+                else:
+                    run.booked.append((rule, tx))
                 fired += 1
                 when = next_run_after(rule.period, when)
 
@@ -166,4 +209,13 @@ class RecurringService:
             rule.last_run_on = cutoff
 
         await self.session.flush()
-        return created
+        return run
+
+
+@dataclass
+class RecurringRun:
+    """What one pass did, for the reminder loop to tell the books' owners."""
+
+    booked: List[Tuple[RecurringRule, Transaction]] = field(default_factory=list)
+    skipped: List[Tuple[RecurringRule, date]] = field(default_factory=list)
+    paused: List[RecurringRule] = field(default_factory=list)

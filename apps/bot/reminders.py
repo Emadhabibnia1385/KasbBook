@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from kasbbook.bot.state import StateStore
 from kasbbook.modules.identity.models import Provider, User
+from kasbbook.modules.recurring.service import RecurringService
 from kasbbook.modules.reminders.service import ReminderService
 from kasbbook.shared.database import Database
 
@@ -78,6 +79,27 @@ class ReminderLoop:
             sent += await deliver_invitations(session, self.adapter, self.provider)
             service = ReminderService(session)
             recipients = await service.recipients(self.provider)
+
+            # Recurring rules book here because this is the one loop that
+            # runs whether or not anybody is talking to the bot. They used to
+            # be booked by nothing at all. Committed before anyone is told,
+            # so a failed send never undoes a booking.
+            recurring = await RecurringService(session).run_due(until=day)
+            await session.commit()
+            chats = dict(recipients)
+            for notice in await service.recurring_notices(recurring, today=day):
+                external_id = chats.get(notice.user_id)
+                if external_id is None:
+                    # The owner is not on this messenger. Their own loop never
+                    # sees this run, so the notice is lost — logged, not hidden.
+                    logger.info("recurring notice for %s has no chat here", notice.user_id)
+                    continue
+                try:
+                    await self.adapter.send_plain(external_id, notice.text)
+                    sent += 1
+                except Exception:
+                    logger.warning("could not deliver the recurring notice to %s",
+                                   notice.user_id, exc_info=True)
 
             for user_id, external_id in recipients:
                 user = await session.get(User, user_id)
