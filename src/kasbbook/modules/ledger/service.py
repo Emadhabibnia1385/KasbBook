@@ -22,6 +22,7 @@ from ...shared.errors import BalanceError, NotFound, PermissionDenied, Validatio
 from ...shared.money import ZERO, quantize, to_decimal
 from ...shared.security import utcnow
 from ..books.models import Permission
+from ..exchange.models import CURRENCY_NAMES
 from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent, User
@@ -446,6 +447,36 @@ class LedgerService:
                                                   names.get(actor_id, "کاربر نامشخص"), at)
         return result
 
+    async def _require_wallet_survives(self, tx: Transaction, change: Decimal) -> None:
+        """Refuse an edit or delete that would leave a held currency below zero.
+
+        Recording an expense in a token the book does not hold is refused, but
+        the same hole could be dug afterwards: delete the income that brought
+        the token in, or shrink it, after some of it was spent — or raise the
+        spend — and the wallet showed a negative balance nothing could hold.
+        Checked before anything is written, because a caller that catches the
+        refusal may still commit the session.
+
+        `change` is how the transaction's own amount moves: -amount for a
+        delete, new minus old for an edit. The base currency is exempt for the
+        reason require_funds gives.
+        """
+        exchange = ExchangeService(self.session)
+        book = await self.books.get_book(tx.book_id)
+        if tx.original_currency == book.base_currency or change == ZERO:
+            return
+        effect = change if tx.flow is Flow.INCOME else -change
+        if effect >= ZERO:
+            return
+        held = await exchange.balance_of(tx.book_id, tx.original_currency)
+        if held + effect < ZERO:
+            name = CURRENCY_NAMES.get(tx.original_currency, tx.original_currency)
+            raise ValidationError(
+                f"این کار موجودی {name} را منفی می‌کند: {held.normalize():f} در کیف پول "
+                f"هست و قبلاً خرج شده. اول هزینه‌ها یا تبدیل‌هایی را که از آن استفاده "
+                f"کرده‌اند اصلاح کن."
+            )
+
     @staticmethod
     def _validate_receipt(file_id, provider, kind, file_name, mime_type):
         if not file_id:
@@ -489,6 +520,8 @@ class LedgerService:
         converted = quantize(original * tx.conversion_rate)
         if converted <= ZERO:
             raise ValidationError("مبلغ تبدیل‌شده باید بیشتر از صفر باشد.")
+        if amount is not UNSET:
+            await self._require_wallet_survives(tx, original - tx.original_amount)
         entries = (await self.session.scalars(select(JournalEntry).where(
             JournalEntry.book_id == book_id, JournalEntry.transaction_id == tx.id
         ))).all()
@@ -541,6 +574,7 @@ class LedgerService:
             raise NotFound("این تراکنش پیدا نشد")
 
         await self._require_open_date(book_id, transaction.occurred_on)
+        await self._require_wallet_survives(transaction, -transaction.original_amount)
 
         # journal_entries → transactions and journal_lines → journal_entries are
         # both ON DELETE CASCADE, so removing the transaction takes the whole

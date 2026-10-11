@@ -662,3 +662,68 @@ async def test_a_payment_still_cannot_overshoot_by_a_real_amount(session):
         await payroll.pay(owner.id, slip.id, "43.5", paid_on=DAY, currency="USDT",
                           conversion_rate="230000")     # 10,005,000 against 10,000,000
     assert slip.paid_total == Decimal("0")
+
+
+# ------------------------------------------- the hole dug afterwards (D-4)
+async def _spent_token(session):
+    """Ten USDT received, six spent."""
+    owner, book, exchange, convo = await workspace(session)
+    ledger = LedgerService(session)
+    income = await ledger.record(book.id, owner.id, Flow.INCOME, Scope.WORK, "فروش",
+                                 "10", currency="USDT", conversion_rate="167499",
+                                 occurred_on=DAY)
+    expense = await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.WORK, "سرور",
+                                  "6", currency="USDT", conversion_rate="167499",
+                                  occurred_on=DAY)
+    return owner, book, exchange, ledger, income, expense
+
+
+async def test_deleting_income_that_was_already_spent_is_refused(session):
+    owner, book, exchange, ledger, income, _ = await _spent_token(session)
+    before = await ledger.trial_balance(book.id)
+
+    with pytest.raises(ValidationError) as refused:
+        await ledger.delete(book.id, owner.id, income.id)
+    assert "منفی" in str(refused.value)
+
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("4.0000")
+    assert await ledger.trial_balance(book.id) == before
+
+
+async def test_shrinking_spent_income_below_what_was_spent_is_refused(session):
+    owner, book, exchange, ledger, income, _ = await _spent_token(session)
+    with pytest.raises(ValidationError):
+        await ledger.update(book.id, owner.id, income.id, amount="5")
+    assert income.original_amount == Decimal("10")
+
+    # Down to exactly what was spent is fine: the wallet reaches zero, not below.
+    await ledger.update(book.id, owner.id, income.id, amount="6")
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("0.0000")
+    debit, credit = await ledger.trial_balance(book.id)
+    assert debit == credit
+
+
+async def test_raising_a_token_expense_past_the_balance_is_refused(session):
+    owner, book, exchange, ledger, _, expense = await _spent_token(session)
+    with pytest.raises(ValidationError):
+        await ledger.update(book.id, owner.id, expense.id, amount="11")
+    await ledger.update(book.id, owner.id, expense.id, amount="10")
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("0.0000")
+
+
+async def test_deleting_a_token_expense_or_unspent_income_is_never_blocked(session):
+    owner, book, exchange, ledger, income, expense = await _spent_token(session)
+    await ledger.delete(book.id, owner.id, expense.id)
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("10.0000")
+    await ledger.delete(book.id, owner.id, income.id)
+    assert await exchange.balance_of(book.id, "USDT") == Decimal("0.0000")
+
+
+async def test_base_currency_edits_are_never_blocked_by_a_balance(session):
+    owner, book, exchange, _ = await workspace(session)
+    ledger = LedgerService(session)
+    income = await ledger.record(book.id, owner.id, Flow.INCOME, Scope.WORK, "فروش",
+                                 "100", occurred_on=DAY)
+    await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.WORK, "اجاره",
+                        "500", occurred_on=DAY)
+    await ledger.delete(book.id, owner.id, income.id)
