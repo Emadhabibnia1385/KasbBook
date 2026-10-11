@@ -29,6 +29,7 @@ from .features.base import (
 )
 from .features.payroll import PayrollFeature
 from .features.planning import PlanningFeature
+from .features.wallet import WalletFeature
 from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
 
 # Every feature moved out of this file, in one list. `index` refuses two that
@@ -37,6 +38,7 @@ from .state import DEFAULT_TTL_SECONDS, StateStore, conversation_key
 FEATURES: tuple = (
     PayrollFeature,
     PlanningFeature,
+    WalletFeature,
 )
 FEATURE_BY_PREFIX, FEATURE_BY_FLOW = index(FEATURES)
 
@@ -212,9 +214,6 @@ class Conversation:
 
         if area == "sr":
             return await self._search_callback(action, argument, user, key)
-
-        if area == "cu":
-            return await self._currency_callback(action, argument, user, key)
 
         if area == "noop":
             # No screen emits this any more: a label that cannot act is a dead
@@ -858,120 +857,6 @@ class Conversation:
         await self.state.clear(key)
         return await self._account_panel(user)
 
-    # ------------------------------------------------- wallet and currencies
-    async def _currency_callback(self, action: str, argument: str, user, key: str):
-        if action in ("home", "set", "conv"):
-            book = await self.books.get_book(uuid.UUID(argument))
-            if action == "set":
-                options = await self.exchange.options(user.id, book.id)
-                await self.state.set(key, {"flow": "currency", "book_id": argument})
-                return screens.currency_settings(book, options)
-
-            balances, worth = await self.exchange.valuation(user.id, book.id)
-            if action == "conv":
-                # Nothing you do not hold can be converted, so the picker only
-                # offers what has a balance.
-                holdings = [b for b in balances if b.amount > Decimal("0")]
-                if not holdings:
-                    return screens.error("کیف پول این دفتر خالی است.")
-                await self.state.set(key, {"flow": "conversion", "book_id": argument})
-                return screens.conversion_pick_source(book, holdings)
-
-            await self.state.clear(key)
-            return screens.currency_home(book, balances, len(balances) > 1, worth)
-
-        # Everything below reads the book from conversation state, where it was
-        # put after a permission check, rather than from the button.
-        draft = await self.state.get(key)
-
-        if action == "tog":
-            if draft.get("flow") != "currency":
-                return screens.stale(None, user.display_name)
-            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-            enabled = {o.code for o in await self.exchange.options(user.id, book.id) if o.enabled}
-            await self.exchange.set_enabled(
-                user.id, book.id, argument, argument not in enabled
-            )
-            return screens.currency_settings(
-                book, await self.exchange.options(user.id, book.id)
-            )
-
-        if action == "from":
-            if draft.get("flow") != "conversion":
-                return screens.stale(None, user.display_name)
-            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-            held = await self.exchange.balance_of(book.id, argument)
-            draft["from"] = argument
-            draft["awaiting"] = "amount"
-            await self.state.set(key, draft)
-            return screens.conversion_ask_amount(argument, held)
-
-        if action == "to":
-            if draft.get("flow") != "conversion" or not draft.get("amount"):
-                return screens.stale(None, user.display_name)
-            book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-            draft["to"] = argument
-            draft["awaiting"] = "target"
-            await self.state.set(key, draft)
-            return screens.conversion_ask_target_amount(
-                draft["from"], Decimal(draft["amount"]), argument
-            )
-
-        return screens.stale(None, user.display_name)
-
-    async def _conversion_text(self, text: str, draft: dict, user, key: str):
-        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-        stage = draft.get("awaiting")
-
-        if stage == "amount":
-            amount = parse_amount(text)
-            if amount is None or amount <= Decimal("0"):
-                held = await self.exchange.balance_of(book.id, draft["from"])
-                return screens.conversion_ask_amount(draft["from"], held)
-            draft["amount"] = str(amount)
-            draft["awaiting"] = "to"
-            await self.state.set(key, draft)
-            return screens.conversion_pick_target(
-                draft["from"], await self.exchange.allowed(book.id)
-            )
-
-        if stage == "target":
-            amount = parse_amount(text)
-            if amount is None or amount <= Decimal("0"):
-                return screens.conversion_ask_target_amount(
-                    draft["from"], Decimal(draft["amount"]), draft["to"]
-                )
-            draft["target"] = str(amount)
-            if book.base_currency not in (draft["from"], draft["to"]):
-                draft["awaiting"] = "base"
-                await self.state.set(key, draft)
-                return screens.conversion_ask_base_value(book.base_currency)
-            return await self._save_conversion(draft, user, key)
-
-        if stage == "base":
-            amount = parse_amount(text)
-            if amount is None or amount <= Decimal("0"):
-                return screens.conversion_ask_base_value(book.base_currency)
-            draft["base"] = str(amount)
-            return await self._save_conversion(draft, user, key)
-
-        return screens.stale(None, user.display_name)
-
-    async def _save_conversion(self, draft: dict, user, key: str):
-        book = await self.books.get_book(uuid.UUID(draft["book_id"]))
-        conversion = await self.exchange.convert(
-            actor_user_id=user.id,
-            book_id=book.id,
-            from_currency=draft["from"],
-            from_amount=Decimal(draft["amount"]),
-            to_currency=draft["to"],
-            to_amount=Decimal(draft["target"]),
-            base_value=Decimal(draft["base"]) if draft.get("base") else None,
-            occurred_on=self._today(user),
-        )
-        await self.state.clear(key)
-        return screens.conversion_saved(book, conversion)
-
     # ----------------------------------------------------------- payroll
     async def _member_names(self, book_id) -> dict:
         return await self.ctx.member_names(book_id)
@@ -1000,9 +885,6 @@ class Conversation:
 
         if draft.get("flow") == "tx_edit":
             return await self._edit_tx_text(text, draft, user, key)
-
-        if draft.get("flow") == "conversion":
-            return await self._conversion_text(text, draft, user, key)
 
         if draft.get("flow") == "team_invite":
             row = await self.invitations.create(uuid.UUID(draft["book_id"]), user.id, self.provider,
