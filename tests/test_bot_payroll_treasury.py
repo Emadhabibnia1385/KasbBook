@@ -45,11 +45,10 @@ class _PinnedDate(date):
 def pinned_clock(monkeypatch):
     """Make "today" inside the bot the pinned DAY, whatever the real date is.
 
-    The bot opens "this month" from `date.today()` as imported into
-    kasbbook.bot.conversation, so that is the name to replace. The fixtures are
-    dated DAY; without this they only line up during the month they were written.
+    The bot opens "this month" from the person's day (jalali.today_in), and the
+    payroll service dates shares from it too. The fixtures are dated DAY;
+    without this they only line up during the month they were written.
     """
-    monkeypatch.setattr("kasbbook.bot.conversation.date", _PinnedDate)
     # A share set or cleared from the bot is dated "today" by the service, not
     # the bot, and by either clock (date.today() or the book's timezone day), so
     # every clock has to agree or the period cannot see the share.

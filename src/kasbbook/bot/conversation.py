@@ -15,8 +15,6 @@ feature that owns it.
 
 from __future__ import annotations
 
-from datetime import date
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingMessage
@@ -47,10 +45,6 @@ FEATURES: tuple = (
 )
 FEATURE_BY_PREFIX, FEATURE_BY_FLOW = index(FEATURES)
 
-# `date` is listed only so it stays importable from here: tests/test_bot_payroll_treasury.py
-# pins the clock with monkeypatch.setattr("kasbbook.bot.conversation.date", ...),
-# which raises if the name is gone, though nothing in this module reads it now.
-__all__ = ["Conversation", "FEATURES", "FEATURE_BY_PREFIX", "FEATURE_BY_FLOW", "date"]
 
 
 class Conversation:
