@@ -166,6 +166,64 @@ async def test_percentage_shares_split_the_distributable_amount(session):
     assert slips[b.id].base_share == Decimal("4000000")
 
 
+async def test_percentage_shares_cannot_promise_more_than_everything(session):
+    """70% and 60% paid out 104,000,000 of an 80,000,000 month.
+
+    The excess came from nowhere the books could name, so the share that would
+    push the total past 100 is refused where it is typed.
+    """
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    a = await add_member(session, books, identity, book, owner, "الف")
+    b = await add_member(session, books, identity, book, owner, "ب")
+
+    await payroll.set_share(book.id, owner.id, a.id, ShareBasis.PERCENT, 70,
+                            effective_from=START)
+    with pytest.raises(ValidationError) as refused:
+        await payroll.set_share(book.id, owner.id, b.id, ShareBasis.PERCENT, 60,
+                                effective_from=START)
+    # The message says how much is still free, so the fix is obvious.
+    assert "۳۰" in str(refused.value)
+
+    # Exactly the remainder is fine, and so is lowering one's own share to
+    # make room: a member's existing rule does not count against their new one.
+    await payroll.set_share(book.id, owner.id, b.id, ShareBasis.PERCENT, 30,
+                            effective_from=START)
+    await payroll.set_share(book.id, owner.id, a.id, ShareBasis.PERCENT, 40,
+                            effective_from=START)
+    await payroll.set_share(book.id, owner.id, b.id, ShareBasis.PERCENT, 60,
+                            effective_from=START)
+
+
+async def test_a_future_share_cannot_overlap_into_more_than_everything(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    a = await add_member(session, books, identity, book, owner, "الف")
+    b = await add_member(session, books, identity, book, owner, "ب")
+
+    await payroll.set_share(book.id, owner.id, b.id, ShareBasis.PERCENT, 50,
+                            effective_from=START)
+    # From next month a's share rises to 80 while b's 50 is still in force.
+    await payroll.set_share(book.id, owner.id, a.id, ShareBasis.PERCENT, 50,
+                            effective_from=START)
+    with pytest.raises(ValidationError):
+        await payroll.set_share(book.id, owner.id, a.id, ShareBasis.PERCENT, 80,
+                                effective_from=START + timedelta(days=40))
+
+
+async def test_a_book_already_over_100_percent_refuses_to_calculate(session):
+    """Rules written before the check existed must not quietly overpay."""
+    identity, books, payroll, owner, book, period = await team_with_income(
+        session, costs=None
+    )
+    a = await add_member(session, books, identity, book, owner, "الف")
+    b = await add_member(session, books, identity, book, owner, "ب")
+    share(session, book, a, ShareBasis.PERCENT, 70)
+    share(session, book, b, ShareBasis.PERCENT, 60)
+    await session.flush()
+
+    with pytest.raises(ValidationError):
+        await payroll.calculate(owner.id, period.id)
+
+
 async def test_a_fixed_share_is_taken_before_the_rest_is_split(session):
     identity, books, payroll, owner, book, period = await team_with_income(
         session, income="10000000", costs=None

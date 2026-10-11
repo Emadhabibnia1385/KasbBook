@@ -42,6 +42,13 @@ from .models import (
 
 HUNDRED = Decimal("100")
 
+_FA_DIGITS = str.maketrans("0123456789.", "۰۱۲۳۴۵۶۷۸۹٫")
+
+
+def _fa_number(value: Decimal) -> str:
+    """A percentage as a person reads it in a refusal: ۳۰ or ۳۲٫۵, never 30.0000."""
+    return format(value, "f").translate(_FA_DIGITS)
+
 
 @dataclass
 class Distribution:
@@ -490,6 +497,18 @@ class PayrollService:
         if not rules:
             return {}
 
+        # set_share refuses this now, but rules written before it did are still
+        # in the table. Paying them would overpay silently; refusing names it.
+        promised = sum(
+            (rule.value for rule in rules.values() if rule.basis is ShareBasis.PERCENT),
+            ZERO,
+        )
+        if promised > HUNDRED:
+            raise ValidationError(
+                f"جمع سهم‌های درصدی اعضا {_fa_number(promised.normalize())} درصد است؛ "
+                "پیش از محاسبه آن را به ۱۰۰ یا کمتر برسانید"
+            )
+
         records = {
             record.user_id: record
             for record in (
@@ -565,6 +584,9 @@ class PayrollService:
 
         starts_on = effective_from or date.today()
 
+        if basis is ShareBasis.PERCENT:
+            await self._refuse_percent_over_hundred(book_id, user_id, amount, starts_on)
+
         for existing in (
             await self.session.execute(
                 select(ShareRule).where(
@@ -598,6 +620,47 @@ class PayrollService:
         )
         await self.session.flush()
         return rule
+
+    async def _refuse_percent_over_hundred(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, amount: Decimal, starts_on: date
+    ) -> None:
+        """Percentages that add up past 100 promise money that does not exist.
+
+        70% and 60% of an 80,000,000 month paid out 104,000,000, and nothing in
+        the books said where the other 24,000,000 came from. The new rule is in
+        force from `starts_on` onwards — `set_share` retires any later rule of
+        the same member — so it is checked on that day and on every later day
+        someone else's rule changes. The member's own current rule is left out:
+        lowering your own share to make room must not be refused.
+        """
+        days = {starts_on}
+        for rule in (
+            await self.session.execute(
+                select(ShareRule).where(
+                    ShareRule.book_id == book_id,
+                    ShareRule.is_active.is_(True),
+                    ShareRule.user_id != user_id,
+                    ShareRule.effective_from > starts_on,
+                )
+            )
+        ).scalars().all():
+            days.add(rule.effective_from)
+
+        for day in sorted(days):
+            others = sum(
+                (
+                    rule.value
+                    for member, rule in (await self.share_rules_for(book_id, day)).items()
+                    if member != user_id and rule.basis is ShareBasis.PERCENT
+                ),
+                ZERO,
+            )
+            if others + amount > HUNDRED:
+                free = max(HUNDRED - others, ZERO).normalize()
+                raise ValidationError(
+                    "جمع سهم‌های درصدی از ۱۰۰ بیشتر می‌شود؛ "
+                    f"حداکثر {_fa_number(free)} درصد آزاد است"
+                )
 
     async def shares(
         self, book_id: uuid.UUID, actor_user_id: uuid.UUID, on: Optional[date] = None
