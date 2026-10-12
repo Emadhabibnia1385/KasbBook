@@ -98,15 +98,13 @@ class DebtService:
         if record_transaction:
             from ..ledger.models import Flow
             from ..ledger.service import LedgerService
-            from ..recurring.service import SCOPE_FOR_BOOK
 
             received = debt.direction is Direction.OWED_TO_ME
-            book = await self.books.get_book(book_id)
             await LedgerService(self.session).record(
                 book_id=book_id,
                 actor_user_id=user_id,
                 flow=Flow.INCOME if received else Flow.EXPENSE,
-                scope=SCOPE_FOR_BOOK[book.type],
+                scope=None,
                 category="تسویه طلب" if received else "تسویه بدهی",
                 amount=debt.amount,
                 description=f"تسویه با {debt.person}",

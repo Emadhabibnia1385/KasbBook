@@ -18,7 +18,7 @@ from ...modules.ledger.models import Flow, Scope
 from ...shared.errors import KasbBookError, ValidationError
 from ...shared.parsing import parse_amount, parse_date
 from .. import quick, screens
-from .base import SCOPE_FOR_BOOK, Feature, read_amount
+from .base import Feature, read_amount
 
 
 class TransactionsFeature(Feature):
@@ -522,7 +522,7 @@ class TransactionsFeature(Feature):
                     book_id=book.id,
                     actor_user_id=user.id,
                     flow=flow,
-                    scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+                    scope=None,
                     category=draft["category"],
                     amount=Decimal(draft["amount"]),
                     description=draft.get("description"),
@@ -639,8 +639,7 @@ class TransactionsFeature(Feature):
                 book_id=book.id,
                 actor_user_id=user.id,
                 flow=flow,
-                scope=(Scope(draft["scope"]) if draft.get("scope")
-                       else SCOPE_FOR_BOOK.get(book.type, Scope.WORK)),
+                scope=Scope(draft["scope"]) if draft.get("scope") else None,
                 category=draft["category"],
                 amount=Decimal(draft["amount"]),
                 currency=draft.get("currency"),

@@ -48,14 +48,6 @@ from ..schemas import (
 
 router = APIRouter(prefix="/books", tags=["books"])
 
-SCOPE_FOR_BOOK = {
-    BookType.PERSONAL: Scope.PERSONAL,
-    BookType.BUSINESS: Scope.WORK,
-    BookType.TEAM: Scope.TEAM,
-    BookType.ORGANIZATION: Scope.TEAM,
-}
-
-
 def _as_enum(enum_class, value: str, field: str):
     """A bad enum value is the caller's mistake, not a 500."""
     try:
@@ -327,15 +319,8 @@ async def record_transaction(
     found = await idempotency.claim(request, session, user.id)
     if found.is_replay:
         return idempotency.replay(found)
-    books = BookService(session)
     flow = _as_enum(Flow, body.flow, "flow")
-    await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
-    book = await books.get_book(book_id)
-
-    scope = (
-        _as_enum(Scope, body.scope, "scope") if body.scope
-        else SCOPE_FOR_BOOK.get(book.type, Scope.WORK)
-    )
+    scope = _as_enum(Scope, body.scope, "scope") if body.scope else None
     transaction = await LedgerService(session).record(
         book_id=book_id,
         actor_user_id=user.id,

@@ -13,23 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...shared import jalali
 from ...shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
-from ..books.models import Book, BookType, Permission
+from ..books.models import Book, Permission
 from ..books.service import BookService
-from ..ledger.models import Flow, Scope, Transaction
+from ..ledger.models import Flow, Transaction
 from ..ledger.service import LedgerService
 from .models import Period, RecurringRule
 
 # A rule that has somehow fallen years behind should not spend an afternoon
 # writing transactions. This caps one catch-up run.
 MAX_CATCH_UP = 400
-
-SCOPE_FOR_BOOK = {
-    BookType.PERSONAL: Scope.PERSONAL,
-    BookType.BUSINESS: Scope.WORK,
-    BookType.TEAM: Scope.TEAM,
-    BookType.ORGANIZATION: Scope.TEAM,
-}
-
 
 def next_run_after(period: Period, current: date) -> date:
     if period is Period.DAILY:
@@ -181,7 +173,7 @@ class RecurringService:
                         book_id=rule.book_id,
                         actor_user_id=rule.created_by_user_id,
                         flow=rule.flow,
-                        scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+                        scope=None,
                         category=rule.category,
                         amount=rule.amount,
                         description=rule.description,

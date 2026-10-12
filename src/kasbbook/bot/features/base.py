@@ -33,8 +33,6 @@ from ...modules.reports.service import ReportService
 from ...modules.treasury.service import TreasuryService
 from decimal import Decimal
 
-from ...modules.books.models import BookType
-from ...modules.ledger.models import Scope
 from ...shared import jalali
 from .. import quick, screens
 from ..state import StateStore
@@ -71,15 +69,6 @@ def read_amount(text: str):
     if got <= 0:
         return None, "مبلغ باید بیشتر از صفر باشد."
     return got, None
-
-
-# Which book type a scope belongs to, so a team book never records personal money.
-SCOPE_FOR_BOOK = {
-    BookType.PERSONAL: Scope.PERSONAL,
-    BookType.BUSINESS: Scope.WORK,
-    BookType.TEAM: Scope.TEAM,
-    BookType.ORGANIZATION: Scope.TEAM,
-}
 
 
 

@@ -37,6 +37,7 @@ from .models import (
     Flow,
     JournalEntry,
     JournalLine,
+    SCOPE_FOR_BOOK,
     RateMode,
     Scope,
     Transaction,
@@ -126,7 +127,7 @@ class LedgerService:
         book_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         flow: Flow,
-        scope: Scope,
+        scope: Optional[Scope],
         category: str,
         amount,
         occurred_on: Optional[date] = None,
@@ -142,7 +143,10 @@ class LedgerService:
         receipt_file_name: Optional[str] = None,
         receipt_mime_type: Optional[str] = None,
     ) -> Transaction:
-        """Record one transaction and its balanced journal entry."""
+        """Record one transaction and its balanced journal entry.
+
+        A `scope` of None takes the book's own (`SCOPE_FOR_BOOK`).
+        """
         needed = (
             Permission.RECORD_INCOME if flow is Flow.INCOME else Permission.RECORD_EXPENSE
         )
@@ -151,6 +155,8 @@ class LedgerService:
         await self.categories.lock_book(book_id)
 
         book = await self.books.get_book(book_id)
+        if scope is None:
+            scope = SCOPE_FOR_BOOK.get(book.type, Scope.WORK)
         on = occurred_on or jalali.today_in(book.timezone)
         await self._require_open_date(book_id, on)
         category = self.categories.name(category)

@@ -30,6 +30,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...shared.database import Base, Timestamped, UUIDPrimaryKey
 from ...shared.money import Money
+from ..books.models import BookType
 
 
 class Flow(str, enum.Enum):
@@ -45,6 +46,17 @@ class Scope(str, enum.Enum):
     WORK = "work"
     PERSONAL = "personal"
     TEAM = "team"
+
+
+# Whose money an entry is when nobody says: a personal book's is personal, a
+# team book's is the team's. One table, read by LedgerService.record, so the
+# bot, the API, the recurring loop and a debt settlement cannot disagree.
+SCOPE_FOR_BOOK = {
+    BookType.PERSONAL: Scope.PERSONAL,
+    BookType.BUSINESS: Scope.WORK,
+    BookType.TEAM: Scope.TEAM,
+    BookType.ORGANIZATION: Scope.TEAM,
+}
 
 
 class AccountType(str, enum.Enum):
