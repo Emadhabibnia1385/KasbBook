@@ -29,7 +29,9 @@ pytestmark = pytest.mark.asyncio
 
 # Everything screens.py defined at the top level when it was split (145
 # functions, 20 constants), plus Button, which callers reached through it.
-# Frozen: a name may be added to the package, never quietly lost.
+# Frozen: a name may be added to the package, never quietly lost. One was
+# removed on purpose, in its own commit: book_report, which nothing had
+# called since the period reports replaced it.
 PREVIOUS_EXPORTS = (
     "RLM", "BOOK_LABELS", "PROVIDER_LABELS", "Screen", "rtl", "_problem",
     "with_notice", "fmt", "WHOLE_UNIT_CURRENCIES", "fmt_currency", "welcome",
@@ -38,7 +40,7 @@ PREVIOUS_EXPORTS = (
     "TYPES_FOR_BOOK", "SECTION_ORDER", "DAY_PAGE", "day_token", "_entry_code",
     "_pairs", "_book_mark", "entry_label", "tx_home", "pick_date", "ask_date",
     "pick_type", "daily_pick_type", "_day_summary", "daily_view", "ask_category",
-    "ask_amount", "transaction_saved", "report_menu", "book_report", "account_created",
+    "ask_amount", "transaction_saved", "report_menu", "account_created",
     "account_panel", "_reading", "api_panel", "api_key_created", "ask_email",
     "ask_phone", "ask_current_password", "ask_new_password", "ask_display_name",
     "ask_timezone", "session_list", "CLOSE_WORD", "confirm_close", "ask_close_word",
@@ -94,7 +96,7 @@ def _defined(path: Path):
 async def test_everything_screens_py_offered_is_still_there():
     from kasbbook.bot import screens
 
-    assert len(PREVIOUS_EXPORTS) == len(set(PREVIOUS_EXPORTS)) == 166
+    assert len(PREVIOUS_EXPORTS) == len(set(PREVIOUS_EXPORTS)) == 165
     missing = [name for name in PREVIOUS_EXPORTS if not hasattr(screens, name)]
     assert not missing, f"lost in the split: {missing}"
     assert set(PREVIOUS_EXPORTS) <= set(screens.__all__)

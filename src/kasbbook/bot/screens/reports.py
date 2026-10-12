@@ -116,18 +116,3 @@ def comparison_line(previous_label: str, before, after) -> str:
         delta("هزینه", before.expense, after.expense),
         delta("خالص", before.net, after.net),
     ])
-
-
-# Called by nothing since the period reports replaced it; kept so the screens
-# package exports what screens.py did. Remove in its own change.
-def book_report(book: Book, totals: dict) -> Screen:
-    text = rtl(
-        f"📊 {book.name}\n\n"
-        f"💰 درآمد: {fmt(totals['income'], book.base_currency)}\n"
-        f"🧾 هزینه: {fmt(totals['expense'], book.base_currency)}\n"
-        f"➖ خالص: {fmt(totals['net'], book.base_currency)}"
-    )
-    return text, [
-        [Button("➕ ثبت تراکنش", data="tx:new")],
-        [Button("⬅️ بازگشت", data="rep:menu")],
-    ]

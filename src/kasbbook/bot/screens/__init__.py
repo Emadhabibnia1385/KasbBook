@@ -138,7 +138,6 @@ from .planning import (
     ask_days,
 )
 from .reports import (
-    book_report,
     report_menu,
     period_menu,
     period_report,
@@ -242,7 +241,6 @@ __all__ = [
     "_book_names",
     "_book_buttons",
     "_book_mark",
-    "book_report",
     "stale",
     "cancelled",
     "_UNCLEAR",
