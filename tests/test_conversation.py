@@ -980,7 +980,7 @@ async def test_one_account_cannot_see_anothers_key(session):
     assert theirs[:8] not in panel.text
     assert "کلید هنوز نساخته‌ای" in panel.text
 
-def test_the_api_screen_offers_both_the_reference_and_the_guide():
+async def test_the_api_screen_offers_both_the_reference_and_the_guide():
     """They answer different questions, and only one used to be reachable."""
     from kasbbook.bot import screens
 
@@ -994,7 +994,7 @@ def test_the_api_screen_offers_both_the_reference_and_the_guide():
     }
 
 
-def test_a_missing_url_produces_no_button_rather_than_a_dead_one():
+async def test_a_missing_url_produces_no_button_rather_than_a_dead_one():
     from kasbbook.bot import screens
 
     for docs, guide, expected in [
@@ -1006,7 +1006,7 @@ def test_a_missing_url_produces_no_button_rather_than_a_dead_one():
         assert [b.text for row in buttons for b in row if b.url] == expected
 
 
-def test_the_key_screen_carries_the_same_two_links():
+async def test_the_key_screen_carries_the_same_two_links():
     """Somebody who has just been handed a key should not have to go looking."""
     from kasbbook.bot import screens
 
@@ -1018,7 +1018,7 @@ def test_the_key_screen_carries_the_same_two_links():
     assert urls == ["https://api.example.com/docs", "https://guide.example.com/fa/"]
 
 
-def test_an_explicitly_empty_docs_url_switches_the_guide_off(monkeypatch):
+async def test_an_explicitly_empty_docs_url_switches_the_guide_off(monkeypatch):
     """Unset falls back to the published site; set-to-nothing means nothing."""
     from kasbbook.shared.settings import Settings, DEFAULT_DOCS_URL
 

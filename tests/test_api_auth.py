@@ -143,7 +143,8 @@ async def test_a_token_signed_with_another_key_is_refused(api):
     forged = jwt.encode(
         {"sub": "00000000-0000-0000-0000-000000000001", "typ": "access",
          "exp": int(utcnow().timestamp()) + 600},
-        "a-different-key", algorithm="HS256",
+        # As long as a real key, so the only thing wrong with it is whose it is.
+        "a-different-signing-key-of-a-proper-length-too", algorithm="HS256",
     )
     response = await api.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {forged}"})
     assert response.status_code == 401
