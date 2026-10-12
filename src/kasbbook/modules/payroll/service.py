@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Dict, List, Optional, Sequence
 
 from sqlalchemy import select
@@ -1117,6 +1117,101 @@ class PayrollService:
             )
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def get_payslip(
+        self, actor_user_id: uuid.UUID, payslip_id: uuid.UUID
+    ) -> Payslip:
+        """One payslip, for someone allowed to see it — the rule `payslips` lists by.
+
+        Seeing everyone's pay is its own permission; without it a member sees
+        only their own. Anyone else is told the payslip does not exist, the
+        answer a stranger to the book gets, so ids cannot be probed.
+        """
+        slip = await self.session.get(Payslip, payslip_id)
+        if slip is None:
+            raise NotFound("payslip")
+        if not await self.books.can(slip.book_id, actor_user_id, Permission.VIEW_OTHERS_PAY):
+            await self.books.require(slip.book_id, actor_user_id, Permission.VIEW_REPORTS)
+            if slip.user_id != actor_user_id:
+                raise NotFound("payslip")
+        return slip
+
+    async def _owed(self, slip: Payslip) -> Decimal:
+        """What is still owed on a payslip, in its own currency."""
+        # Summed in SQL rather than through the relationship: the payslip may
+        # already be in the identity map from a calculate() in the same session,
+        # in which case its `payments` collection was never loaded.
+        already = sum(
+            (
+                to_decimal(amount) * to_decimal(at_rate)
+                for amount, at_rate in (
+                    await self.session.execute(
+                        select(Payment.amount, Payment.conversion_rate).where(
+                            Payment.payslip_id == slip.id
+                        )
+                    )
+                ).all()
+            ),
+            ZERO,
+        )
+        return quantize(slip.net_pay - already)
+
+    async def pay_towards(
+        self,
+        actor_user_id: uuid.UUID,
+        payslip_id: uuid.UUID,
+        worth=None,
+        currency: Optional[str] = None,
+        conversion_rate=None,
+        paid_on: Optional[date] = None,
+        reference: Optional[str] = None,
+    ) -> Payment:
+        """Settle `worth` of a payslip, counted in its own currency, in any currency.
+
+        `worth` of None is everything still owed. `pay` takes the amount handed
+        over; this works it out, so a member paid "the rest, in tether" is paid
+        the same number of tether whichever client pressed the button. It
+        lived in the bot alone, and an API client paying the same payslip
+        rounded its own way and left a different residue.
+        """
+        slip = await self.session.get(Payslip, payslip_id)
+        if slip is None:
+            raise NotFound("payslip")
+        await self.books.require(slip.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        # Read under the lock `pay` takes, so "the rest" is the rest at the
+        # moment of paying and not what it was before a payment in flight.
+        await CategoryService(self.session).lock_book(slip.book_id)
+
+        if worth is None:
+            value = await self._owed(slip)
+            if value <= ZERO:
+                raise ValidationError("از این فیش چیزی مانده نیست.")
+        else:
+            value = quantize(worth)
+            if value <= ZERO:
+                raise ValidationError("مبلغ پرداخت باید بیشتر از صفر باشد.")
+
+        paid_in = (currency or slip.currency).upper()
+        if paid_in == slip.currency:
+            return await self.pay(actor_user_id, payslip_id, value, paid_on=paid_on,
+                                  reference=reference)
+
+        if conversion_rate is None:
+            raise ValidationError(
+                f"پرداخت به {paid_in} نرخ تبدیل به {slip.currency} می‌خواهد."
+            )
+        # Divided by the rate as `pay` will store it, so the amount and the
+        # check `pay` makes on it start from the same number.
+        rate = quantize(to_decimal(conversion_rate))
+        if rate <= ZERO:
+            raise ValidationError("نرخ تبدیل باید مثبت باشد (دست‌کم ۰٫۰۰۰۱).")
+        # Rounded up, not to nearest: rounding down left a payslip settled in
+        # tether a few toman short, and those few toman were not payable in
+        # tether at all. Up is at most one unit over, which `pay` allows.
+        amount = (value / rate).quantize(SCALE, rounding=ROUND_CEILING)
+        return await self.pay(actor_user_id, payslip_id, amount, paid_on=paid_on,
+                              currency=paid_in, conversion_rate=rate,
+                              reference=reference)
+
     async def pay(
         self,
         actor_user_id: uuid.UUID,
@@ -1148,23 +1243,7 @@ class PayrollService:
         if value <= ZERO:
             raise ValidationError("مبلغ پرداخت باید بیشتر از صفر باشد.")
 
-        # Summed in SQL rather than through the relationship: the payslip may
-        # already be in the identity map from a calculate() in the same session,
-        # in which case its `payments` collection was never loaded.
-        already = sum(
-            (
-                to_decimal(amount) * to_decimal(at_rate)
-                for amount, at_rate in (
-                    await self.session.execute(
-                        select(Payment.amount, Payment.conversion_rate).where(
-                            Payment.payslip_id == payslip_id
-                        )
-                    )
-                ).all()
-            ),
-            ZERO,
-        )
-        owed = quantize(slip.net_pay - already)
+        owed = await self._owed(slip)
 
         paid_in = (currency or slip.currency).upper()
         if paid_in == slip.currency:

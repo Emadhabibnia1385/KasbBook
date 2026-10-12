@@ -60,15 +60,37 @@ def _as_enum(enum_class, value: str, field: str):
         raise ValidationError(f"{field} must be one of: {allowed}") from None
 
 
-async def _names(session, book_id: uuid.UUID) -> Dict[uuid.UUID, str]:
+async def _names(session, book_id: uuid.UUID, user_id: uuid.UUID) -> Dict[uuid.UUID, str]:
+    """The book's member names, for someone on the book.
+
+    Gated even though every caller has passed a service first: the service
+    checks the book its object belongs to, and that is not always the book in
+    the path.
+    """
+    from ...modules.books.models import Permission
     from ...modules.books.service import BookService
 
+    books = BookService(session)
+    await books.require(book_id, user_id, Permission.VIEW_REPORTS)
     identity = IdentityService(session)
     names: Dict[uuid.UUID, str] = {}
-    for member in await BookService(session).members(book_id):
+    for member in await books.members(book_id):
         person = await identity.get_user(member.user_id)
         names[member.user_id] = person.display_name
     return names
+
+
+async def _period_in(payroll: PayrollService, book_id: uuid.UUID, period_id: uuid.UUID):
+    """The period, if it is in the path's book; otherwise 404, as if it did not exist.
+
+    The services authorize the period's own book, so a mismatched path leaks
+    nothing; but a manager of two books could act on one through the other's
+    URL, and a client would believe the wrong book had changed.
+    """
+    period = await payroll.get_period(period_id)
+    if period.book_id != book_id:
+        raise NotFound("period")
+    return period
 
 
 def _period(row) -> PeriodResponse:
@@ -104,9 +126,7 @@ async def update_period(
 ) -> PeriodResponse:
     """Change a period's name, its window, or both."""
     payroll = PayrollService(session)
-    period = await payroll.get_period(period_id)
-    if period.book_id != book_id:
-        raise NotFound("period")
+    period = await _period_in(payroll, book_id, period_id)
     if body.label is None and body.starts_on is None and body.ends_on is None:
         raise ValidationError("یک تغییر معتبر بفرست.")
 
@@ -129,9 +149,7 @@ async def discard_calculation(
 ) -> None:
     """Throw away a period's payslips. Refused once anyone has been paid."""
     payroll = PayrollService(session)
-    period = await payroll.get_period(period_id)
-    if period.book_id != book_id:
-        raise NotFound("period")
+    await _period_in(payroll, book_id, period_id)
     await payroll.discard_calculation(user.id, period_id)
 
 
@@ -141,9 +159,7 @@ async def delete_period(
 ) -> None:
     """Remove a period that has not paid anyone."""
     payroll = PayrollService(session)
-    period = await payroll.get_period(period_id)
-    if period.book_id != book_id:
-        raise NotFound("period")
+    await _period_in(payroll, book_id, period_id)
     await payroll.delete_period(user.id, period_id)
 
 
@@ -153,9 +169,7 @@ async def distribution(
 ) -> DistributionResponse:
     """Income minus costs minus treasury — every line that produces a share."""
     payroll = PayrollService(session)
-    period = await payroll.get_period(period_id)
-    if period.book_id != book_id:
-        raise NotFound("period")
+    await _period_in(payroll, book_id, period_id)
 
     # Reading it is a report, so it needs the permission a report needs.
     await payroll.periods(book_id, user.id)
@@ -175,6 +189,7 @@ async def advance(
     user: CurrentUser, session: SessionDep,
 ) -> PeriodResponse:
     """Move a period along. Only the documented transitions are accepted."""
+    await _period_in(PayrollService(session), book_id, period_id)
     period = await PayrollService(session).advance_period(
         user.id, period_id, _as_enum(PeriodStatus, status, "status")
     )
@@ -190,6 +205,7 @@ async def close(
     Refused, with nothing moved, while no payslip exists, a payslip is older
     than the period's numbers, or anyone is still owed.
     """
+    await _period_in(PayrollService(session), book_id, period_id)
     return _period(await PayrollService(session).close_period(user.id, period_id))
 
 
@@ -199,7 +215,7 @@ async def list_shares(
     book_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> List[ShareResponse]:
     rules = await PayrollService(session).shares(book_id, user.id)
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return [
         ShareResponse(
             user_id=user_id, display_name=names.get(user_id, "—"),
@@ -220,7 +236,7 @@ async def set_share(
         book_id, user.id, body.user_id,
         _as_enum(ShareBasis, body.basis, "basis"), body.value, body.effective_from,
     )
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return ShareResponse(
         user_id=body.user_id, display_name=names.get(body.user_id, "—"),
         basis=rule.basis.value, value=rule.value, effective_from=rule.effective_from,
@@ -239,8 +255,9 @@ async def clear_share(
 async def list_performance(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> List[PerformanceResponse]:
+    await _period_in(PayrollService(session), book_id, period_id)
     records = await PayrollService(session).performance(user.id, period_id)
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return [
         PerformanceResponse(
             user_id=user_id, display_name=names.get(user_id, "—"),
@@ -266,11 +283,12 @@ async def record_performance(
     }
     if not measures:
         raise ValidationError("nothing to record")
+    await _period_in(PayrollService(session), book_id, period_id)
 
     record = await PayrollService(session).record_performance(
         user.id, period_id, body.user_id, **measures
     )
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return PerformanceResponse(
         user_id=body.user_id, display_name=names.get(body.user_id, "—"),
         hours_worked=record.hours_worked, days_worked=record.days_worked,
@@ -285,8 +303,9 @@ async def record_performance(
 async def list_adjustments(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> List[AdjustmentResponse]:
+    await _period_in(PayrollService(session), book_id, period_id)
     rows = await PayrollService(session).adjustments(user.id, period_id)
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return [
         AdjustmentResponse(
             id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
@@ -306,13 +325,14 @@ async def add_adjustment(
     found = await idempotency.claim(request, session, user.id)
     if found.is_replay:
         return idempotency.replay(found)
+    await _period_in(PayrollService(session), book_id, period_id)
     row = await PayrollService(session).add_adjustment(
         user.id, period_id, body.user_id,
         _as_enum(AdjustmentKind, body.kind, "kind"),
         _as_enum(AdjustmentMode, body.mode, "mode"),
         body.value, reason=body.reason,
     )
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return await idempotency.remember(session, found, 201, AdjustmentResponse(
         id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
         kind=row.kind.value, mode=row.mode.value, value=row.value,
@@ -327,8 +347,13 @@ async def approve_adjustment(
     user: CurrentUser, session: SessionDep,
 ) -> AdjustmentResponse:
     """Recording and approving are separate on purpose."""
+    await _period_in(PayrollService(session), book_id, period_id)
     row = await PayrollService(session).approve_adjustment(user.id, adjustment_id)
-    names = await _names(session, book_id)
+    if row.period_id != period_id:
+        # Raised after the service, which has already answered a stranger
+        # with the same 404; raising rolls the approval back.
+        raise NotFound("adjustment")
+    names = await _names(session, book_id, user.id)
     return AdjustmentResponse(
         id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
         kind=row.kind.value, mode=row.mode.value, value=row.value,
@@ -371,7 +396,7 @@ async def calculate(
     if found.is_replay:
         return idempotency.replay(found)
     payroll = PayrollService(session)
-    period = await payroll.get_period(period_id)
+    period = await _period_in(payroll, book_id, period_id)
     if not await payroll.shares(book_id, user.id, period.ends_on):
         raise ValidationError(
             "no member has a share yet, so a calculation would produce nothing. "
@@ -379,7 +404,7 @@ async def calculate(
         )
 
     slips = await payroll.calculate(user.id, period_id)
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return await idempotency.remember(session, found, 200, [_payslip(slip, names) for slip in slips])
 
 
@@ -394,7 +419,7 @@ async def void_payment(
     slip = await payroll.void_payment(user.id, payment_id)
     if slip.book_id != book_id or slip.id != payslip_id:
         raise NotFound("payment")
-    return _payslip(slip, await _names(session, book_id))
+    return _payslip(slip, await _names(session, book_id, user.id))
 
 
 @router.get("/periods/{period_id}/payslips", response_model=List[PayslipResponse])
@@ -402,9 +427,21 @@ async def list_payslips(
     book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> List[PayslipResponse]:
     """Everyone's, or just your own — the service decides, by permission."""
+    await _period_in(PayrollService(session), book_id, period_id)
     slips = await PayrollService(session).payslips(user.id, period_id)
-    names = await _names(session, book_id)
+    names = await _names(session, book_id, user.id)
     return [_payslip(slip, names) for slip in slips]
+
+
+@router.get("/payslips/{payslip_id}", response_model=PayslipResponse)
+async def get_payslip(
+    book_id: uuid.UUID, payslip_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> PayslipResponse:
+    """One payslip: anyone's for those who may see everyone's pay, else your own."""
+    slip = await PayrollService(session).get_payslip(user.id, payslip_id)
+    if slip.book_id != book_id:
+        raise NotFound("payslip")
+    return _payslip(slip, await _names(session, book_id, user.id))
 
 
 @router.post("/payslips/{payslip_id}/payments", response_model=PayslipResponse,
@@ -417,29 +454,40 @@ async def pay(
 
     Requires an `Idempotency-Key` header: this is the request that moves money
     out of the book, so it is the one a retry must never repeat.
-    """
-    from ...modules.payroll.models import Payslip
 
+    Send exactly one of `amount` (handed over, in `currency`), `settles` (how
+    much of the payslip it clears, in the payslip's currency) or `rest: true`.
+    """
     found = await idempotency.claim(request, session, user.id, required=True)
     if found.is_replay:
         return idempotency.replay(found)
 
-    payroll = PayrollService(session)
-    await payroll.pay(
-        user.id, payslip_id, body.amount, paid_on=body.paid_on,
-        currency=body.currency, conversion_rate=body.conversion_rate,
-        reference=body.reference,
-    )
+    chosen = [body.amount is not None, body.settles is not None, body.rest]
+    if sum(chosen) != 1:
+        raise ValidationError("exactly one of amount, settles or rest is needed")
 
-    slip = await session.get(Payslip, payslip_id)
+    payroll = PayrollService(session)
+    slip = await payroll.get_payslip(user.id, payslip_id)
     # The payslip must belong to the book in the path, as void_payment checks.
     # Without it, a manager of two books could pay one's payslip through the
-    # other's URL. Checked after the service, which has already given a
-    # stranger the same 404; raising here rolls the payment back.
+    # other's URL.
     if slip.book_id != book_id:
         raise NotFound("payslip")
+
+    if body.amount is not None:
+        await payroll.pay(
+            user.id, payslip_id, body.amount, paid_on=body.paid_on,
+            currency=body.currency, conversion_rate=body.conversion_rate,
+            reference=body.reference,
+        )
+    else:
+        await payroll.pay_towards(
+            user.id, payslip_id, body.settles, currency=body.currency,
+            conversion_rate=body.conversion_rate, paid_on=body.paid_on,
+            reference=body.reference,
+        )
     await session.refresh(slip)
-    return await idempotency.remember(session, found, 201, _payslip(slip, await _names(session, book_id)))
+    return await idempotency.remember(session, found, 201, _payslip(slip, await _names(session, book_id, user.id)))
 
 
 # --------------------------------------------------------------- treasury

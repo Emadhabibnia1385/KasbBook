@@ -566,7 +566,14 @@ class PayslipResponse(MoneyModel):
 
 
 class PayRequest(MoneyModel):
-    amount: Decimal = Field(gt=0)
+    # Exactly one of the three says how much: `amount` is what is handed
+    # over, in `currency`; `settles` is how much of the payslip that clears,
+    # in the payslip's own currency, and the service works out the amount;
+    # `rest` clears everything still owed. The last two are what the bot's
+    # "pay" and "pay all" do, rounded the same way.
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    settles: Optional[Decimal] = Field(default=None, gt=0)
+    rest: bool = False
     # None means the payslip's own currency. Another must be one the book has
     # enabled and holds enough of, and must carry `conversion_rate` into the
     # payslip's currency. The bot could pay a member in tether; this could not.

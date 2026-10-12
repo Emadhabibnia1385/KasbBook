@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 
 from ...modules.books.models import CostPolicy, Permission
 from ...modules.payroll.models import (
@@ -18,7 +18,7 @@ from ...modules.payroll.models import (
 )
 from ...modules.treasury.models import FundKind, RuleBasis
 from ...shared import jalali
-from ...shared.money import SCALE
+from ...shared.errors import NotFound
 from ...shared.parsing import parse_amount, parse_date, to_ascii_digits
 from .. import screens
 from .base import Feature
@@ -322,10 +322,9 @@ class PayrollFeature(Feature):
         return screens.stale(None, user.display_name)
 
     async def _payslip_action(self, action: str, argument: str, user, key: str):
-        from ...modules.payroll.models import Payslip
-
-        slip = await self.ctx.session.get(Payslip, uuid.UUID(argument))
-        if slip is None:
+        try:
+            slip = await self.ctx.payroll.get_payslip(user.id, uuid.UUID(argument))
+        except NotFound:
             return screens.error("این فیش دیگر وجود ندارد؛ شاید حذف شده است.")
 
         book = await self.ctx.books.get_book(slip.book_id)
@@ -360,7 +359,7 @@ class PayrollFeature(Feature):
                 await self.ctx.state.set(key, draft)
                 return screens.payslip_pick_currency(name, outstanding,
                                                      book.base_currency, codes)
-            await self.ctx.payroll.pay(user.id, slip.id, outstanding)
+            await self.ctx.payroll.pay_towards(user.id, slip.id)
             await self.ctx.session.refresh(slip)
             return screens.payslip_detail(book, slip, name)
 
@@ -469,9 +468,7 @@ class PayrollFeature(Feature):
 
     async def _pay_in(self, draft: dict, code: str, user, key: str, rate=None):
         """Settle a payslip in one of the book's currencies."""
-        from ...modules.payroll.models import Payslip
-
-        slip = await self.ctx.session.get(Payslip, uuid.UUID(draft["slip_id"]))
+        slip = await self.ctx.payroll.get_payslip(user.id, uuid.UUID(draft["slip_id"]))
         book = await self.ctx.books.get_book(slip.book_id)
         names = await self.ctx.member_names(book.id)
         name = names.get(slip.user_id, "—")
@@ -488,28 +485,20 @@ class PayrollFeature(Feature):
                 await self.ctx.state.set(key, draft)
                 return screens.payslip_ask_rate(code, book.base_currency)
 
-        owed = Decimal(draft["owed"])
-        base = owed if draft.get("whole") else Decimal(draft["amount"])
-        if code == book.base_currency:
-            amount = base
-        else:
-            # Rounded up, not to nearest: rounding down left a payslip settled
-            # in tether a few toman short, and those few toman were not
-            # payable in tether at all.
-            amount = (base / rate).quantize(SCALE, rounding=ROUND_CEILING)
-
-        await self.ctx.payroll.pay(user.id, slip.id, amount, currency=code,
-                               conversion_rate=rate)
+        # How much of which currency that is, the service decides: the API
+        # pays the same payslip through the same arithmetic.
+        worth = None if draft.get("whole") else Decimal(draft["amount"])
+        await self.ctx.payroll.pay_towards(user.id, slip.id, worth, currency=code,
+                                           conversion_rate=rate)
         await self.ctx.state.clear(key)
         await self.ctx.session.refresh(slip, attribute_names=["payments"])
         return screens.payslip_detail(book, slip, name)
 
     async def _payslip_text(self, text: str, draft: dict, user, key: str):
-        from ...modules.payroll.models import Payslip
-
         amount = parse_amount(text)
-        slip = await self.ctx.session.get(Payslip, uuid.UUID(draft["slip_id"]))
-        if slip is None:
+        try:
+            slip = await self.ctx.payroll.get_payslip(user.id, uuid.UUID(draft["slip_id"]))
+        except NotFound:
             await self.ctx.state.clear(key)
             return screens.error("این فیش دیگر وجود ندارد؛ شاید حذف شده است.")
 

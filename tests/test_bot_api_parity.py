@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -24,6 +25,7 @@ from kasbbook.modules.ledger.models import SCOPE_FOR_BOOK, Flow, Scope
 from kasbbook.modules.ledger.service import LedgerService
 from kasbbook.shared.settings import Settings
 from tests.test_api_auth import SECRET, bearer, register
+from tests.test_api_payroll import paying, tether_payslip, workspace
 
 pytestmark = pytest.mark.asyncio
 
@@ -113,3 +115,223 @@ def _assignments_of(name: str):
 async def test_the_scope_table_is_defined_once():
     """It was copied into the bot, the API router and the recurring loop."""
     assert list(_assignments_of("SCOPE_FOR_BOOK")) == ["modules/ledger/models.py"]
+
+
+# --------------------------------------------------- paying a payslip's worth
+def _payments(book, slip):
+    return f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments"
+
+
+async def test_part_of_a_payslip_paid_in_tether_is_rounded_up_by_the_service(api, session):
+    """10,000,000 toman at 300,000 is 33.3333… tether: 33.3334 is handed over, as the bot does."""
+    headers, book, _, slip = await tether_payslip(api, session)
+
+    reply = await api.post(_payments(book, slip), headers=paying(headers),
+                           json={"settles": "10000000", "currency": "USDT",
+                                 "conversion_rate": "300000"})
+
+    assert reply.status_code == 201, reply.text
+    after = reply.json()
+    assert after["payments"][0]["amount"] == "33.3334"
+    assert after["paid"] == "10000020.0000"
+    assert after["outstanding"] == "39999980.0000"
+
+
+async def test_the_rest_in_tether_settles_the_payslip_and_is_not_an_overpayment(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+
+    after = (await api.post(_payments(book, slip), headers=paying(headers),
+                            json={"rest": True, "currency": "USDT",
+                                  "conversion_rate": "600000"})).json()
+
+    assert after["payments"][0]["amount"] == "83.3334"     # 50,000,000 / 600,000, up
+    # 40 toman past the figure: inside the one-unit allowance, so settled, and
+    # not reported as an overpayment.
+    assert after["outstanding"] == "-40.0000"
+    assert after["overpaid"] == "0.0000"
+
+
+async def test_the_rest_in_the_payslips_own_currency_is_exactly_what_was_owed(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+    await api.post(_payments(book, slip), headers=paying(headers), json={"amount": "1000"})
+
+    after = (await api.post(_payments(book, slip), headers=paying(headers),
+                            json={"rest": True})).json()
+
+    assert sorted(p["amount"] for p in after["payments"]) == ["1000.0000", "49999000.0000"]
+    assert after["outstanding"] == "0.0000"
+
+
+async def test_the_rest_of_a_settled_payslip_is_refused(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+    await api.post(_payments(book, slip), headers=paying(headers), json={"rest": True})
+
+    again = await api.post(_payments(book, slip), headers=paying(headers), json={"rest": True})
+
+    assert again.status_code == 422
+    assert "چیزی مانده نیست" in again.json()["detail"]
+
+
+@pytest.mark.parametrize("body", [
+    {},
+    {"amount": "1000", "rest": True},
+    {"amount": "1000", "settles": "1000"},
+    {"settles": "1000", "rest": True},
+])
+async def test_exactly_one_way_of_saying_how_much(api, session, body):
+    headers, book, period, slip = await tether_payslip(api, session)
+
+    reply = await api.post(_payments(book, slip), headers=paying(headers), json=body)
+
+    assert reply.status_code == 422
+    listed = (await api.get(f"/api/v1/books/{book['id']}/periods/{period['id']}/payslips",
+                            headers=headers)).json()
+    assert next(s for s in listed if s["id"] == slip["id"])["paid"] == "0.0000"
+
+
+async def test_a_tether_worth_without_a_rate_is_refused(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+
+    reply = await api.post(_payments(book, slip), headers=paying(headers),
+                           json={"settles": "1000", "currency": "USDT"})
+
+    assert reply.status_code == 422
+
+
+# ----------------------------------------------------------- one payslip
+async def _colleague(api):
+    tokens = (await api.post("/api/v1/auth/login", json={
+        "identifier": "sara@example.com", "password": "a-good-password"})).json()
+    return {"Authorization": f"Bearer {tokens['access_token']}"}
+
+
+async def test_a_member_reads_their_own_payslip_and_not_anyone_elses(api, session):
+    headers, book, period, mine = await tether_payslip(api, session)
+    slips = (await api.get(f"/api/v1/books/{book['id']}/periods/{period['id']}/payslips",
+                           headers=headers)).json()
+    theirs = next(s for s in slips if s["id"] != mine["id"])
+    colleague = await _colleague(api)
+
+    own = await api.get(f"/api/v1/books/{book['id']}/payslips/{theirs['id']}",
+                        headers=colleague)
+    others = await api.get(f"/api/v1/books/{book['id']}/payslips/{mine['id']}",
+                           headers=colleague)
+    owner_reads = await api.get(f"/api/v1/books/{book['id']}/payslips/{theirs['id']}",
+                                headers=headers)
+
+    assert own.status_code == 200 and own.json()["id"] == theirs["id"]
+    # Not 403: a payslip someone may not see does not exist for them.
+    assert others.status_code == 404
+    assert owner_reads.status_code == 200
+
+
+async def test_a_stranger_and_the_wrong_book_both_get_404_for_a_payslip(api, session):
+    headers, book, _, slip = await tether_payslip(api, session)
+    other = (await api.post("/api/v1/books", headers=headers,
+                            json={"name": "دیگری", "type": "team"})).json()
+    stranger = bearer(await register(api, email="stranger@example.com"))
+
+    assert (await api.get(f"/api/v1/books/{book['id']}/payslips/{slip['id']}",
+                          headers=stranger)).status_code == 404
+    assert (await api.get(f"/api/v1/books/{other['id']}/payslips/{slip['id']}",
+                          headers=headers)).status_code == 404
+    assert (await api.get(f"/api/v1/books/{book['id']}/payslips/{uuid.uuid4()}",
+                          headers=headers)).status_code == 404
+
+
+async def test_the_service_hides_another_members_payslip(session):
+    from kasbbook.modules.books.models import Role
+    from kasbbook.modules.payroll.models import ShareBasis
+    from kasbbook.modules.payroll.service import PayrollService
+    from kasbbook.shared.errors import NotFound
+
+    day = date(2026, 8, 24)
+    identity = IdentityService(session)
+    owner = await identity.create_user("عماد")
+    member = await identity.create_user("سارا")
+    books = BookService(session)
+    book = await books.create_book(owner.id, "تیم", BookType.TEAM)
+    await books.add_member(owner.id, book.id, member.id, Role.MEMBER)
+    await LedgerService(session).record(book.id, owner.id, Flow.INCOME, None, "پروژه",
+                                        "1000", occurred_on=day)
+    payroll = PayrollService(session)
+    for who in (owner, member):
+        await payroll.set_share(book.id, owner.id, who.id, ShareBasis.PERCENT, 50,
+                                effective_from=day)
+    period = await payroll.open_period(owner.id, book.id, "مرداد", day, day)
+    slips = {s.user_id: s for s in await payroll.calculate(owner.id, period.id)}
+
+    assert (await payroll.get_payslip(member.id, slips[member.id].id)).id == slips[member.id].id
+    with pytest.raises(NotFound):
+        await payroll.get_payslip(member.id, slips[owner.id].id)
+    assert (await payroll.get_payslip(owner.id, slips[member.id].id)).id == slips[member.id].id
+
+
+# ------------------------------------------------- a period in the wrong book
+async def test_a_period_cannot_be_reached_through_another_books_path(api, session):
+    """The service authorizes the period's own book; the path must name that book."""
+    headers, book, owner, colleague = await workspace(api, session)
+    other = (await api.post("/api/v1/books", headers=headers,
+                            json={"name": "دیگری", "type": "team"})).json()
+    period = (await api.post(f"/api/v1/books/{book['id']}/periods", headers=headers,
+                             json={"label": "مرداد", "starts_on": "2026-08-01",
+                                   "ends_on": "2026-08-31"})).json()
+    adjustment = (await api.post(
+        f"/api/v1/books/{book['id']}/periods/{period['id']}/adjustments",
+        headers=headers,
+        json={"user_id": colleague["id"], "kind": "bonus", "mode": "amount",
+              "value": "1000"})).json()
+    wrong = f"/api/v1/books/{other['id']}/periods/{period['id']}"
+
+    for method, path, body in (
+        ("POST", f"{wrong}/adjustments/{adjustment['id']}/approve", None),
+        ("POST", f"{wrong}/adjustments", {"user_id": colleague["id"], "kind": "bonus",
+                                          "mode": "amount", "value": "1"}),
+        ("GET", f"{wrong}/adjustments", None),
+        ("GET", f"{wrong}/payslips", None),
+        ("GET", f"{wrong}/performance", None),
+        ("POST", f"{wrong}/calculate", None),
+        ("POST", f"{wrong}/close", None),
+        ("POST", f"{wrong}/status/calculating", None),
+    ):
+        reply = await api.request(method, path, headers=headers, json=body)
+        assert reply.status_code == 404, (path, reply.status_code, reply.text)
+
+    listed = (await api.get(f"/api/v1/books/{book['id']}/periods/{period['id']}/adjustments",
+                            headers=headers)).json()
+    assert [row["is_approved"] for row in listed] == [False]
+    assert len(listed) == 1
+
+
+async def test_an_adjustment_cannot_be_approved_under_another_period(api, session):
+    """Approved by an accountant: whoever records an adjustment may not approve it."""
+    from kasbbook.modules.books.models import Role
+
+    headers, book, owner, colleague = await workspace(api, session)
+    await BookService(session).change_role(uuid.UUID(owner["id"]), uuid.UUID(book["id"]),
+                                           uuid.UUID(colleague["id"]), Role.ACCOUNTANT)
+    await session.commit()
+    accountant = await _colleague(api)
+    periods = [
+        (await api.post(f"/api/v1/books/{book['id']}/periods", headers=headers,
+                        json={"label": label, "starts_on": start, "ends_on": end})).json()
+        for label, start, end in (("مرداد", "2026-08-01", "2026-08-31"),
+                                  ("شهریور", "2026-09-01", "2026-09-30"))
+    ]
+    adjustment = (await api.post(
+        f"/api/v1/books/{book['id']}/periods/{periods[0]['id']}/adjustments",
+        headers=headers,
+        json={"user_id": colleague["id"], "kind": "bonus", "mode": "amount",
+              "value": "1000"})).json()
+
+    wrong = await api.post(f"/api/v1/books/{book['id']}/periods/{periods[1]['id']}"
+                           f"/adjustments/{adjustment['id']}/approve", headers=accountant)
+
+    assert wrong.status_code == 404
+    listed = (await api.get(
+        f"/api/v1/books/{book['id']}/periods/{periods[0]['id']}/adjustments",
+        headers=headers)).json()
+    assert [row["is_approved"] for row in listed] == [False]
+    right = await api.post(f"/api/v1/books/{book['id']}/periods/{periods[0]['id']}"
+                           f"/adjustments/{adjustment['id']}/approve", headers=accountant)
+    assert right.status_code == 200 and right.json()["is_approved"] is True
