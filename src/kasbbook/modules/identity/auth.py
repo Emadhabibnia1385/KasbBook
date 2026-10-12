@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 import jwt
 from sqlalchemy import select
@@ -298,6 +298,21 @@ class AuthService:
         await self.session.flush()
         await self._audit(user_id, "apikey.created", subject=record.name)
         return IssuedApiKey(key=raw, record=record)
+
+    async def replace_api_keys(
+        self, user_id: uuid.UUID, name: str
+    ) -> Tuple[IssuedApiKey, int]:
+        """Revoke every open key and issue one; returns it and how many went.
+
+        The bot's "new key": one key per person, because a second one nobody
+        remembers issuing is a credential nobody will think to revoke. The API
+        issues alongside instead (`issue_api_key`), since a key per program is
+        what lets one be revoked without stopping the others.
+        """
+        existing = await self.list_api_keys(user_id)
+        for old in existing:
+            await self.revoke_api_key(user_id, old.id)
+        return await self.issue_api_key(user_id, name), len(existing)
 
     async def user_for_api_key(self, raw: str) -> Optional[User]:
         stmt = select(ApiKey).where(ApiKey.token_digest == token_digest(raw))

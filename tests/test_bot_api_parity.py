@@ -335,3 +335,41 @@ async def test_an_adjustment_cannot_be_approved_under_another_period(api, sessio
     right = await api.post(f"/api/v1/books/{book['id']}/periods/{periods[0]['id']}"
                            f"/adjustments/{adjustment['id']}/approve", headers=accountant)
     assert right.status_code == 200 and right.json()["is_approved"] is True
+
+
+# ------------------------------------------------------------------ API keys
+async def test_replacing_keys_revokes_every_open_one_and_says_how_many(session):
+    from kasbbook.modules.identity.auth import AuthService
+
+    user = await IdentityService(session).create_user("عماد")
+    auth = AuthService(session, secret_key=SECRET)
+    first = await auth.issue_api_key(user.id, "nightly")
+    second = await auth.issue_api_key(user.id, "shop")
+
+    issued, replaced = await auth.replace_api_keys(user.id, "bot")
+
+    assert replaced == 2
+    assert [key.id for key in await auth.list_api_keys(user.id)] == [issued.record.id]
+    for old in (first, second):
+        assert await auth.user_for_api_key(old.key) is None
+    assert (await auth.user_for_api_key(issued.key)).id == user.id
+
+
+async def test_the_api_issues_alongside_and_both_keys_work(api):
+    headers = bearer(await register(api))
+
+    keys = [(await api.post("/api/v1/auth/api-keys", headers=headers,
+                            json={"name": name})).json()["key"]
+            for name in ("nightly", "shop")]
+
+    for key in keys:
+        reply = await api.get("/api/v1/books", headers={"X-API-Key": key})
+        assert reply.status_code == 200
+    assert len((await api.get("/api/v1/auth/api-keys", headers=headers)).json()) == 2
+
+
+async def test_the_bot_no_longer_revokes_keys_itself():
+    """The rule is AuthService.replace_api_keys; the bot only calls it."""
+    source = (SRC / "bot" / "features" / "account.py").read_text(encoding="utf-8")
+    assert "revoke_api_key" not in source
+    assert "replace_api_keys" in source

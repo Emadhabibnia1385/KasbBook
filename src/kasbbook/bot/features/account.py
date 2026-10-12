@@ -117,18 +117,11 @@ class AccountFeature(Feature):
             )
 
         if action == "apinew":
-            auth = self._auth()
-            existing = await auth.list_api_keys(user.id)
-            # One key per person: a second one nobody remembers issuing is a
-            # credential nobody will think to revoke.
-            for old in existing:
-                await auth.revoke_api_key(user.id, old.id)
-
-            issued = await auth.issue_api_key(user.id, "bot")
+            issued, replaced = await self._auth().replace_api_keys(user.id, "bot")
             self.ctx.hidden = issued.key
             return screens.api_key_created(
                 issued.key,
-                replaced=bool(existing),
+                replaced=bool(replaced),
                 docs_url=self._docs_url(),
                 guide_url=self._guide_url(),
             )

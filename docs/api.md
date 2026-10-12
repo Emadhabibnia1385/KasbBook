@@ -119,8 +119,13 @@ of the book, so it is the one a retry must never repeat.
 
 Account → 🔌 API issues one. It is shown once, concealed behind a tap, and
 never again: only a SHA-256 digest is stored, which is what makes a leaked
-database worth nothing. Issuing a new one revokes the old, so there is never a
-second key nobody remembers creating.
+database worth nothing. Issuing a new one from the bot revokes every key the
+account has, so there is never a second key nobody remembers creating.
+
+`POST /auth/api-keys` issues alongside the keys already there instead: one key
+per program is what lets one be revoked without stopping the others. Both are
+`AuthService` methods (`replace_api_keys`, `issue_api_key`), so the difference
+is a choice each client makes, not a rule one of them reimplements.
 
 ## Authenticating
 
