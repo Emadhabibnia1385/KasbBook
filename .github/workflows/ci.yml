@@ -6,13 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+# The runner image is named, not `ubuntu-latest`: that label moves to a new
+# Ubuntu on GitHub's schedule, and a CI environment changing underneath the
+# suite is a change nobody reviewed. Move it on purpose, in its own commit.
 jobs:
   tests:
     name: tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -33,7 +36,7 @@ jobs:
 
   postgres:
     name: migrations on postgres
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # The blind spot this job exists to close: an ALTER that only fails against
     # a populated PostgreSQL table reached production three deploys running,
@@ -53,8 +56,8 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -70,11 +73,17 @@ jobs:
       - name: Rehearse every migration against populated tables
         env:
           KASBBOOK_TEST_POSTGRES_URL: postgresql+asyncpg://kasbbook:kasbbook@localhost:5432/kasbbook_test
-        run: python -m pytest tests/test_migrations_postgres.py -q
+        # A rehearsal that skipped is a rehearsal that did not run, and this job
+        # exists for nothing else. `shell: bash` adds pipefail, so a failing
+        # pytest still fails the step through the tee.
+        shell: bash
+        run: |
+          python -m pytest tests/test_migrations_postgres.py -q -rs | tee rehearsal.log
+          ! grep -qiE "[0-9]+ skipped" rehearsal.log
 
   services:
     name: races on real redis and postgres
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # SQLite is single-writer and the in-memory state store runs on one event
     # loop, so the main job can only show that the code means to be safe when
@@ -103,8 +112,8 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -121,13 +130,17 @@ jobs:
         env:
           KASBBOOK_TEST_POSTGRES_URL: postgresql+asyncpg://kasbbook:kasbbook@localhost:5432/kasbbook_race
           KASBBOOK_TEST_REDIS_URL: redis://localhost:6379/15
-        # -rs lists skips, so a missing variable shows up as a skip, not a pass.
-        run: python -m pytest tests/test_concurrency_services.py -q -rs
+        # A race that skipped did not run. -rs names any skip, and the grep turns
+        # one into a failed job rather than a green tick over nothing.
+        shell: bash
+        run: |
+          python -m pytest tests/test_concurrency_services.py -q -rs | tee races.log
+          ! grep -qiE "[0-9]+ skipped" races.log
 
   scripts:
     name: shell scripts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Parse every script
         run: for f in scripts/*.sh; do bash -n "$f"; done
