@@ -52,6 +52,36 @@ Asking for a book you are not a member of returns **404**, not 403. Revoking
 someone else's API key returns 404. This is deliberate: a 403 would confirm the
 id exists.
 
+### Retries: `Idempotency-Key`
+
+A request that moves money can be retried safely. Send an `Idempotency-Key`
+header — any 8 to 64 characters of letters, digits, `.`, `_`, `:` or `-`; a UUID
+is ideal — and a retry gets the first answer back instead of doing the work
+again.
+
+| | |
+|---|---|
+| Same key, same request | the stored answer, same status and body, with `Idempotent-Replay: true` |
+| Same key, different request | **422**: the key belongs to another request |
+| Same key, first request still running | **409**: retry shortly and the stored answer comes back |
+| Malformed key | **400** |
+| A request that failed | nothing is stored — the key is free to retry with a corrected request |
+
+Keys are per account and per route, and kept for **48 hours**.
+
+Guarded routes:
+- `POST …/transactions`
+- `POST …/conversions`
+- `POST …/debts/{id}/settle`
+- `POST …/loans/{id}/pay`
+- `POST …/periods/{id}/calculate`
+- `POST …/periods/{id}/adjustments`
+- `POST …/payslips/{id}/payments`
+
+The key is optional on all of them except **`…/payslips/{id}/payments`**, where
+it is **required (400 without it)**. That is the request that moves money out
+of the book, so it is the one a retry must never repeat.
+
 ## Getting a key without leaving Telegram
 
 Account → 🔌 API issues one. It is shown once, concealed behind a tap, and

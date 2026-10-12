@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from ...modules.books.models import BookType, CostPolicy, Permission, Role
 from ...modules.books.service import BookService
@@ -22,6 +22,7 @@ from ...modules.exchange.service import ExchangeService
 from ...modules.ledger.service import LedgerService
 from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
+from .. import idempotency
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
     BookRequest,
@@ -173,9 +174,16 @@ async def list_conversions(
 @router.post("/{book_id}/conversions", response_model=ConversionResponse,
              status_code=201)
 async def convert(
-    book_id: uuid.UUID, body: ConversionRequest, user: CurrentUser, session: SessionDep
+    book_id: uuid.UUID, body: ConversionRequest, user: CurrentUser, session: SessionDep,
+    request: Request,
 ) -> ConversionResponse:
-    """Move value from one of the book's currencies into another."""
+    """Move value from one of the book's currencies into another.
+
+    Retry-safe with an `Idempotency-Key` header.
+    """
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
     row = await ExchangeService(session).convert(
         actor_user_id=user.id,
         book_id=book_id,
@@ -187,7 +195,7 @@ async def convert(
         occurred_on=body.occurred_on,
         note=body.note,
     )
-    return _conversion(row)
+    return await idempotency.remember(session, found, 201, _conversion(row))
 
 
 def _conversion(row) -> ConversionResponse:
@@ -312,8 +320,13 @@ async def list_transactions(
 
 @router.post("/{book_id}/transactions", response_model=TransactionResponse, status_code=201)
 async def record_transaction(
-    book_id: uuid.UUID, body: TransactionRequest, user: CurrentUser, session: SessionDep
+    book_id: uuid.UUID, body: TransactionRequest, user: CurrentUser, session: SessionDep,
+    request: Request,
 ) -> TransactionResponse:
+    """Record one transaction. Retry-safe with an `Idempotency-Key` header."""
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
     books = BookService(session)
     flow = _as_enum(Flow, body.flow, "flow")
     await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
@@ -336,7 +349,7 @@ async def record_transaction(
         conversion_rate=body.conversion_rate,
     )
     activity = (await LedgerService(session).activities(user.id, [transaction]))[transaction.id]
-    return _transaction(transaction, activity)
+    return await idempotency.remember(session, found, 201, _transaction(transaction, activity))
 
 
 @router.get("/{book_id}/transactions/{transaction_id}", response_model=TransactionResponse)

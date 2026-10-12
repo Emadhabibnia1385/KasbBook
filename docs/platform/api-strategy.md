@@ -37,7 +37,7 @@ How the public API evolves without breaking the clients built on it. Status:
 Mobile networks, webhook consumers and queue workers retry. A retried financial
 request must never move money twice.
 
-- **`Idempotency-Key`** (IETF httpapi draft semantics):
+- **`Idempotency-Key`** — **built** (IETF httpapi draft semantics; see `docs/api.md`):
   - The same key with the same body replays the stored response, with
     `Idempotent-Replay: true`.
   - The same key with a different body is 422.
@@ -46,7 +46,9 @@ request must never move money twice.
     leave one without the other.
   - It applies to transactions, conversions, debt settle, loan pay, payslip
     payments, calculate, and adjustments.
-  - It is P0-2.
+  - It is optional everywhere except payslip payments, where it is required
+    (owner decision): that request is the one that moves money out.
+  - Keys are per account and route, kept 48 hours.
 - **Domain-specific guards already built:**
   - A loan payment carries `expected_paid_count`, so a repeat finds the count
     moved.
@@ -54,7 +56,7 @@ request must never move money twice.
   - A period cannot be closed twice.
   - The bot's quick entry is claimed atomically.
 
-  These stay even after `Idempotency-Key` exists: they make a duplicate harmless
+  These stay now that `Idempotency-Key` exists: they make a duplicate harmless
   even when a client forgets the header.
 - **Optimistic concurrency.** A `revision` on transactions, sent back as
   `If-Match`; a stale write is 412. It is P1 and needed before the web panel,

@@ -9,6 +9,7 @@ payslip did.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 import pytest
@@ -66,6 +67,12 @@ async def workspace(api, session):
                              "occurred_on": DAY.isoformat()})
 
     return headers, book, owner, colleague
+
+
+
+def paying(headers):
+    """A payslip payment needs an Idempotency-Key; each call here is a new payment."""
+    return {**headers, "Idempotency-Key": uuid.uuid4().hex}
 
 
 # ---------------------------------------------------------------- periods
@@ -218,7 +225,7 @@ async def test_paying_reduces_what_is_outstanding(api, session):
 
     after = (await api.post(
         f"/api/v1/books/{book['id']}/payslips/{slips[0]['id']}/payments",
-        headers=headers, json={"amount": "15000000"},
+        headers=paying(headers), json={"amount": "15000000"},
     )).json()
 
     assert after["paid"] == "15000000.0000"
@@ -239,7 +246,7 @@ async def test_a_paid_period_takes_income_and_recalculates_over_http(api, sessio
     calculate = f"/api/v1/books/{book['id']}/periods/{period['id']}/calculate"
     slips = (await api.post(calculate, headers=headers)).json()
     await api.post(f"/api/v1/books/{book['id']}/payslips/{slips[0]['id']}/payments",
-                   headers=headers, json={"amount": "40000000"})
+                   headers=paying(headers), json={"amount": "40000000"})
 
     late = await api.post(f"/api/v1/books/{book['id']}/transactions", headers=headers,
                           json={"flow": "income", "category": "فروش",
@@ -334,7 +341,7 @@ async def test_a_payslip_can_be_paid_in_tether_over_http(api, session):
     headers, book, _, slip = await tether_payslip(api, session)
 
     reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
-                           headers=headers,
+                           headers=paying(headers),
                            json={"amount": "50", "currency": "USDT",
                                  "conversion_rate": "200000"})
     assert reply.status_code == 201
@@ -354,7 +361,7 @@ async def test_a_tether_payment_without_a_rate_is_refused_over_http(api, session
     headers, book, period, slip = await tether_payslip(api, session)
 
     reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
-                           headers=headers, json={"amount": "50", "currency": "USDT"})
+                           headers=paying(headers), json={"amount": "50", "currency": "USDT"})
     assert reply.status_code == 422
     listed = (await api.get(f"/api/v1/books/{book['id']}/periods/{period['id']}/payslips",
                             headers=headers)).json()
@@ -365,7 +372,7 @@ async def test_a_tether_payment_without_a_rate_is_refused_over_http(api, session
 async def test_a_currency_the_book_never_enabled_is_refused_over_http(api, session):
     headers, book, _, slip = await tether_payslip(api, session)
     reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
-                           headers=headers,
+                           headers=paying(headers),
                            json={"amount": "10", "currency": "TON", "conversion_rate": "300000"})
     assert reply.status_code == 422
 
@@ -374,7 +381,7 @@ async def test_more_tether_than_the_book_holds_is_refused_over_http(api, session
     """150 tether is within what is owed, and more than the book has."""
     headers, book, _, slip = await tether_payslip(api, session)
     reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
-                           headers=headers,
+                           headers=paying(headers),
                            json={"amount": "150", "currency": "USDT",
                                  "conversion_rate": "200000"})
     assert reply.status_code == 422
@@ -385,7 +392,7 @@ async def test_a_rate_sent_with_the_payslips_own_currency_counts_for_nothing(api
     """Counted, 15,000,000 toman "at 2" settled 30,000,000 of the payslip."""
     headers, book, _, slip = await tether_payslip(api, session)
     after = (await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
-                            headers=headers,
+                            headers=paying(headers),
                             json={"amount": "15000000", "conversion_rate": "2"})).json()
     assert after["paid"] == "15000000.0000"
     assert after["payments"][0]["conversion_rate"] == "1.0000"
@@ -397,9 +404,9 @@ async def test_a_reference_longer_than_its_column_is_refused_up_front(api, sessi
     """Past 80 characters PostgreSQL refused the write with a 500."""
     headers, book, _, slip = await tether_payslip(api, session)
     path = f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments"
-    assert (await api.post(path, headers=headers,
+    assert (await api.post(path, headers=paying(headers),
                            json={"amount": "1000", "reference": "x" * 81})).status_code == 422
-    fits = await api.post(path, headers=headers, json={"amount": "1000", "reference": "x" * 80})
+    fits = await api.post(path, headers=paying(headers), json={"amount": "1000", "reference": "x" * 80})
     assert fits.status_code == 201
 
 
@@ -410,7 +417,7 @@ async def test_a_payslip_cannot_be_paid_through_another_books_path(api, session)
                             json={"name": "دیگری", "type": "team"})).json()
 
     reply = await api.post(f"/api/v1/books/{other['id']}/payslips/{slip['id']}/payments",
-                           headers=headers, json={"amount": "1000"})
+                           headers=paying(headers), json={"amount": "1000"})
     assert reply.status_code == 404
     assert (await _wallet(api, headers, book))["IRT"] == "80000000.0000"     # untouched
 
@@ -424,7 +431,7 @@ async def test_a_stranger_cannot_pay_another_teams_payslip(api, session):
     theirs = {"Authorization": f"Bearer {stranger['access_token']}"}
 
     reply = await api.post(f"/api/v1/books/{book['id']}/payslips/{slip['id']}/payments",
-                           headers=theirs,
+                           headers=paying(theirs),
                            json={"amount": "50", "currency": "USDT", "conversion_rate": "200000"})
     assert reply.status_code == 404
     assert (await _wallet(api, headers, book))["USDT"] == "100.0000"
@@ -616,13 +623,13 @@ async def test_a_period_closes_over_http_only_once_everyone_is_paid(api, session
     assert refused.status_code == 422 and "سارا" in refused.json()["detail"]
 
     for slip in slips:
-        paid = await api.post(f"{base}/payslips/{slip['id']}/payments", headers=headers,
+        paid = await api.post(f"{base}/payslips/{slip['id']}/payments", headers=paying(headers),
                               json={"amount": "40000000"})
         assert paid.status_code == 201, paid.text
     closed = await api.post(f"{base}/periods/{period['id']}/close", headers=headers)
     assert closed.status_code == 200 and closed.json()["status"] == "locked"
 
-    late = await api.post(f"{base}/payslips/{slips[0]['id']}/payments", headers=headers,
+    late = await api.post(f"{base}/payslips/{slips[0]['id']}/payments", headers=paying(headers),
                           json={"amount": "1"})
     assert late.status_code == 403
 

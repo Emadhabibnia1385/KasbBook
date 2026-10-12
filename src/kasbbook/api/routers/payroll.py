@@ -11,7 +11,7 @@ import uuid
 from decimal import Decimal
 from typing import Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ...modules.identity.service import IdentityService
 from ...modules.payroll.models import (
@@ -24,6 +24,7 @@ from ...modules.payroll.service import PayrollService
 from ...modules.treasury.models import FundKind, RuleBasis
 from ...modules.treasury.service import TreasuryService
 from ...shared.errors import NotFound, ValidationError
+from .. import idempotency
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
     AdjustmentRequest,
@@ -300,8 +301,11 @@ async def list_adjustments(
              status_code=201)
 async def add_adjustment(
     book_id: uuid.UUID, period_id: uuid.UUID, body: AdjustmentRequest,
-    user: CurrentUser, session: SessionDep,
+    user: CurrentUser, session: SessionDep, request: Request,
 ) -> AdjustmentResponse:
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
     row = await PayrollService(session).add_adjustment(
         user.id, period_id, body.user_id,
         _as_enum(AdjustmentKind, body.kind, "kind"),
@@ -309,11 +313,11 @@ async def add_adjustment(
         body.value, reason=body.reason,
     )
     names = await _names(session, book_id)
-    return AdjustmentResponse(
+    return await idempotency.remember(session, found, 201, AdjustmentResponse(
         id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
         kind=row.kind.value, mode=row.mode.value, value=row.value,
         reason=row.reason, is_approved=row.approved_at is not None,
-    )
+    ))
 
 
 @router.post("/periods/{period_id}/adjustments/{adjustment_id}/approve",
@@ -354,7 +358,8 @@ def _payslip(row, names) -> PayslipResponse:
 
 @router.post("/periods/{period_id}/calculate", response_model=List[PayslipResponse])
 async def calculate(
-    book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
+    book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    request: Request,
 ) -> List[PayslipResponse]:
     """Produce a payslip per member, freezing every input onto it.
 
@@ -362,6 +367,9 @@ async def calculate(
     that produces nothing because the question was never answered is not an
     empty result.
     """
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
     payroll = PayrollService(session)
     period = await payroll.get_period(period_id)
     if not await payroll.shares(book_id, user.id, period.ends_on):
@@ -372,7 +380,7 @@ async def calculate(
 
     slips = await payroll.calculate(user.id, period_id)
     names = await _names(session, book_id)
-    return [_payslip(slip, names) for slip in slips]
+    return await idempotency.remember(session, found, 200, [_payslip(slip, names) for slip in slips])
 
 
 @router.delete("/payslips/{payslip_id}/payments/{payment_id}",
@@ -403,10 +411,18 @@ async def list_payslips(
              status_code=201)
 async def pay(
     book_id: uuid.UUID, payslip_id: uuid.UUID, body: PayRequest,
-    user: CurrentUser, session: SessionDep,
+    user: CurrentUser, session: SessionDep, request: Request,
 ) -> PayslipResponse:
-    """Hand over some or all of what is owed, in any currency the book holds."""
+    """Hand over some or all of what is owed, in any currency the book holds.
+
+    Requires an `Idempotency-Key` header: this is the request that moves money
+    out of the book, so it is the one a retry must never repeat.
+    """
     from ...modules.payroll.models import Payslip
+
+    found = await idempotency.claim(request, session, user.id, required=True)
+    if found.is_replay:
+        return idempotency.replay(found)
 
     payroll = PayrollService(session)
     await payroll.pay(
@@ -423,7 +439,7 @@ async def pay(
     if slip.book_id != book_id:
         raise NotFound("payslip")
     await session.refresh(slip)
-    return _payslip(slip, await _names(session, book_id))
+    return await idempotency.remember(session, found, 201, _payslip(slip, await _names(session, book_id)))
 
 
 # --------------------------------------------------------------- treasury

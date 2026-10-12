@@ -29,7 +29,7 @@ file:line references are in [platform-gap-analysis.md](./platform-gap-analysis.m
 | T1 | A leaked key is used to mint a successor, so revoking the leaked one achieves nothing | API5 | **fixed** (`223d9ee`) | `test_an_api_key_cannot_manage_the_account_it_belongs_to` (12 routes) |
 | T2 | A key takes over the account: contact, password, messenger link, closing a passwordless account | API5, API2 | **fixed** (`223d9ee`) | same |
 | T3 | A key reaches every book of its owner and every permission | API1, API5 | open: P0-1 adds scopes and book restriction | to add: a key bound to book A gets 404 on B; a key without `write` gets 403 on POST |
-| T4 | A retried request moves money twice | API6 | partial: loans are guarded by `expected_paid_count`; debt settle is not repeatable; idempotency is P0-2 | `test_a_repeated_payment_request_is_refused_not_paid_twice`; P0-2 tests |
+| T4 | A retried request moves money twice | API6 | **fixed**: `Idempotency-Key` on every money-moving POST, required on payslip payments; plus `expected_paid_count` on loans and a refused second settle | `tests/test_api_idempotency.py`; the concurrent-retry race in `tests/test_concurrency_services.py` |
 | T5 | Two concurrent requests both pass a balance check | API6 | **fixed** for record, pay, convert and void (book lock); tested on PostgreSQL in CI | `tests/test_concurrency_services.py` |
 | T6 | Object ids probed across books | API1 | holds: `books.require` answers 404, never 403 | the isolation tests in every API file; the new `test_another_account_cannot_settle_this_debt` |
 | T7 | Unbounded input crashes or exhausts the server | API4 | partial: amount bound (`9f6c5b0`); lists are not yet paginated (P1) | `tests/test_api_hardening.py` |

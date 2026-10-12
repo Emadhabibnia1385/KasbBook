@@ -42,7 +42,7 @@ guarded by a test:
 | Need | Today | Target | Phase |
 |---|---|---|---|
 | A stable contract | `/api/v1`; OpenAPI without `securitySchemes` | a snapshot-tested contract, additive-only within v1 | Foundation |
-| Safe retries | **built for loans** (`expected_paid_count`); nothing elsewhere | `Idempotency-Key` on every financial POST | Foundation |
+| Safe retries | **built**: `Idempotency-Key` on every financial POST, required on payslip payments | — | done |
 | One error shape | 4 shapes; no request id | `{detail, error:{code,message,request_id,fields}}` | Foundation |
 | Least-privilege credentials | **built:** a key cannot manage the account (`223d9ee`) | a `Principal` with scopes and book restriction | Foundation |
 | Bounded consumption | **built:** amount bound, atomic Redis limiter, `Retry-After` (`9f6c5b0`) | per-principal quotas on data routes | Foundation |

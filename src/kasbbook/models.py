@@ -18,6 +18,7 @@ from .modules.identity.models import (
     RefreshToken,
     User,
 )
+from .modules.idempotency.models import IdempotencyKey
 from .modules.loans.models import Loan, LoanPayment
 from .modules.recurring.models import RecurringRule
 from .modules.ledger.models import (
@@ -60,6 +61,7 @@ __all__ = [
     "Budget",
     "Debt",
     "FinancialPeriod",
+    "IdempotencyKey",
     "Identity",
     "JournalEntry",
     "JournalLine",

@@ -210,3 +210,45 @@ async def test_two_payments_cannot_both_settle_one_payslip(pg):
     results = await asyncio.gather(*(_attempt(pg, pay) for _ in range(2)))
 
     assert sorted(results) == [False, True]
+
+
+@needs_postgres
+async def test_concurrent_retries_with_one_key_book_one_transaction(pg):
+    """The client's retry arrives while the first request is still in flight."""
+    from httpx import ASGITransport, AsyncClient
+
+    from kasbbook.api.app import create_app
+    from kasbbook.api.ratelimit import MemoryRateLimiter
+    from kasbbook.shared.settings import Settings
+
+    settings = Settings(database_url=POSTGRES_URL,
+                        api_secret_key="a-test-signing-key-that-is-long-enough-to-be-real")
+    app = create_app(settings=settings, database=pg, limiter=MemoryRateLimiter())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
+        async with app.router.lifespan_context(app):
+            tokens = (await api.post("/api/v1/auth/register", json={
+                "display_name": "Emad", "email": "race@example.com",
+                "password": "a-good-password"})).json()
+            headers = {"Authorization": f"Bearer {tokens['access_token']}",
+                       "Idempotency-Key": "race-retry-0001"}
+            book = (await api.post("/api/v1/books", headers=headers,
+                                   json={"name": "shop", "type": "business"})).json()
+            url = f"/api/v1/books/{book['id']}/transactions"
+            body = {"flow": "income", "category": "sale", "amount": "250000"}
+
+            replies = await asyncio.gather(*(api.post(url, headers=headers, json=body)
+                                             for _ in range(4)))
+
+    codes = sorted(r.status_code for r in replies)
+    # One did the work; each other either waited and got its answer back, or
+    # was told the first was still running. None booked a second time.
+    assert codes.count(201) >= 1 and set(codes) <= {201, 409}, codes
+    async for session in pg.session():
+        from sqlalchemy import func, select
+
+        from kasbbook.modules.ledger.models import Transaction
+        count = await session.scalar(select(func.count()).select_from(Transaction).where(
+            Transaction.book_id == uuid.UUID(book["id"])))
+        assert count == 1
+        assert await LedgerService(session).trial_balance(uuid.UUID(book["id"])) == (
+            Decimal("250000"), Decimal("250000"))

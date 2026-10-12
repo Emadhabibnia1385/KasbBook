@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from ...modules.budgets.models import BudgetKind
 from ...modules.budgets.service import BudgetService
@@ -17,6 +17,7 @@ from ...modules.debts.models import Direction
 from ...modules.debts.service import DebtService
 from ...modules.loans.service import LoanService
 from ...shared.errors import ValidationError
+from .. import idempotency
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
     DebtSettleRequest,
@@ -109,16 +110,20 @@ async def create_debt(
 @router.post("/debts/{debt_id}/settle", response_model=DebtResponse)
 async def settle_debt(
     book_id: uuid.UUID, debt_id: uuid.UUID, user: CurrentUser, session: SessionDep,
-    body: Optional[DebtSettleRequest] = None,
+    request: Request, body: Optional[DebtSettleRequest] = None,
 ) -> DebtResponse:
     """Mark it paid; with `record_transaction`, also record the money moving.
 
     Off by default: if the original sale or purchase is already in the books,
     recording the payment too counts it twice. The bot asks the same question.
     """
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
     record = body.record_transaction if body else False
-    return _debt(await DebtService(session).settle(book_id, user.id, debt_id,
-                                                   record_transaction=record))
+    debt = await DebtService(session).settle(book_id, user.id, debt_id,
+                                             record_transaction=record)
+    return await idempotency.remember(session, found, 200, _debt(debt))
 
 
 @router.delete("/debts/{debt_id}", status_code=204)
@@ -153,18 +158,25 @@ async def create_loan(
 @router.post("/loans/{loan_id}/pay", response_model=LoanResponse)
 async def pay_installment(
     book_id: uuid.UUID, loan_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    request: Request,
     expected_paid_count: Optional[int] = Query(default=None, ge=0),
 ) -> LoanResponse:
     """Record one instalment. It books an expense as well as advancing the loan.
 
     `expected_paid_count` makes a retry safe: send the `paid_count` you last
     saw, and a repeat of the same request is refused instead of paying twice.
+    An `Idempotency-Key` header makes the repeat get the first answer back.
     """
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
     loans = LoanService(session)
     loan = await loans.get(book_id, user.id, loan_id)
     await loans.record_payment(book_id, user.id, loan_id,
                                expected_paid_count=expected_paid_count)
-    return _loan(await loans.progress(book_id, user.id, loan))
+    return await idempotency.remember(
+        session, found, 200, _loan(await loans.progress(book_id, user.id, loan))
+    )
 
 
 @router.delete("/loans/{loan_id}", status_code=204)
