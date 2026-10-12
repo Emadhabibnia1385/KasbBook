@@ -326,9 +326,11 @@ BOT = Path(__file__).resolve().parents[1] / "src/kasbbook/bot"
 
 def _bot_sources():
     """Every file a button or a draft can be written in: the bot, its features, its screens."""
-    return [BOT / "conversation.py", *sorted((BOT / "features").glob("*.py")),
-            *([BOT / "screens.py"] if (BOT / "screens.py").exists() else []),
-            *sorted((BOT / "screens").glob("*.py"))]
+    features = sorted((BOT / "features").glob("*.py"))
+    screens = sorted((BOT / "screens").glob("*.py"))
+    # Empty means a package moved and these guards would check nothing.
+    assert features and screens, "bot/features or bot/screens not found"
+    return [BOT / "conversation.py", *features, *screens]
 
 
 def _branch_routed() -> list:
