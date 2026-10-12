@@ -261,7 +261,7 @@ cause in any of these.
 ## 6. Deployment — never improvise
 
 ```bash
-ssh seamless                       # connects as `claude`, not root
+ssh seamless                       # logged in as root on 2026-10-11 deploy; keep sudo anyway
 sudo bash /opt/kasbbook/scripts/update.sh
 ```
 
@@ -272,8 +272,10 @@ you lose all of that.
 
 Three things about the server that have each caused an incident:
 
-- **`sudo` is required.** The checkout is root-owned; without it git refuses
-  with "dubious ownership".
+- **`sudo` is required** for any non-root login. The checkout is root-owned;
+  without it git refuses with "dubious ownership". The `seamless` alias logged
+  in as root at the 2026-10-11 deploy, where `sudo` is a no-op — keep writing
+  it, so the same commands work whichever user the alias lands on.
 - **`systemctl is-active` says `active` for a crash-looping service**, because
   `Restart=always` keeps bringing it back. Check `NRestarts` and
   `curl 127.0.0.1:8210/readyz` too.
