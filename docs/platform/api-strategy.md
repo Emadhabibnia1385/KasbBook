@@ -27,8 +27,8 @@ How the public API evolves without breaking the clients built on it. Status:
 | Money | a JSON string, with an explicit currency code. Never a float: every schema carrying a `Decimal` inherits `MoneyModel`. | built, checked |
 | Amount bounds | an amount the `Numeric(28,4)` column cannot hold is a 422 with a Persian message, not a 500 | **built** (`9f6c5b0`) |
 | Dates | ISO dates and tz-aware timestamps, Gregorian on the wire. Jalali is presentation, done by the client or the bot. | built |
-| Errors | `detail` stays, as documented. An `error` object is added beside it: `code`, `message`, `request_id`, `fields`. Validation errors stop echoing input. | P0-3 |
-| Request id | `X-Request-Id` accepted or generated, echoed on every response, written to every log line | P0-3 |
+| Errors | `detail` stays, as documented. An `error` object is added beside it: `code`, `message`, `request_id`, `fields`. Validation errors stop echoing input. | **built** |
+| Request id | `X-Request-Id` accepted or generated, echoed on every response, written to the error log line | **built** |
 | Throttling | 429 with `Retry-After` | **built for auth routes** (`9f6c5b0`); per-principal quotas on data routes are P0-4 |
 | Pagination | cursor (`after`, `limit`) on every list that can grow; `page`/`per_page` kept where it already ships | P1 |
 

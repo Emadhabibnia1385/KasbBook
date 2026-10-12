@@ -106,7 +106,12 @@ async def test_a_wrong_password_and_an_unknown_account_answer_identically(api):
     })
 
     assert wrong.status_code == unknown.status_code == 401
-    assert wrong.json() == unknown.json()
+    # Identical in everything but the request id, which is fresh on every
+    # request whatever happened in it, and so tells a prober nothing.
+    first, second = wrong.json(), unknown.json()
+    ids = first["error"].pop("request_id"), second["error"].pop("request_id")
+    assert ids[0] != ids[1]
+    assert first == second
 
 
 async def test_guessing_is_rate_limited(api):

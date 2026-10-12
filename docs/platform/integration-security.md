@@ -36,7 +36,7 @@ file:line references are in [platform-gap-analysis.md](./platform-gap-analysis.m
 | T8 | A rate limit is bypassed by forging `X-Forwarded-For` | API2, API4 | **fixed**: the right-most hop is used behind the trusted proxy | `tests/test_api_hardening.py` |
 | T9 | A permanent lockout from a non-atomic limiter | API4 | **fixed**: MULTI/EXEC, and a stranded counter heals | `tests/test_api_hardening.py` |
 | T10 | An exported CSV runs a formula on whoever opens it | — (injection) | **fixed** (`9f6c5b0`) | `tests/test_api_hardening.py` |
-| T11 | Validation errors echo request bodies, which may contain secrets, into logs and clients | API3 | open: P0-3 | to add: the 422 body contains no input values |
+| T11 | Validation errors echo request bodies, which may contain secrets, into logs and clients | API3 | **fixed**: fields name where and why, never the value | `test_422_validation_names_the_field_and_never_echoes_the_value` |
 | T12 | A webhook receiver URL points inside the network (SSRF) | API7 | design: resolve, block private and link-local addresses, no redirects, HTTPS only | ships with the webhook worker |
 | T13 | Forged or replayed webhook deliveries | — | design: `X-KasbBook-Signature: t=<unix>,v1=HMAC_SHA256(secret, t.body)`; reject a `t` older than 5 minutes; a unique event id | ships with the webhook worker |
 | T14 | A permissive CORS policy combined with credentials | API8 | open: P2; lock to known origins when the web panel ships | config test |

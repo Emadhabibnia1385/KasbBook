@@ -34,17 +34,50 @@ JavaScript. Do **not** parse it into a `Number`.
 
 ### Errors
 
+Every error has one shape:
+
 ```json
-{ "detail": "این دفتر پیدا نشد" }
+{
+  "detail": "این دفتر پیدا نشد",
+  "error": {
+    "code": "not_found",
+    "message": "این دفتر پیدا نشد",
+    "request_id": "6f1c2e0a9b8d4c7e8f00112233445566"
+  }
+}
 ```
 
-Domain errors carry their own status: 404 not found, 403 denied, 422 invalid,
-409 conflict, 401 unauthenticated, 429 rate limited (with a `Retry-After`
-header in seconds). An amount of 10^24 or more is a 422. Validation failures come
-from Pydantic in its own shape, with the offending field.
+- **`detail`** is unchanged from earlier versions: a sentence, or for a request
+  that does not validate, a list of `{loc, msg, type}`.
+- **`error.code`** is stable and meant for a program to branch on, rather than
+  matching a sentence:
+  - `not_found`, `permission_denied`, `auth_error`;
+  - `validation_error`, `invalid_request`;
+  - `too_many_attempts`;
+  - `key_required`, `key_reused`, `key_in_flight`, `key_malformed`;
+  - `method_not_allowed`, `internal_error`.
+- **`error.fields`** appears on `invalid_request` and gives `loc`, `code` and
+  `message` for each field. The value that was sent is **never echoed back**,
+  because it can be a password.
 
-Unhandled exceptions are always `{"detail": "something went wrong on our
-side"}` with a 500. The real error is in the log, never in the response.
+| Status | Meaning |
+|---|---|
+| 404 | not found |
+| 403 | denied |
+| 422 | invalid |
+| 409 | conflict |
+| 401 | unauthenticated, with `WWW-Authenticate: Bearer` |
+| 429 | rate limited, with a `Retry-After` header in seconds |
+
+An amount of 10^24 or more is a 422.
+
+An unhandled exception is a 500 with the code `internal_error` and a fixed
+message. The real error is in the log, never in the response; the log line
+carries the same `request_id`.
+
+**Every response**, success or failure, carries an `X-Request-Id` header. Send
+your own (8 to 64 characters of letters, digits, `.`, `_` or `-`) and it is kept,
+so your logs and ours line up. Anything else is replaced with a fresh id.
 
 ### Not-found means not-yours
 
