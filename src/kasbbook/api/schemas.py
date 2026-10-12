@@ -67,6 +67,11 @@ class ProfileRequest(Model):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     timezone: Optional[str] = Field(default=None, max_length=64)
     locale: Optional[str] = Field(default=None, max_length=8)
+    # The bot's reminder settings. Bounds are checked by the service, once,
+    # so the two clients cannot accept different hours.
+    digest_enabled: Optional[bool] = None
+    digest_hour: Optional[int] = None
+    reminder_days: Optional[int] = None
 
 
 class ContactRequest(Model):
@@ -343,6 +348,48 @@ class TransactionPage(Model):
     total: int
     page: int
     per_page: int
+
+
+class SearchPage(MoneyModel):
+    items: List[TransactionResponse]
+    total: int
+    # Over every match, not the page: "how much did I spend on rent" is the
+    # question a search is usually asking.
+    total_amount: Decimal
+    page: int
+    per_page: int
+
+
+class RateResponse(MoneyModel):
+    code: str
+    base_currency: str
+    # None when no price is known right now: ask the person, as the bot does.
+    rate: Optional[Decimal] = None
+
+
+class RecurringRequest(MoneyModel):
+    flow: str
+    category: str = Field(min_length=1, max_length=80)
+    amount: Decimal = Field(gt=0)
+    period: str
+    starts_on: date
+    description: Optional[str] = Field(default=None, max_length=500)
+
+
+class RecurringUpdate(Model):
+    is_active: bool
+
+
+class RecurringResponse(MoneyModel):
+    id: uuid.UUID
+    flow: str
+    category: str
+    amount: Decimal
+    description: Optional[str] = None
+    period: str
+    next_run_on: date
+    last_run_on: Optional[date] = None
+    is_active: bool
 
 
 # -------------------------------------------------------------- reports

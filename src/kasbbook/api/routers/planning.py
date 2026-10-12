@@ -1,4 +1,4 @@
-"""Budgets, debts and loans — the parts of a book that look forward.
+"""Budgets, debts, loans and recurring rules — the parts of a book that look forward.
 
 Grouped in one module because they share a shape: a small list per book, each
 row carrying a computed status that the caller should not have to recompute.
@@ -15,7 +15,10 @@ from ...modules.budgets.models import BudgetKind
 from ...modules.budgets.service import BudgetService
 from ...modules.debts.models import Direction
 from ...modules.debts.service import DebtService
+from ...modules.ledger.models import Flow
 from ...modules.loans.service import LoanService
+from ...modules.recurring.models import Period
+from ...modules.recurring.service import RecurringService
 from ...shared.errors import ValidationError
 from .. import idempotency
 from ..deps import CurrentUser, SessionDep
@@ -27,6 +30,9 @@ from ..schemas import (
     DebtResponse,
     LoanRequest,
     LoanResponse,
+    RecurringRequest,
+    RecurringResponse,
+    RecurringUpdate,
 )
 
 router = APIRouter(prefix="/books/{book_id}", tags=["planning"])
@@ -184,6 +190,65 @@ async def delete_loan(
     book_id: uuid.UUID, loan_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> None:
     await LoanService(session).delete(book_id, user.id, loan_id)
+
+
+# ------------------------------------------------------------ recurring
+def _rule(row) -> RecurringResponse:
+    return RecurringResponse(
+        id=row.id, flow=row.flow.value, category=row.category, amount=row.amount,
+        description=row.description, period=row.period.value,
+        next_run_on=row.next_run_on, last_run_on=row.last_run_on,
+        is_active=row.is_active,
+    )
+
+
+@router.get("/recurring", response_model=List[RecurringResponse])
+async def list_recurring(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[RecurringResponse]:
+    """Active rules first, each with the day it next books."""
+    return [_rule(row) for row in await RecurringService(session).list_rules(book_id, user.id)]
+
+
+@router.post("/recurring", response_model=RecurringResponse, status_code=201)
+async def create_recurring(
+    book_id: uuid.UUID, body: RecurringRequest, user: CurrentUser, session: SessionDep,
+    request: Request,
+) -> RecurringResponse:
+    """A rent, a salary, a subscription: booked on `starts_on` and every period after.
+
+    A start in the past is booked back to it on the next run, as the bot's is.
+    Retry-safe with an `Idempotency-Key` header: a duplicated rule books
+    everything twice, every period, until someone notices.
+    """
+    found = await idempotency.claim(request, session, user.id)
+    if found.is_replay:
+        return idempotency.replay(found)
+    rule = await RecurringService(session).create(
+        book_id, user.id, _as_enum(Flow, body.flow, "flow"), body.category,
+        body.amount, _as_enum(Period, body.period, "period"), body.starts_on,
+        description=body.description,
+    )
+    return await idempotency.remember(session, found, 201, _rule(rule))
+
+
+@router.patch("/recurring/{rule_id}", response_model=RecurringResponse)
+async def update_recurring(
+    book_id: uuid.UUID, rule_id: uuid.UUID, body: RecurringUpdate,
+    user: CurrentUser, session: SessionDep,
+) -> RecurringResponse:
+    """Pause or resume. What it already booked stays."""
+    return _rule(await RecurringService(session).set_active(
+        book_id, user.id, rule_id, body.is_active
+    ))
+
+
+@router.delete("/recurring/{rule_id}", status_code=204)
+async def delete_recurring(
+    book_id: uuid.UUID, rule_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    """Remove the rule. What it already booked stays in the books."""
+    await RecurringService(session).delete(book_id, user.id, rule_id)
 
 
 def _debt(row) -> DebtResponse:

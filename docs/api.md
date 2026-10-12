@@ -173,7 +173,7 @@ that is theft detection working, not a bug. See [security.md](./security.md).
 
 | | |
 |---|---|
-| `PATCH /auth/me` | display name, timezone, locale |
+| `PATCH /auth/me` | display name, timezone, locale; the daily digest's `digest_enabled`, `digest_hour` (0–23, your own time) and `reminder_days` (0–60, how early a due instalment or debt is mentioned) |
 | `PUT /auth/me/contact` | the email or phone this account is reached and recovered by |
 | `PUT /auth/me/password` | set or change it — **ends every session, including yours** |
 
@@ -220,12 +220,16 @@ prefix, never the key.
 | `GET /books` | books this account can see |
 | `POST /books` | `{"name":"مغازه","type":"business","currency":"IRR"}` |
 | `GET /books/{id}/members` · `POST` · `DELETE /{user_id}` | membership |
+| `PATCH /books/{id}/members/{user_id}` | `{"role":"accountant"}` — any role but owner |
+| `PUT /books/{id}/owner` | `{"user_id":…}` — hand the book to another active member; you stay as admin. Owner only |
 | `GET /books/{id}/transactions` | `?since=&until=&page=&per_page=`, newest first |
+| `GET /books/{id}/search` | `?q=اجاره&page=&per_page=` — category and description, newest first, with `total_amount` over every match |
 | `POST /books/{id}/transactions` | see below |
 | `GET`/`DELETE /books/{id}/transactions/{tx}` | one transaction |
 | `GET /books/{id}/currencies` · `PUT /{code}` | which currencies this book may hold |
 | `GET /books/{id}/wallet` | what it holds, per currency |
 | `GET`/`POST /books/{id}/conversions` | move value between two of them |
+| `GET /books/{id}/rates/{code}` | today's price of one `code` in the book's currency, or `null` when none is known |
 
 ```bash
 curl -X POST /api/v1/books/$BOOK/transactions \
@@ -245,6 +249,11 @@ must carry `conversion_rate` — that rate is frozen on the transaction and neve
 re-applied. An expense in a currency the book does not hold enough of is
 refused; the base currency is exempt.
 
+`GET /rates/{code}` is the figure the bot fills in when someone records tether:
+offer it, and send it back as `conversion_rate` if the person accepts it. It is
+a suggestion, never applied by itself, because an over-the-counter deal is often
+not the market price. `null` means no price is known right now; ask for one.
+
 `POST /books` also takes `currency`, and omitting it now means the same default
 the bot uses. It used to mean `IRR`, which is why a book created in the bot
 refused every transaction posted to it here.
@@ -261,7 +270,7 @@ by email or phone.
 | `GET /books/{id}/reports/export.csv` | the period as a file, Jalali dates included; text cells starting `= + - @` get a leading `'` |
 | `GET /books/{id}/reports/day` | `?date=2026-03-19` → the daily list's split: business, personal, installments, savings |
 
-## Budgets, debts, loans
+## Budgets, debts, loans, recurring
 
 | | |
 |---|---|
@@ -271,9 +280,17 @@ by email or phone.
 | `POST /books/{id}/debts/{debt}/settle` | closes it; `{"record_transaction": true}` also records the money (income if owed to you, expense if you owed). Off by default: if the original sale or purchase is already recorded, recording the payment too counts it twice. A second settle is 422. |
 | `GET`/`POST /books/{id}/loans` | instalment amount and count, not a total |
 | `POST /books/{id}/loans/{loan}/pay` | records one instalment and its expense |
+| `GET`/`POST /books/{id}/recurring` | a rent, a salary, a subscription, booked every `daily`/`weekly`/`monthly` (a Jalali month) from `starts_on` |
+| `PATCH /books/{id}/recurring/{rule}` | `{"is_active": false}` pauses, `true` resumes; what it booked stays |
+| `DELETE /books/{id}/recurring/{rule}` | the rule goes; what it booked stays |
 
 A loan is described by what one instalment costs and how many there are,
 because that is how a loan is described to a person: "twelve of 4,000,000".
+
+A recurring rule is booked by the same loop as the bot's, in the book's own
+scope. A `starts_on` in the past is booked back to it on the next run, as the
+bot's is, so check the date before sending one. Creating a rule honours
+`Idempotency-Key`: a duplicated rule books everything twice, every period.
 
 ## Payroll and treasury
 
@@ -297,6 +314,7 @@ Telegram is what this returns.
 | `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them; again, updates them in place and keeps their payments |
 | `DELETE /books/{id}/periods/{p}/payslips` | discard the calculation — refused once anyone has been paid |
 | `GET /books/{id}/periods/{p}/payslips` | everyone's, or only yours, by permission |
+| `GET /books/{id}/payslips/{slip}` | one payslip, by the same rule; someone else's is 404 |
 | `POST /books/{id}/payslips/{slip}/payments` | staged; instalments are the norm; any currency the book holds |
 | `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | take a payment back while the period is open |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | treasury funds |
@@ -313,11 +331,34 @@ response carries its rate so the list reconciles with `paid`. A rate sent with
 the payslip's own currency is ignored, as it is on a transaction. `reference`
 is at most 80 characters.
 
+Say how much with exactly one of:
+
+| | |
+|---|---|
+| `amount` | what is handed over, in `currency` |
+| `settles` | how much of the payslip this clears, in the payslip's currency; the service works out the amount |
+| `rest: true` | everything still owed |
+
+`settles` and `rest` are the bot's "pay" and "pay all", through the same
+arithmetic: in another currency the amount is rounded **up** to the fourth
+decimal, so a payslip paid off in tether is paid off rather than left a few
+toman short that no amount of tether could clear. That lands at most one unit
+of the token past the figure, so `outstanding` can read slightly below zero
+while `overpaid` stays zero.
+
 ```bash
 curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
   -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"amount":"50","currency":"USDT","conversion_rate":"229867"}'
+
+curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
+  -H "Authorization: Bearer $T" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"rest":true,"currency":"USDT","conversion_rate":"229867"}'
 ```
+
+Every route under a period checks the period is in the path's book, and 404s
+otherwise, as a payslip and a payment always have.
 
 Deleting a fund that has already taken money is refused — a paid period would
 be left pointing at nothing. Deactivate it instead. Deleting a *rule* is always

@@ -21,6 +21,7 @@ from ...modules.ledger.models import Flow, Scope
 from ...modules.exchange.service import ExchangeService
 from ...modules.ledger.service import LedgerService
 from ...modules.ledger.categories import CategoryService
+from ...modules.reports.service import ReportService
 from ...shared.errors import NotFound, ValidationError
 from .. import idempotency
 from ..deps import CurrentUser, SessionDep
@@ -35,6 +36,8 @@ from ..schemas import (
     BookResponse,
     InviteRequest,
     MemberResponse,
+    RateResponse,
+    SearchPage,
     OwnerRequest,
     RoleRequest,
     TransactionPage,
@@ -306,7 +309,42 @@ async def invite_teammate(book_id: uuid.UUID, body: TeamInviteRequest, user: Cur
                                                    _as_enum(Role, body.role, "role"))
 
 
+@router.get("/{book_id}/rates/{code}", response_model=RateResponse)
+async def quote(
+    book_id: uuid.UUID, code: str, request: Request, user: CurrentUser, session: SessionDep
+) -> RateResponse:
+    """Today's price of one unit of `code` in the book's currency, or null.
+
+    The figure the bot fills in when someone records tether. It is a
+    suggestion: a transaction keeps whatever `conversion_rate` it is sent.
+    """
+    rate, base = await ExchangeService(session, rates=request.app.state.rates).quote_for_book(
+        user.id, book_id, code
+    )
+    return RateResponse(code=code.strip().upper(), base_currency=base, rate=rate)
+
+
 # ---------------------------------------------------------- transactions
+@router.get("/{book_id}/search", response_model=SearchPage)
+async def search(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    q: str = Query(min_length=2, max_length=100, description="matched in category and description"),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=200),
+) -> SearchPage:
+    """What the bot's 🔍 finds, newest first, with the total of every match."""
+    rows, total, amount = await ReportService(session).search(
+        book_id, user.id, q, page=page - 1, per_page=per_page
+    )
+    activities = await LedgerService(session).activities(user.id, rows)
+    return SearchPage(
+        items=[_transaction(row, activities[row.id]) for row in rows],
+        total=total, total_amount=amount, page=page, per_page=per_page,
+    )
+
+
 @router.get("/{book_id}/transactions", response_model=TransactionPage)
 async def list_transactions(
     book_id: uuid.UUID,

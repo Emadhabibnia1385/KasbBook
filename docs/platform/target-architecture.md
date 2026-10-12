@@ -25,9 +25,10 @@ Three rules hold the shape together. Each already holds today, and each is
 guarded by a test:
 
 1. **A rule lives in a service, exactly once.** A route and a bot feature are
-   both translators. Rules found living in a client (the gap analysis lists
-   `SCOPE_FOR_BOOK` twice, the foreign-currency payslip rounding and the
-   one-key policy) move into the service that owns them.
+   both translators. The rules the gap analysis found living in a client
+   (`SCOPE_FOR_BOOK` three times, the foreign-currency payslip rounding, the
+   one-key policy, the digest settings' bounds) have moved into the services
+   that own them.
 2. **The bot does not go over the network to reach the core.** It calls the
    services in-process; a network hop would add a failure mode and buy
    nothing. What it must share with the API is *semantics*: the same
@@ -79,8 +80,9 @@ pending:
   SSRF-guarded);
 - key rotation with a 24-hour overlap;
 - cursor pagination and `updated_since` on lists;
-- the parity gaps closed (recurring rules, search, digest settings, rate quote,
-  role change, ownership transfer);
+- ~~the parity gaps closed (recurring rules, search, digest settings, rate
+  quote, role change, ownership transfer)~~ — done on the API; a members
+  screen in the bot remains;
 - Python and TypeScript examples generated from the OpenAPI snapshot;
 - an importable collection;
 - a demo book.

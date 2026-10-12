@@ -241,6 +241,41 @@ class IdentityService:
         await self.session.flush()
         return user
 
+    # How far ahead a due instalment or debt is mentioned. Two months is
+    # already more warning than anyone acts on; past it the digest is a list
+    # of things nobody can do anything about yet.
+    MAX_REMINDER_DAYS = 60
+
+    async def set_reminders(
+        self,
+        user_id: uuid.UUID,
+        digest_enabled: Optional[bool] = None,
+        digest_hour: Optional[int] = None,
+        reminder_days: Optional[int] = None,
+    ) -> "User":
+        """The daily digest's switch and hour, and how early dues are mentioned.
+
+        The hour is the user's own (their timezone), 0 to 23. The bot wrote
+        these straight onto the row with its own checks, and the API could
+        not change them at all.
+        """
+        user = await self.get_user(user_id)
+        if digest_hour is not None and not 0 <= digest_hour <= 23:
+            raise ValidationError("ساعت باید بین 0 تا 23 باشد.")
+        if reminder_days is not None and not 0 <= reminder_days <= self.MAX_REMINDER_DAYS:
+            raise ValidationError(
+                f"تعداد روز باید بین 0 تا {self.MAX_REMINDER_DAYS} باشد."
+            )
+
+        if digest_enabled is not None:
+            user.digest_enabled = digest_enabled
+        if digest_hour is not None:
+            user.digest_hour = digest_hour
+        if reminder_days is not None:
+            user.reminder_days = reminder_days
+        await self.session.flush()
+        return user
+
     async def authenticate(self, identifier: str, password: str) -> Optional["User"]:
 
         needle = identifier.lower().strip()

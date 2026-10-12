@@ -79,9 +79,9 @@ Severity = impact on the multi-client goal. P0 = before any second client or int
 | G9 | Outbound signed webhooks (worker, HMAC, retries, SSRF guard) | High | P1 (needs G5) |
 | G10 | Receipts locked to a messenger file id; no upload/download | Medium | P1 |
 | G11 | Notifications hard-wired to messenger adapters; dedupe in Redis/state | Medium | P1 |
-| G12 | Parity: recurring, search, digest settings, rate quote, role/ownership/book delete (no client at all) | Medium | P1 |
-| G13 | Rules living in clients: `SCOPE_FOR_BOOK` x2, `_pay_in` rounding, one-key policy, `session.get(Payslip)` | Medium | P1 |
-| G14 | Path/object mismatch unchecked on `adjustments/{id}/approve` (`payroll.py:307-322`); service authorizes the adjustment's own book (`payroll/service.py:728`) so no leak, but `_names(book_id)` runs with no `require` | Low | P1 |
+| G12 | Parity: recurring, search, digest settings, rate quote, role/ownership/book delete (no client at all) — **fixed** except book delete/rename and a bot members screen | Medium | P1 |
+| G13 | Rules living in clients: `SCOPE_FOR_BOOK` x2, `_pay_in` rounding, one-key policy, `session.get(Payslip)` — **fixed** | Medium | P1 |
+| G14 | Path/object mismatch unchecked on `adjustments/{id}/approve` (`payroll.py:307-322`); service authorizes the adjustment's own book (`payroll/service.py:728`) so no leak, but `_names(book_id)` runs with no `require` — **fixed**: every period route checks the book, approve checks the period, `_names` is gated | Low | P1 |
 | G15 | `date.today()` server-local in 9 services; naive datetimes on SQLite | Low | P2 |
 | G16 | `last_used_at` write per request; no key rotation/overlap; no last-used IP | Low | P2 |
 | G17 | CORS `allow_methods/headers=["*"]` + credentials (`app.py:142-148`); `/docs`, `/openapi.json` public (`:134-135`) | Low | P2 |

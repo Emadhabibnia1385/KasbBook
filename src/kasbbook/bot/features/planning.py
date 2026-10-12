@@ -124,8 +124,9 @@ class PlanningFeature(Feature):
     # ------------------------------------------------------------ reminders
     async def _reminder_callback(self, action: str, user, key: str):
         if action == "toggle":
-            user.digest_enabled = not user.digest_enabled
-            await self.ctx.session.flush()
+            user = await self.ctx.identity.set_reminders(
+                user.id, digest_enabled=not user.digest_enabled
+            )
             return screens.reminder_settings(user)
 
         if action == "hour":
@@ -439,13 +440,12 @@ class PlanningFeature(Feature):
             return screens.ask_hour(problem) if hour else screens.ask_days(problem)
 
         value = int(digits)
-        if hour:
-            if value > 23:
-                return screens.ask_hour("ساعت باید بین 0 تا 23 باشد.")
-            user.digest_hour = value
-        else:
-            user.reminder_days = min(value, 60)
+        try:
+            user = await self.ctx.identity.set_reminders(
+                user.id, **{"digest_hour" if hour else "reminder_days": value}
+            )
+        except ValidationError as problem:
+            return screens.ask_hour(str(problem)) if hour else screens.ask_days(str(problem))
 
-        await self.ctx.session.flush()
         await self.ctx.state.clear(key)
         return screens.reminder_settings(user)

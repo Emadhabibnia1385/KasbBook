@@ -23,6 +23,7 @@ from kasbbook.modules.books.service import BookService
 from kasbbook.modules.identity.service import IdentityService
 from kasbbook.modules.ledger.models import SCOPE_FOR_BOOK, Flow, Scope
 from kasbbook.modules.ledger.service import LedgerService
+from kasbbook.modules.reports.service import ReportService
 from kasbbook.shared.settings import Settings
 from tests.test_api_auth import SECRET, bearer, register
 from tests.test_api_payroll import paying, tether_payslip, workspace
@@ -32,10 +33,28 @@ pytestmark = pytest.mark.asyncio
 SRC = pathlib.Path(__file__).resolve().parent.parent / "src" / "kasbbook"
 
 
+class FakeRates:
+    """A price source that never reaches the network. Asked pairs are recorded."""
+
+    def __init__(self, prices=None):
+        self.prices = prices or {}
+        self.asked = []
+
+    async def quote(self, code, base):
+        self.asked.append((code, base))
+        return self.prices.get(f"{code}/{base}")
+
+
 @pytest.fixture
-async def api(db):
+def rates():
+    return FakeRates({"USDT/IRT": Decimal("229789.5")})
+
+
+@pytest.fixture
+async def api(db, rates):
     settings = Settings(database_url="sqlite+aiosqlite://", api_secret_key=SECRET)
-    app = create_app(settings=settings, database=db, limiter=MemoryRateLimiter())
+    app = create_app(settings=settings, database=db, limiter=MemoryRateLimiter(),
+                     rates=rates)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         async with app.router.lifespan_context(app):
             yield client
@@ -486,3 +505,265 @@ async def test_a_stranger_cannot_take_a_book(api, session):
                           json={"user_id": stranger["id"]})
 
     assert reply.status_code == 404
+
+
+# ------------------------------------------------------------------ search
+async def _book_with_entries(api, headers):
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "مغازه", "type": "business"})).json()
+    for flow, category, amount, description in (
+        ("expense", "اجاره", "5000000", "اجاره مهر"),
+        ("expense", "اجاره", "5000000", "اجاره آبان"),
+        ("income", "فروش", "9000000", "فروش 50% تخفیف"),
+        # Matched by "50%" only if the % were a wildcard.
+        ("income", "عمده", "1000000", "500 عدد"),
+    ):
+        made = await api.post(f"/api/v1/books/{book['id']}/transactions", headers=headers,
+                              json={"flow": flow, "category": category, "amount": amount,
+                                    "description": description})
+        assert made.status_code == 201
+    return book
+
+
+async def test_search_finds_what_the_bot_finds_with_the_total_of_every_match(api, session):
+    headers = bearer(await register(api))
+    book = await _book_with_entries(api, headers)
+    me = (await api.get("/api/v1/auth/me", headers=headers)).json()
+
+    reply = await api.get(f"/api/v1/books/{book['id']}/search", headers=headers,
+                          params={"q": "اجاره", "per_page": 1})
+
+    assert reply.status_code == 200, reply.text
+    body = reply.json()
+    assert (body["total"], body["page"], body["per_page"]) == (2, 1, 1)
+    assert len(body["items"]) == 1
+    assert body["total_amount"] == "10000000.0000"   # both, not just this page
+    # The figure the bot's search screen is built from.
+    _, total, amount = await ReportService(session).search(
+        uuid.UUID(book["id"]), uuid.UUID(me["id"]), "اجاره")
+    assert (total, str(amount)) == (2, "10000000.0000")
+
+
+async def test_a_percent_sign_is_searched_for_not_matched_as_anything(api):
+    headers = bearer(await register(api))
+    book = await _book_with_entries(api, headers)
+
+    body = (await api.get(f"/api/v1/books/{book['id']}/search", headers=headers,
+                          params={"q": "50%"})).json()
+
+    assert body["total"] == 1
+    assert body["items"][0]["category"] == "فروش"
+
+
+async def test_search_needs_two_characters_and_a_member(api):
+    headers = bearer(await register(api))
+    book = await _book_with_entries(api, headers)
+    stranger = bearer(await register(api, email="stranger@example.com"))
+
+    assert (await api.get(f"/api/v1/books/{book['id']}/search", headers=headers,
+                          params={"q": "ا"})).status_code == 422
+    assert (await api.get(f"/api/v1/books/{book['id']}/search", headers=stranger,
+                          params={"q": "اجاره"})).status_code == 404
+
+
+# --------------------------------------------------------------- recurring
+RENT = {"flow": "expense", "category": "اجاره", "amount": "5000000",
+        "period": "monthly", "starts_on": "2026-08-24"}
+
+
+async def test_a_rule_made_over_http_is_booked_by_the_same_loop(api, session):
+    from sqlalchemy import select
+
+    from kasbbook.modules.ledger.models import Transaction
+    from kasbbook.modules.recurring.service import RecurringService
+
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "تیم", "type": "team"})).json()
+
+    made = await api.post(f"/api/v1/books/{book['id']}/recurring", headers=headers, json=RENT)
+    assert made.status_code == 201, made.text
+    assert made.json()["next_run_on"] == "2026-08-24" and made.json()["is_active"] is True
+
+    run = await RecurringService(session).run_due(until=date(2026, 8, 24))
+    await session.commit()
+
+    assert len(run.booked) == 1
+    rows = (await session.execute(select(Transaction).where(
+        Transaction.book_id == uuid.UUID(book["id"])))).scalars().all()
+    assert [(r.category, r.scope, str(r.converted_amount)) for r in rows] == \
+        [("اجاره", Scope.TEAM, "5000000.0000")]
+    listed = (await api.get(f"/api/v1/books/{book['id']}/recurring", headers=headers)).json()
+    assert listed[0]["last_run_on"] == "2026-08-24"
+
+
+@pytest.mark.parametrize("change", [
+    {"flow": "gift"}, {"period": "yearly"}, {"amount": "0"}, {"category": ""},
+    {"starts_on": "tomorrow"},
+])
+async def test_a_bad_rule_is_refused_and_nothing_is_saved(api, change):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+
+    reply = await api.post(f"/api/v1/books/{book['id']}/recurring", headers=headers,
+                           json={**RENT, **change})
+
+    assert reply.status_code == 422
+    assert (await api.get(f"/api/v1/books/{book['id']}/recurring", headers=headers)).json() == []
+
+
+async def test_pausing_says_which_so_a_retry_does_not_undo_it(api):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+    rule = (await api.post(f"/api/v1/books/{book['id']}/recurring", headers=headers,
+                           json=RENT)).json()
+    url = f"/api/v1/books/{book['id']}/recurring/{rule['id']}"
+
+    states = [
+        (await api.patch(url, headers=headers, json={"is_active": active})).json()["is_active"]
+        for active in (False, False, True, True)
+    ]
+
+    assert states == [False, False, True, True]
+
+
+async def test_a_deleted_rule_is_gone(api):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+    rule = (await api.post(f"/api/v1/books/{book['id']}/recurring", headers=headers,
+                           json=RENT)).json()
+
+    gone = await api.delete(f"/api/v1/books/{book['id']}/recurring/{rule['id']}",
+                            headers=headers)
+    again = await api.delete(f"/api/v1/books/{book['id']}/recurring/{rule['id']}",
+                             headers=headers)
+
+    assert (gone.status_code, again.status_code) == (204, 404)
+    assert (await api.get(f"/api/v1/books/{book['id']}/recurring", headers=headers)).json() == []
+
+
+async def test_a_retried_create_makes_one_rule(api):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+    keyed = {**headers, "Idempotency-Key": "rent-rule-0001"}
+
+    first = await api.post(f"/api/v1/books/{book['id']}/recurring", headers=keyed, json=RENT)
+    second = await api.post(f"/api/v1/books/{book['id']}/recurring", headers=keyed, json=RENT)
+
+    assert first.json() == second.json()
+    assert second.headers.get("Idempotent-Replay") == "true"
+    assert len((await api.get(f"/api/v1/books/{book['id']}/recurring",
+                              headers=headers)).json()) == 1
+
+
+async def test_rules_belong_to_their_book_and_their_members(api, session):
+    headers, book, _, colleague = await workspace(api, session)
+    other = (await api.post("/api/v1/books", headers=headers,
+                            json={"name": "دیگری", "type": "business"})).json()
+    rule = (await api.post(f"/api/v1/books/{book['id']}/recurring", headers=headers,
+                           json=RENT)).json()
+    stranger = bearer(await register(api, email="stranger@example.com"))
+    await api.patch(f"/api/v1/books/{book['id']}/members/{colleague['id']}",
+                    headers=headers, json={"role": "viewer"})
+    viewer = await _colleague(api)
+    rules = f"/api/v1/books/{book['id']}/recurring"
+
+    # Through another book's path, the rule does not exist.
+    assert (await api.patch(f"/api/v1/books/{other['id']}/recurring/{rule['id']}",
+                            headers=headers, json={"is_active": False})).status_code == 404
+    assert (await api.delete(f"/api/v1/books/{other['id']}/recurring/{rule['id']}",
+                             headers=headers)).status_code == 404
+    # A stranger cannot see the book at all; a viewer may look and not touch.
+    assert (await api.get(rules, headers=stranger)).status_code == 404
+    assert (await api.post(rules, headers=stranger, json=RENT)).status_code == 404
+    assert (await api.get(rules, headers=viewer)).status_code == 200
+    assert (await api.post(rules, headers=viewer, json=RENT)).status_code == 403
+    assert (await api.patch(f"{rules}/{rule['id']}", headers=viewer,
+                            json={"is_active": False})).status_code == 403
+    assert [r["is_active"] for r in (await api.get(rules, headers=headers)).json()] == [True]
+
+
+# ---------------------------------------------------------------- reminders
+async def test_the_digest_settings_change_over_http(api):
+    headers = bearer(await register(api))
+
+    reply = await api.patch("/api/v1/auth/me", headers=headers,
+                            json={"digest_enabled": False, "digest_hour": 8,
+                                  "reminder_days": 10})
+
+    assert reply.status_code == 200, reply.text
+    me = reply.json()
+    assert (me["digest_enabled"], me["digest_hour"], me["reminder_days"]) == (False, 8, 10)
+
+
+@pytest.mark.parametrize("change", [
+    {"digest_hour": 24}, {"digest_hour": -1}, {"reminder_days": 61}, {"reminder_days": -1},
+    {"display_name": "تازه", "digest_hour": 30},
+])
+async def test_an_impossible_setting_is_refused_and_nothing_changes(api, change):
+    headers = bearer(await register(api))
+    before = (await api.get("/api/v1/auth/me", headers=headers)).json()
+
+    reply = await api.patch("/api/v1/auth/me", headers=headers, json=change)
+
+    assert reply.status_code == 422
+    # A refused hour takes the rest of the request with it.
+    assert (await api.get("/api/v1/auth/me", headers=headers)).json() == before
+
+
+async def test_the_bot_refuses_a_warning_window_past_the_limit(session):
+    """It clamped 90 to 60 without saying so; the service now refuses, as the API does."""
+    from tests.test_bot_recurring_receipts_search import press, says, setup
+
+    user, _, convo = await setup(session)
+    await convo.handle(press("rm:days"))
+    reply = await convo.handle(says("90"))
+
+    assert user.reminder_days == 3
+    assert "60" in reply.text
+
+    await convo.handle(says("60"))
+    assert user.reminder_days == 60
+
+
+# ------------------------------------------------------------------ rates
+async def test_the_quote_is_what_the_bot_would_fill_in(api, rates):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+
+    reply = await api.get(f"/api/v1/books/{book['id']}/rates/usdt", headers=headers)
+
+    assert reply.status_code == 200, reply.text
+    assert reply.json() == {"code": "USDT", "base_currency": "IRT", "rate": "229789.5"}
+    assert rates.asked == [("USDT", "IRT")]
+
+
+async def test_no_known_price_is_null_and_the_books_own_currency_is_one(api, rates):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+
+    ton = (await api.get(f"/api/v1/books/{book['id']}/rates/TON", headers=headers)).json()
+    own = (await api.get(f"/api/v1/books/{book['id']}/rates/IRT", headers=headers)).json()
+
+    assert ton["rate"] is None
+    assert own["rate"] == "1"
+    assert rates.asked == [("TON", "IRT")]      # its own currency is never asked for
+
+
+async def test_an_unknown_code_or_a_stranger_gets_no_quote(api, rates):
+    headers = bearer(await register(api))
+    book = (await api.post("/api/v1/books", headers=headers,
+                           json={"name": "دفتر", "type": "business"})).json()
+    stranger = bearer(await register(api, email="stranger@example.com"))
+
+    assert (await api.get(f"/api/v1/books/{book['id']}/rates/FOO",
+                          headers=headers)).status_code == 422
+    assert (await api.get(f"/api/v1/books/{book['id']}/rates/USDT",
+                          headers=stranger)).status_code == 404
+    assert rates.asked == []

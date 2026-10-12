@@ -169,7 +169,7 @@ curl -X POST /api/v1/auth/refresh -d '{"refresh_token":"xK9..."}'
 
 | | |
 |---|---|
-| `PATCH /auth/me` | نام نمایشی، منطقهٔ زمانی، زبان |
+| `PATCH /auth/me` | نام نمایشی، منطقهٔ زمانی، زبان؛ و گزارش روزانه: `digest_enabled`، `digest_hour` (۰ تا ۲۳، به وقت خودت) و `reminder_days` (۰ تا ۶۰، چند روز زودتر قسط یا بدهی سررسیده یادآوری شود) |
 | `PUT /auth/me/contact` | ایمیل یا تلفنی که حساب با آن پیدا و بازیابی می‌شود |
 | `PUT /auth/me/password` | تعیین یا تغییرش — **همهٔ نشست‌ها را می‌بندد، از جمله نشست خودت** |
 
@@ -216,12 +216,16 @@ curl -X POST /api/v1/auth/api-keys -H "Authorization: Bearer $T" \
 | `GET /books` | دفترهایی که این حساب می‌بیند |
 | `POST /books` | `{"name":"مغازه","type":"business","currency":"IRR"}` |
 | `GET /books/{id}/members` · `POST` · `DELETE /{user_id}` | عضویت |
+| `PATCH /books/{id}/members/{user_id}` | `{"role":"accountant"}` — هر نقشی جز مالک |
+| `PUT /books/{id}/owner` | `{"user_id":…}` — واگذاری دفتر به عضو فعال دیگر؛ خودت مدیر می‌مانی. فقط مالک |
 | `GET /books/{id}/transactions` | `?since=&until=&page=&per_page=`، تازه‌ترین اول |
+| `GET /books/{id}/search` | `?q=اجاره&page=&per_page=` — در دسته و توضیح، تازه‌ترین اول، با `total_amount` روی همهٔ نتیجه‌ها |
 | `POST /books/{id}/transactions` | پایین‌تر |
 | `GET`/`DELETE /books/{id}/transactions/{tx}` | یک تراکنش |
 | `GET /books/{id}/currencies` · `PUT /{code}` | ارزهایی که این دفتر می‌تواند نگه دارد |
 | `GET /books/{id}/wallet` | موجودی به تفکیک ارز |
 | `GET`/`POST /books/{id}/conversions` | جابه‌جایی ارزش بین دو ارز دفتر |
+| `GET /books/{id}/rates/{code}` | قیمت امروز یک واحد `code` به ارز دفتر، یا `null` اگر قیمتی در دست نیست |
 
 ```bash
 curl -X POST /api/v1/books/$BOOK/transactions \
@@ -248,6 +252,11 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 افزودن عضو نیازمند آن است که آن شخص از قبل حساب داشته باشد؛ با ایمیل یا تلفن
 پیدا می‌شود.
 
+`GET /rates/{code}` همان رقمی است که ربات وقتی کسی تتر ثبت می‌کند پر می‌کند:
+پیشنهادش بده و اگر پذیرفته شد به‌صورت `conversion_rate` برگردانش. فقط پیشنهاد
+است و خودبه‌خود اعمال نمی‌شود، چون معاملهٔ حضوری اغلب به قیمت بازار نیست.
+`null` یعنی الان قیمتی در دست نیست؛ از کاربر بپرس.
+
 ## گزارش‌ها
 
 | | |
@@ -257,7 +266,7 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `GET /books/{id}/reports/export.csv` | همان دوره به شکل فایل، با تاریخ جلالی؛ سلول متنی که با `= + - @` شروع شود یک `'` اول می‌گیرد |
 | `GET /books/{id}/reports/day` | `?date=2026-03-19` ← همان تفکیک لیست روزانه: کاری، شخصی، قسط، پس‌انداز |
 
-## بودجه، بدهی، وام
+## بودجه، بدهی، وام، تکرارشونده
 
 | | |
 |---|---|
@@ -267,9 +276,17 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `POST /books/{id}/debts/{debt}/settle` | می‌بندد؛ با `{"record_transaction": true}` پول را هم ثبت می‌کند (درآمد اگر طلب توست، هزینه اگر بدهی). پیش‌فرض خاموش است: اگر فروش یا خرید اصلی قبلاً ثبت شده، ثبت پرداخت هم آن را دوبار می‌شمارد. تسویهٔ دوباره ۴۲۲ است. |
 | `GET`/`POST /books/{id}/loans` | مبلغ و تعداد قسط، نه جمع کل |
 | `POST /books/{id}/loans/{loan}/pay` | یک قسط و هزینه‌اش را ثبت می‌کند |
+| `GET`/`POST /books/{id}/recurring` | اجاره، حقوق، اشتراک؛ از `starts_on` هر `daily`/`weekly`/`monthly` (ماه جلالی) ثبت می‌شود |
+| `PATCH /books/{id}/recurring/{rule}` | `{"is_active": false}` متوقف می‌کند و `true` ادامه می‌دهد؛ ثبت‌شده‌ها می‌مانند |
+| `DELETE /books/{id}/recurring/{rule}` | قاعده می‌رود؛ ثبت‌شده‌ها می‌مانند |
 
 وام با هزینهٔ یک قسط و تعدادش توصیف می‌شود، چون وام برای آدم همین‌طور توصیف
 می‌شود: «دوازده‌تا چهار میلیونی».
+
+قاعدهٔ تکرارشونده با همان حلقهٔ ربات و در دامنهٔ خود دفتر ثبت می‌شود. `starts_on`
+گذشته، مثل ربات، در اجرای بعدی تا همان روز عقب ثبت می‌شود؛ پس پیش از فرستادن
+تاریخ را بررسی کن. ساختن قاعده `Idempotency-Key` را رعایت می‌کند: قاعدهٔ
+تکراری همه‌چیز را هر دوره دوبار ثبت می‌کند.
 
 ## حقوق و خزانه
 
@@ -293,6 +310,7 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `POST /books/{id}/periods/{p}/calculate` | فیش‌ها، با تمام ورودی‌ها منجمد روی خودشان؛ دفعهٔ بعد سر جایشان به‌روز می‌شوند و پرداخت‌ها می‌مانند |
 | `DELETE /books/{id}/periods/{p}/payslips` | باطل‌کردن محاسبه — بعد از اولین پرداخت رد می‌شود |
 | `GET /books/{id}/periods/{p}/payslips` | فیش همه، یا فقط خودت، بسته به دسترسی |
+| `GET /books/{id}/payslips/{slip}` | یک فیش، با همان قاعده؛ فیش دیگری ۴۰۴ است |
 | `POST /books/{id}/payslips/{slip}/payments` | مرحله‌ای؛ قسطی‌بودن قاعده است؛ با هر ارزی که دفتر دارد |
 | `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | پس‌گرفتن پرداخت تا وقتی دوره باز است |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | صندوق‌های خزانه |
@@ -308,11 +326,33 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 خودش را دارد تا فهرست با `paid` جور دربیاید. نرخی که با ارز خود فیش فرستاده
 شود نادیده گرفته می‌شود، همان‌طور که در تراکنش. `reference` حداکثر ۸۰ حرف است.
 
+مقدار را دقیقاً با یکی از این‌ها بگو:
+
+| | |
+|---|---|
+| `amount` | آنچه پرداخت می‌شود، به `currency` |
+| `settles` | چه مقدار از فیش را صاف می‌کند، به ارز فیش؛ مبلغ را سرویس حساب می‌کند |
+| `rest: true` | هرچه مانده |
+
+`settles` و `rest` همان «پرداخت» و «پرداخت کامل» ربات‌اند، با همان حساب: در ارز
+دیگر مبلغ تا رقم چهارم اعشار **رو به بالا** گرد می‌شود، تا فیشی که با تتر صاف
+شده واقعاً صاف شود و چند تومانی نماند که با هیچ مقدار تتری پرداختنی نباشد.
+نتیجه حداکثر یک واحد توکن از رقم جلوتر می‌افتد، پس `outstanding` ممکن است کمی
+زیر صفر باشد و `overpaid` صفر بماند.
+
 ```bash
 curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
   -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
   -d '{"amount":"50","currency":"USDT","conversion_rate":"229867"}'
+
+curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
+  -H "Authorization: Bearer $T" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"rest":true,"currency":"USDT","conversion_rate":"229867"}'
 ```
+
+هر مسیر زیر یک دوره بررسی می‌کند که دوره در دفتر مسیر باشد، وگرنه ۴۰۴ می‌دهد؛
+همان‌طور که فیش و پرداخت همیشه می‌دادند.
 
 حذف صندوقی که قبلاً پول برداشته رد می‌شود — دورهٔ پرداخت‌شده به جای خالی اشاره
 می‌کرد. به‌جایش غیرفعالش کن. حذف *قاعده* همیشه بی‌خطر است، چون آنچه دوره‌های

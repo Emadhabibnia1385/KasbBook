@@ -248,6 +248,24 @@ class ExchangeService:
             return None
         return await self.rates.quote(code, base)
 
+    async def quote_for_book(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, code: str
+    ) -> tuple[Optional[Decimal], str]:
+        """Today's price of `code` in the book's own currency, and that currency.
+
+        What the bot fills in when someone records tether, so an API client
+        can offer the same figure instead of asking for one. None when no
+        price is known: the caller asks the person, as the bot does.
+        """
+        await self.books.require(book_id, actor_user_id, Permission.VIEW_TRANSACTIONS)
+        book = await self.books.get_book(book_id)
+        code = (code or "").strip().upper()
+        if code not in CURRENCY_NAMES:
+            raise ValidationError(f"ارز «{code[:8]}» شناخته نشد.")
+        if code == book.base_currency:
+            return Decimal("1"), book.base_currency
+        return await self.quote(code, book.base_currency), book.base_currency
+
     async def valuation(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID
     ) -> tuple[List[CurrencyValue], Optional[Decimal]]:

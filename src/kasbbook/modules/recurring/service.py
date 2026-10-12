@@ -104,6 +104,20 @@ class RecurringService:
         await self.session.flush()
         return rule
 
+    async def set_active(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, rule_id: uuid.UUID, active: bool
+    ) -> RecurringRule:
+        """Pause or resume a rule, by saying which rather than flipping it.
+
+        `toggle` is the bot's button; an API retry of a flip would undo itself.
+        """
+        await self.books.require(book_id, user_id, Permission.RECORD_EXPENSE)
+
+        rule = await self._owned(book_id, rule_id)
+        rule.is_active = active
+        await self.session.flush()
+        return rule
+
     async def delete(
         self, book_id: uuid.UUID, user_id: uuid.UUID, rule_id: uuid.UUID
     ) -> None:

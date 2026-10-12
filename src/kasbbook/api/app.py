@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..shared.database import Database
 from ..shared.settings import Settings
 from . import errors
+from ..rates.swapwallet import SwapWalletRates
 from .ratelimit import MemoryRateLimiter, RateLimiter
 from .routers import (
     auth,
@@ -70,6 +71,7 @@ def create_app(
     settings: Optional[Settings] = None,
     database: Optional[Database] = None,
     limiter: Optional[RateLimiter] = None,
+    rates=None,
 ) -> FastAPI:
     resolved = settings or Settings.from_env()
 
@@ -94,6 +96,9 @@ def create_app(
         app.state.settings = resolved
         app.state.database = database or Database(resolved.database_url)
         app.state.limiter = limiter or await build_limiter(resolved)
+        # One per process: the cache inside it is the point. The webhook
+        # handler and the quote route share it, as the bot's poller does.
+        app.state.rates = rates or SwapWalletRates()
 
         # Empty unless this process is meant to receive updates, and an empty
         # map means every webhook path answers 404 — so a misconfigured deploy

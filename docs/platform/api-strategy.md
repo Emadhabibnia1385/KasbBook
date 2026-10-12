@@ -72,9 +72,13 @@ analysis §2):
 |---|---|
 | Settling a debt asks whether to record the money | **closed**: both ask; the API takes `record_transaction` |
 | Closing a period in one step | **closed**: bot «بستن دوره», API `POST …/periods/{p}/close` |
-| Recurring rules, search, digest settings, live rate quote | API missing; P1 |
-| Paying a payslip in a foreign currency, "the whole outstanding" rounding | rule lives in the bot; to move into `PayrollService`; P1 |
-| One key per person | bot only; decide whether it is a rule (then move it to `AuthService`) or a bot convenience (then document it); P1 |
+| Recurring rules, search, digest settings, live rate quote | **closed**: `…/recurring`, `…/search`, `PATCH /auth/me`, `…/rates/{code}` |
+| Paying a payslip in a foreign currency, "the whole outstanding" rounding | **closed**: `PayrollService.pay_towards`; API `settles` / `rest` |
+| One key per person | **closed** as a bot convenience: `AuthService.replace_api_keys`; the API issues alongside, documented |
+| A member's role, handing a book over | **closed** on the API; the bot has no members screen yet (UX) |
+| The default scope of an entry | **closed**: `SCOPE_FOR_BOOK` once, in the ledger; `record(scope=None)` |
+
+`tests/test_bot_api_parity.py` holds the tests for each.
 
 ## Documentation
 

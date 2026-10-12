@@ -152,10 +152,16 @@ async def sessions(user: Person, auth: AuthDep) -> List[SessionResponse]:
 async def update_profile(
     body: ProfileRequest, user: Person, session: SessionDep
 ) -> UserResponse:
-    updated = await IdentityService(session).update_profile(
+    identity = IdentityService(session)
+    updated = await identity.update_profile(
         user.id, display_name=body.display_name,
         timezone=body.timezone, locale=body.locale,
     )
+    if (body.digest_enabled, body.digest_hour, body.reminder_days) != (None, None, None):
+        updated = await identity.set_reminders(
+            user.id, digest_enabled=body.digest_enabled,
+            digest_hour=body.digest_hour, reminder_days=body.reminder_days,
+        )
     return UserResponse.model_validate(updated)
 
 
