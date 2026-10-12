@@ -35,6 +35,8 @@ from ..schemas import (
     BookResponse,
     InviteRequest,
     MemberResponse,
+    OwnerRequest,
+    RoleRequest,
     TransactionPage,
     TransactionRequest,
     TransactionResponse,
@@ -210,9 +212,13 @@ async def list_members(
     books = BookService(session)
     await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
 
+    return await _members(session, book_id)
+
+
+async def _members(session, book_id: uuid.UUID) -> List[MemberResponse]:
     identity = IdentityService(session)
     result = []
-    for member in await books.members(book_id):
+    for member in await BookService(session).members(book_id):
         person = await identity.get_user(member.user_id)
         result.append(MemberResponse(user_id=member.user_id,
                                      display_name=person.display_name,
@@ -235,6 +241,32 @@ async def add_member(
     )
     return MemberResponse(user_id=invitee.id, display_name=invitee.display_name,
                           role=membership.role.value)
+
+
+@router.patch("/{book_id}/members/{member_user_id}", response_model=MemberResponse)
+async def change_role(
+    book_id: uuid.UUID, member_user_id: uuid.UUID, body: RoleRequest,
+    user: CurrentUser, session: SessionDep,
+) -> MemberResponse:
+    """Give a member another role. The owner's is not changed here: hand the book over."""
+    membership = await BookService(session).change_role(
+        user.id, book_id, member_user_id, _as_enum(Role, body.role, "role")
+    )
+    person = await IdentityService(session).get_user(member_user_id)
+    return MemberResponse(user_id=member_user_id, display_name=person.display_name,
+                          role=membership.role.value)
+
+
+@router.put("/{book_id}/owner", response_model=List[MemberResponse])
+async def transfer_ownership(
+    book_id: uuid.UUID, body: OwnerRequest, user: CurrentUser, session: SessionDep
+) -> List[MemberResponse]:
+    """Hand the book to another active member; you stay on it as an admin.
+
+    Answers with the members as they now are, since two roles changed.
+    """
+    await BookService(session).transfer_ownership(user.id, book_id, body.user_id)
+    return await _members(session, book_id)
 
 
 @router.delete("/{book_id}/members/{member_user_id}", status_code=204)

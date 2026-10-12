@@ -196,6 +196,14 @@ class MemberResponse(Model):
     role: str
 
 
+class RoleRequest(Model):
+    role: str
+
+
+class OwnerRequest(Model):
+    user_id: uuid.UUID
+
+
 class InviteRequest(Model):
     identifier: str = Field(min_length=1, max_length=320)
     role: str

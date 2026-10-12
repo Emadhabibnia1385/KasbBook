@@ -164,12 +164,14 @@ class BookService:
         await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
 
         member = await self.membership(book_id, user_id)
-        if member is None:
+        # Someone who has left is history, not a member whose role can move:
+        # promoting them would hand rights to nobody, and read as if they were back.
+        if member is None or not member.is_active:
             raise NotFound("membership")
         if member.role is Role.OWNER:
-            raise ValidationError("the owner's role cannot be changed directly")
+            raise ValidationError("the owner's role cannot be changed; hand the book over instead")
         if role is Role.OWNER:
-            raise ValidationError("use transfer_ownership to hand a book over")
+            raise ValidationError("a book has one owner; hand it over instead")
 
         member.role = role
         self.session.add(
@@ -262,6 +264,8 @@ class BookService:
         book = await self.get_book(book_id)
         if book.owner_user_id != actor_user_id:
             raise PermissionDenied("only the owner may hand a book over")
+        if to_user_id == actor_user_id:
+            raise ValidationError("this book is already yours")
 
         target = await self.membership(book_id, to_user_id)
         if target is None or not target.is_active:

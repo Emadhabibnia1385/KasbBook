@@ -373,3 +373,116 @@ async def test_the_bot_no_longer_revokes_keys_itself():
     source = (SRC / "bot" / "features" / "account.py").read_text(encoding="utf-8")
     assert "revoke_api_key" not in source
     assert "replace_api_keys" in source
+
+
+# -------------------------------------------------------- roles and owners
+def _role_of(members, user_id):
+    return next(m["role"] for m in members if m["user_id"] == user_id)
+
+
+async def test_the_owner_changes_a_members_role_over_http(api, session):
+    headers, book, _, colleague = await workspace(api, session)
+    url = f"/api/v1/books/{book['id']}/members/{colleague['id']}"
+
+    reply = await api.patch(url, headers=headers, json={"role": "accountant"})
+
+    assert reply.status_code == 200, reply.text
+    assert reply.json() == {"user_id": colleague["id"], "display_name": "سارا",
+                            "role": "accountant"}
+    members = (await api.get(f"/api/v1/books/{book['id']}/members", headers=headers)).json()
+    assert _role_of(members, colleague["id"]) == "accountant"
+
+
+@pytest.mark.parametrize("role", ["owner", "boss"])
+async def test_a_role_that_is_not_given_this_way_is_refused(api, session, role):
+    headers, book, _, colleague = await workspace(api, session)
+
+    reply = await api.patch(f"/api/v1/books/{book['id']}/members/{colleague['id']}",
+                            headers=headers, json={"role": role})
+
+    assert reply.status_code == 422
+
+
+async def test_the_owners_own_role_is_not_changed_this_way(api, session):
+    headers, book, owner, _ = await workspace(api, session)
+
+    reply = await api.patch(f"/api/v1/books/{book['id']}/members/{owner['id']}",
+                            headers=headers, json={"role": "viewer"})
+
+    assert reply.status_code == 422
+    members = (await api.get(f"/api/v1/books/{book['id']}/members", headers=headers)).json()
+    assert _role_of(members, owner["id"]) == "owner"
+
+
+async def test_a_member_cannot_change_roles_and_a_stranger_gets_404(api, session):
+    headers, book, owner, colleague = await workspace(api, session)
+    member = await _colleague(api)
+    stranger = bearer(await register(api, email="stranger@example.com"))
+
+    as_member = await api.patch(f"/api/v1/books/{book['id']}/members/{colleague['id']}",
+                                headers=member, json={"role": "admin"})
+    as_stranger = await api.patch(f"/api/v1/books/{book['id']}/members/{colleague['id']}",
+                                  headers=stranger, json={"role": "admin"})
+
+    assert as_member.status_code == 403
+    assert as_stranger.status_code == 404
+    members = (await api.get(f"/api/v1/books/{book['id']}/members", headers=headers)).json()
+    assert _role_of(members, colleague["id"]) == "member"
+
+
+async def test_someone_who_left_cannot_be_given_a_role(api, session):
+    headers, book, _, colleague = await workspace(api, session)
+    url = f"/api/v1/books/{book['id']}/members/{colleague['id']}"
+    assert (await api.delete(url, headers=headers)).status_code == 204
+
+    reply = await api.patch(url, headers=headers, json={"role": "admin"})
+
+    assert reply.status_code == 404
+    assert await _colleague(api)        # still an account, just not on this book
+    assert (await api.get(f"/api/v1/books/{book['id']}",
+                          headers=await _colleague(api))).status_code == 404
+
+
+async def test_the_owner_hands_the_book_over_and_stays_as_an_admin(api, session):
+    headers, book, owner, colleague = await workspace(api, session)
+
+    reply = await api.put(f"/api/v1/books/{book['id']}/owner", headers=headers,
+                          json={"user_id": colleague["id"]})
+
+    assert reply.status_code == 200, reply.text
+    assert _role_of(reply.json(), colleague["id"]) == "owner"
+    assert _role_of(reply.json(), owner["id"]) == "admin"
+    # The new owner can do what only an owner can; the old one no longer can.
+    new_owner = await _colleague(api)
+    back = await api.put(f"/api/v1/books/{book['id']}/owner", headers=headers,
+                         json={"user_id": owner["id"]})
+    assert back.status_code == 403
+    assert (await api.put(f"/api/v1/books/{book['id']}/owner", headers=new_owner,
+                          json={"user_id": owner["id"]})).status_code == 200
+
+
+@pytest.mark.parametrize("who", ["self", "stranger", "nobody"])
+async def test_a_book_is_only_handed_to_another_active_member(api, session, who):
+    headers, book, owner, _ = await workspace(api, session)
+    stranger = (await api.get("/api/v1/auth/me", headers=bearer(
+        await register(api, email="stranger@example.com")))).json()
+    target = {"self": owner["id"], "stranger": stranger["id"],
+              "nobody": str(uuid.uuid4())}[who]
+
+    reply = await api.put(f"/api/v1/books/{book['id']}/owner", headers=headers,
+                          json={"user_id": target})
+
+    assert reply.status_code == 422
+    members = (await api.get(f"/api/v1/books/{book['id']}/members", headers=headers)).json()
+    assert _role_of(members, owner["id"]) == "owner"
+
+
+async def test_a_stranger_cannot_take_a_book(api, session):
+    headers, book, owner, _ = await workspace(api, session)
+    stranger_headers = bearer(await register(api, email="stranger@example.com"))
+    stranger = (await api.get("/api/v1/auth/me", headers=stranger_headers)).json()
+
+    reply = await api.put(f"/api/v1/books/{book['id']}/owner", headers=stranger_headers,
+                          json={"user_id": stranger["id"]})
+
+    assert reply.status_code == 404
