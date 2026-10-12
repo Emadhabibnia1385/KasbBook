@@ -28,8 +28,12 @@ def report_menu(books: Sequence[Book]) -> Screen:
 
 
 # ------------------------------------------------------------ jalali reports
-def period_menu(book: Book, years: Sequence[int], today: Optional[date] = None) -> Screen:
-    """Which stretch of time to look at. `today` is the person's day, not the server's."""
+def period_menu(book: Book, years: Sequence[int], today: date) -> Screen:
+    """Which stretch of time to look at.
+
+    `today` is the person's day, and required: a screen is pure, and the
+    server's clock is a day behind Tehran for three and a half hours a night.
+    """
     rows: List[List[Button]] = [
         [
             Button("این هفته", data=f"rp:{book.id}:w:0"),
@@ -38,7 +42,7 @@ def period_menu(book: Book, years: Sequence[int], today: Optional[date] = None) 
     ]
 
 
-    this_year, this_month, _ = jalali.to_parts(today or date.today())
+    this_year, this_month, _ = jalali.to_parts(today)
     last_year, last_month = (this_year, this_month - 1) if this_month > 1 else (this_year - 1, 12)
     rows.append([
         Button(f"{jalali.month_name(this_month)} {this_year}",
