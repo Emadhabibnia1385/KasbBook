@@ -22,7 +22,7 @@ class CategoryService:
     def name(value: str) -> str:
         value = value.strip()
         if not value or len(value) > 80:
-            raise ValidationError("نام دسته‌بندی باید بین ۱ تا ۸۰ حرف باشد.")
+            raise ValidationError("نام دسته باید بین 1 تا 80 حرف باشد.")
         return value
 
     async def lock_book(self, book_id):
@@ -44,7 +44,7 @@ class CategoryService:
         try:
             return Flow(value)
         except (ValueError, TypeError):
-            raise ValidationError("نوع دسته‌بندی باید درآمد یا هزینه باشد.") from None
+            raise ValidationError("نوع دسته باید درآمد یا هزینه باشد.") from None
 
     async def get(self, book_id, actor_user_id, category_id):
         await self.books.require(book_id, actor_user_id, Permission.VIEW_TRANSACTIONS)
@@ -52,7 +52,7 @@ class CategoryService:
             Category.id == category_id, Category.book_id == book_id
         ).execution_options(populate_existing=True))
         if row is None:
-            raise NotFound("این دسته‌بندی پیدا نشد.")
+            raise NotFound("این دسته پیدا نشد.")
         return row
 
     async def _ensure(self, book_id, name, flow):
@@ -71,7 +71,7 @@ class CategoryService:
             self.session.add(row)
             await self.session.flush()
         elif row.flow is not None and row.flow is not flow:
-            raise ValidationError("نوع این دسته‌بندی با تراکنش یکسان نیست؛ دستهٔ مناسب را انتخاب کن.")
+            raise ValidationError("نوع این دسته با تراکنش یکسان نیست؛ دستهٔ مناسب را انتخاب کن.")
         return row
 
     async def require_create(self, book_id, actor_user_id):
@@ -84,13 +84,13 @@ class CategoryService:
         if await self.session.scalar(select(Category.id).where(
             Category.book_id == book_id, Category.name == name
         )):
-            raise ValidationError("این دسته‌بندی از قبل وجود دارد.")
+            raise ValidationError("این دسته از قبل وجود دارد.")
         return await self._ensure(book_id, name, flow)
 
     async def update(self, book_id, actor_user_id, category_id, *, name=None, flow=None):
         await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
         if name is None and flow is None:
-            raise ValidationError("نام یا نوع دسته‌بندی را بفرست.")
+            raise ValidationError("نام یا نوع دسته را بفرست.")
         direction = self.direction(flow) if flow is not None else None
         await self.lock_book(book_id)
         row = await self.get(book_id, actor_user_id, category_id)
@@ -110,7 +110,7 @@ class CategoryService:
         if await self.session.scalar(select(Category.id).where(
             Category.book_id == book_id, Category.name == name
         )):
-            raise ValidationError("این نام دسته‌بندی از قبل وجود دارد.")
+            raise ValidationError("این نام دسته از قبل وجود دارد.")
         # Planning uses category names too. Refuse a merge rather than silently
         # changing a budget's meaning or violating its unique target constraint.
         if await self.session.scalar(select(Budget.id).where(
@@ -153,6 +153,6 @@ class CategoryService:
         if await self.session.scalar(select(Transaction.id).where(
             Transaction.book_id == book_id, Transaction.category_id == category_id
         ).limit(1)):
-            raise ValidationError("این دسته‌بندی تراکنش دارد و قابل حذف نیست.")
+            raise ValidationError("این دسته تراکنش دارد و قابل حذف نیست.")
         await self.session.delete(row)
         await self.session.flush()

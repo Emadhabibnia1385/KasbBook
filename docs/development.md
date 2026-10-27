@@ -15,8 +15,15 @@ The editable install is what makes `kasbbook` importable because it is
 installed, rather than because something arranged `sys.path` first. That
 arrangement has broken three times — see [troubleshooting.md](./troubleshooting.md).
 
-About forty seconds, on SQLite. No network, no token, no database
-server.
+The suite runs on SQLite, in process: no network, no bot token, no database
+server, nothing that reaches outside the checkout. A clone and the dev
+requirements are the whole setup, and CI is what says it passes.
+
+A stopwatch reading stood here — "about forty seconds" — and it had rotted. It
+went the way the README's test-count badge went in `1100f63`, and for the same
+reason: a measured number in prose is a promise to re-measure it forever. A
+runtime rots more quietly than a count, because nobody is reminded of it by
+running the thing.
 
 Six migration tests skip unless `KASBBOOK_TEST_POSTGRES_URL` is set — that is
 what lets a laptop without PostgreSQL still run everything else.
@@ -59,6 +66,17 @@ connects to the code.
 **Persian is the UI language.** Screens, errors a user sees, commit subjects on
 `main`. Code, comments and these docs are English.
 
+**A service's own refusal, if it is Persian, is user-facing copy.**
+`screens.user_message()` passes a message that already contains Persian
+straight through to the person, so a sentence raised in
+`modules/<area>/service.py` is held to the same vocabulary, digit and
+half-space rules as a screen. Two guards apply them:
+`tests/test_bot_ux_fixes.py` over `bot/`, and `tests/test_copy_rules.py` over
+`modules/` and `shared/`, which reads the first argument of every error it
+finds raised there. The alternative is to raise it in English and map it in
+`screens/common.py`, which is where an error the API also answers with
+belongs.
+
 ## Adding a feature
 
 The shape most features take:
@@ -75,6 +93,14 @@ The shape most features take:
    screen explicitly from `screens/__init__.py`. Pick a callback prefix that is
    not taken; the guard test will tell you if it is. Keep each payload within
    64 bytes. Then run `tests/test_screens_architecture.py`.
+
+   Build the keyboard from `back_row()`, `cancel_row()` and `rows_of()` rather
+   than writing the glyphs and the row nesting out by hand. That is not
+   tidiness: hand-written rows are how «انصراف» came to be spelled two ways
+   depending on which feature you were in. The layout grammar they enforce —
+   the primary action alone, peers paired, a destructive action on its own row,
+   back or cancel last, never more than three to a row — is in
+   [conversation-design.md](./conversation-design.md).
 5. **Routing** — the feature in `bot/features/` that owns the area: add the
    prefix to its `prefixes` (and the draft flow to its `flows`, if it reads text).
 6. **API** — a router in `api/routers/`, calling the same service.

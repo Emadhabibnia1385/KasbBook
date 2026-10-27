@@ -9,6 +9,9 @@ from ...modules.identity.models import Identity, Provider
 from ...shared import jalali
 from .common import (
     Screen,
+    back_row,
+    cancel_row,
+    rows_of,
     rtl,
 )
 
@@ -94,7 +97,8 @@ def account_panel(user, identities: Iterable[Identity], current: Provider) -> Sc
         [Button("🗑 حذف حساب", data="acc:close")],
         [Button("🔐 ورود به حساب دیگر", data="acc:login")],
         [Button("👥 دعوت‌های تیمی", data="iv:inbox")],
-        [Button("⬅️ بازگشت", data="nav:home")],
+        # Home really is this screen's parent: it hangs off the main menu.
+        back_row("nav:home"),
     ]
 
 
@@ -151,7 +155,7 @@ def api_panel(keys, docs_url: str = "", guide_url: str = "") -> Screen:
     buttons.append([
         Button("🔄 کلید تازه" if rows else "🔑 ساخت کلید", data="acc:apinew")
     ])
-    buttons.append([Button("⬅️ بازگشت", data="acc:panel")])
+    buttons.append(back_row("acc:panel"))
     return rtl("\n".join(lines)), buttons
 
 
@@ -179,7 +183,7 @@ def api_key_created(
     ]
 
     buttons: List[List[Button]] = _reading(docs_url, guide_url)
-    buttons.append([Button("⬅️ بازگشت", data="acc:api")])
+    buttons.append(back_row("acc:api"))
     return rtl("\n".join(lines)), buttons
 
 
@@ -187,21 +191,22 @@ def ask_email() -> Screen:
     return rtl(
         "📧 ایمیلت را بنویس.\n\n"
         "با همین می‌توانی از وب وارد شوی، و اگر پیام‌رسانت را از دست دادی "
-        "حسابت را برگردانی."
-    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+        "حسابت را برگردانی.\n\n"
+        "مثلاً: ali@example.com"
+    ), [cancel_row("acc:panel")]
 
 
 def ask_phone() -> Screen:
     return rtl(
         "📱 شماره‌ات را بنویس.\n\nمثلاً: 09121234567"
-    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+    ), [cancel_row("acc:panel")]
 
 
 def ask_current_password() -> Screen:
     return rtl(
         "🔑 اول رمز فعلی را بنویس.\n\n"
         "پیامت بلافاصله پاک می‌شود."
-    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+    ), [cancel_row("acc:panel")]
 
 
 def ask_new_password(changing: bool) -> Screen:
@@ -210,13 +215,11 @@ def ask_new_password(changing: bool) -> Screen:
         f"🔑 {what} را بنویس.\n\n"
         "دست‌کم 8 نویسه.\n"
         "پیامت بلافاصله پاک می‌شود، ولی جای امنی نگهش دار."
-    ), [[Button("⬅️ انصراف", data="acc:panel")]]
+    ), [cancel_row("acc:panel")]
 
 
 def ask_display_name(current: str) -> Screen:
-    return rtl(f"✏️ نام تازه چه باشد؟\n\nالان: {current}"), [
-        [Button("⬅️ انصراف", data="acc:panel")]
-    ]
+    return rtl(f"✏️ نام تازه چه باشد؟\n\nالان: {current}"), [cancel_row("acc:panel")]
 
 
 def ask_timezone(current: str) -> Screen:
@@ -224,13 +227,17 @@ def ask_timezone(current: str) -> Screen:
         f"🕐 منطقهٔ زمانی\n\nالان: {current}\n\n"
         "این ساعتی را تعیین می‌کند که خلاصهٔ روزانه به دستت می‌رسد."
     ), [
+        # Tehran keeps a row of its own: it is the answer for almost everyone
+        # here, and a row to itself is the widest tap target on the screen.
         [Button("تهران", data="acc:tzset:Asia/Tehran")],
-        [Button("دبی", data="acc:tzset:Asia/Dubai"),
-         Button("استانبول", data="acc:tzset:Europe/Istanbul")],
-        [Button("لندن", data="acc:tzset:Europe/London"),
-         Button("برلین", data="acc:tzset:Europe/Berlin")],
-        [Button("تورنتو", data="acc:tzset:America/Toronto")],
-        [Button("⬅️ بازگشت", data="acc:panel")],
+        *rows_of([
+            Button("دبی", data="acc:tzset:Asia/Dubai"),
+            Button("استانبول", data="acc:tzset:Europe/Istanbul"),
+            Button("لندن", data="acc:tzset:Europe/London"),
+            Button("برلین", data="acc:tzset:Europe/Berlin"),
+            Button("تورنتو", data="acc:tzset:America/Toronto"),
+        ]),
+        back_row("acc:panel"),
     ]
 
 
@@ -242,7 +249,7 @@ def session_list(sessions) -> Screen:
         return rtl(
             "🖥 هیچ نشست فعالی نداری.\n\n"
             "نشست وقتی ساخته می‌شود که از وب یا API وارد شوی."
-        ), [[Button("⬅️ بازگشت", data="acc:panel")]]
+        ), [back_row("acc:panel")]
 
     lines = ["🖥 نشست‌های فعال:", ""]
     for row in rows[:10]:
@@ -253,7 +260,7 @@ def session_list(sessions) -> Screen:
     lines += ["", "اگر چیزی این‌جا را نمی‌شناسی، همه را خارج کن و رمزت را عوض کن."]
     return rtl("\n".join(lines)), [
         [Button("🚪 خروج از همهٔ نشست‌ها", data="acc:signout")],
-        [Button("⬅️ بازگشت", data="acc:panel")],
+        back_row("acc:panel"),
     ]
 
 
@@ -272,7 +279,7 @@ def confirm_close(preview) -> Screen:
             "این دفترها عضو دیگری دارند و مال تو تنها نیستند:\n"
             + "\n".join(f"  • {name}" for name in preview.books_to_hand_over)
             + "\n\nاول هرکدام را به یکی از اعضایش واگذار کن، بعد دوباره بیا."
-        ), [[Button("⬅️ بازگشت", data="acc:panel")]]
+        ), [back_row("acc:panel")]
 
     lines = ["⚠️ حذف حساب", ""]
     if preview.books_to_delete:
@@ -296,7 +303,7 @@ def confirm_close(preview) -> Screen:
     ]
     return rtl("\n".join(lines)), [
         [Button("🗑 می‌دانم، حذف کن", data="acc:closeok")],
-        [Button("⬅️ منصرف شدم", data="acc:panel")],
+        cancel_row("acc:panel"),
     ]
 
 
@@ -304,7 +311,7 @@ def ask_close_word() -> Screen:
     return rtl(
         f"برای تأیید نهایی کلمهٔ «{CLOSE_WORD}» را بنویس.\n\n"
         "هر چیز دیگری بنویسی، انصراف حساب می‌شود."
-    ), [[Button("⬅️ منصرف شدم", data="acc:panel")]]
+    ), [cancel_row("acc:panel")]
 
 
 def account_closed(removed: bool) -> Screen:
@@ -326,8 +333,20 @@ def account_closed(removed: bool) -> Screen:
 
 def identity_list(identities: Iterable[Identity], current: Provider) -> Screen:
     rows = list(identities)
-    lines = ["🔗 حساب‌های متصل:", ""]
 
+    if not rows:
+        # A title above a lone back button says nothing, and a title ending in a
+        # colon that introduces nothing says less. Attaching one happens on the
+        # web, so point there — and say what it buys, since the answer to "why
+        # bother" is that an account reachable one way can be lost that way.
+        return rtl(
+            "🔗 حساب‌های متصل\n\n"
+            "با وصل‌کردن یک پیام‌رسان، از آن هم به همین حساب و همین دفترها "
+            "می‌رسی و راه برگشت حسابت بیشتر می‌شود.\n\n"
+            "هنوز هیچ‌کدام وصل نیست؛ از پنل وب یکی را وصل کن."
+        ), [back_row("nav:home")]
+
+    lines = ["🔗 حساب‌های متصل:", ""]
     for identity in rows:
         label = PROVIDER_LABELS.get(identity.provider, identity.provider.value)
         who = identity.external_username or identity.external_id
@@ -340,18 +359,22 @@ def identity_list(identities: Iterable[Identity], current: Provider) -> Screen:
         lines += ["", "وصل‌نشده: " + "، ".join(PROVIDER_LABELS[p] for p in missing)]
 
     lines += ["", "برای وصل‌کردن یک پیام‌رسان دیگر، از پنل وب اقدام کن."]
-    return rtl("\n".join(lines)), [[Button("⬅️ بازگشت", data="nav:home")]]
+    return rtl("\n".join(lines)), [back_row("nav:home")]
 
 
 def ask_login_destination() -> Screen:
     return rtl("ایمیل یا شمارهٔ حساب مقصد را بفرست.\n"
                "کد به پیام‌رسان از قبل متصلِ حساب مقصد در همین نرم‌افزار ارسال می‌شود.\n"
-               "دفترهای دو حساب ادغام نمی‌شوند."), [[Button("↩️ انصراف", data="acc:panel")]]
+               "دفترهای دو حساب ادغام نمی‌شوند.\n\n"
+               "مثلاً: ali@example.com یا 09121234567"), [cancel_row("acc:panel")]
 
 
 def ask_login_code() -> Screen:
+    # The code is ten characters from an alphabet with no I, L, O, 0 or 1 in
+    # it, so the example shows that shape rather than a row of digits.
     return rtl("اگر حساب مقصد در همین پیام‌رسان متصل باشد، کد ورود برایش ارسال می‌شود.\n"
-               "کد را اینجا بفرست؛ اعتبار آن 5 دقیقه است."), [[Button("↩️ انصراف", data="acc:panel")]]
+               "کد را اینجا بفرست؛ اعتبار آن 5 دقیقه است.\n\n"
+               "مثلاً: K7P2MXR9TD"), [cancel_row("acc:panel")]
 
 
 def login_proof(code) -> Screen:

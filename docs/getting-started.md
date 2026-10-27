@@ -102,9 +102,9 @@ database never sees a Jalali value and you never see a Gregorian one.
 
 ## The daily list
 
-**📌 Record → 📅 Daily list** opens today across every book you are on — a team,
-your shop, your household — in one list. It is the first generation's daily
-screen, brought back:
+**📅 Daily list**, on the home screen, opens today across every book you are on
+— a team, your shop, your household — in one list. It is the first generation's
+daily screen, brought back:
 
 - a summary per book, split the way a shopkeeper reads a day: business income
   and expense, personal spending, installments, and what the day left over;
@@ -115,8 +115,10 @@ screen, brought back:
 Books are never added together. A team's revenue is not its members' savings,
 and two books in two currencies do not sum to anything.
 
-**➕ Single entry** is the other way in: pick a date, a kind, a category and an
-amount.
+**📌 Record a transaction** is the other way in, and it starts the entry rather
+than opening a menu: tap the kind, name the category, type the amount — which
+saves it. Today is assumed and the heading says which day it assumed, so the
+date is one tap to change and still editable on the saved card.
 
 ## What to set up next
 

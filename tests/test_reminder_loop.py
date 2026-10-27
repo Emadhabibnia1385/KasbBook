@@ -22,11 +22,14 @@ from apps.bot.reminders import ReminderLoop, _local_hour  # noqa: E402
 from kasbbook.bot.state import MemoryStateStore  # noqa: E402
 from kasbbook.modules.books.models import BookType  # noqa: E402
 from kasbbook.modules.books.service import BookService  # noqa: E402
+from kasbbook.modules.debts.models import Direction  # noqa: E402
+from kasbbook.modules.debts.service import DebtService  # noqa: E402
 from kasbbook.modules.identity.models import Provider  # noqa: E402
 from kasbbook.modules.identity.service import IdentityService  # noqa: E402
 from kasbbook.modules.ledger.models import Flow, Scope  # noqa: E402
 from kasbbook.modules.ledger.service import LedgerService  # noqa: E402
 from kasbbook.modules.loans.service import LoanService  # noqa: E402
+from kasbbook.shared import jalali  # noqa: E402
 
 pytestmark = pytest.mark.asyncio
 TG = Provider.TELEGRAM
@@ -81,6 +84,39 @@ async def test_a_broken_timezone_falls_back_rather_than_crashing(session):
 
 
 # ------------------------------------------------------------------ digest
+async def test_the_day_a_reminder_belongs_to_is_the_persons_own_not_the_servers(db, session):
+    """The server's date turns over at half past three in the morning in Tehran.
+
+    Everything said to a person is dated and deduplicated on *their* day. On
+    the server's, one Tehran day carried two keys — and a second key is a
+    second copy of the same message — while the figures were read from whatever
+    day the server happened to be on, which for those hours is yesterday.
+    """
+    user = await linked(session, digest_hour=0, timezone="Asia/Tehran")
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 250_000, occurred_on=NEXT_DAY
+    )
+    await session.commit()
+
+    # 00:30 in Tehran on the 25th: the server is still on the 24th.
+    just_after_midnight = datetime(2026, 8, 24, 21, 0, tzinfo=ZoneInfo("UTC"))
+    # 04:00 in Tehran on the same 25th, and now the server agrees on the date.
+    once_the_server_agrees = datetime(2026, 8, 25, 0, 30, tzinfo=ZoneInfo("UTC"))
+
+    adapter = SpyAdapter()
+    loop = ReminderLoop(db, adapter, MemoryStateStore())
+
+    # No `today` here on purpose: this is the path production actually runs.
+    assert await loop.tick(now=just_after_midnight) == 1
+    assert "250,000" in adapter.sent[0][1]
+    assert jalali.to_text(NEXT_DAY) in adapter.sent[0][1]
+
+    # The server's date rolling over is not a new day for this person.
+    assert await loop.tick(now=once_the_server_agrees) == 0
+    assert len(adapter.sent) == 1
+
+
 async def test_the_digest_arrives_at_the_hour_the_user_chose(db, session):
     user = await linked(session, digest_enabled=True, digest_hour=21)
     book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
@@ -170,9 +206,16 @@ async def test_a_quiet_day_produces_nothing_at_all(db, session):
 
 
 # ------------------------------------------------------------- due warnings
-async def test_an_installment_warning_does_not_wait_for_the_digest_hour(db, session):
-    """A due date does not care what time it is."""
-    user = await linked(session, digest_enabled=False, reminder_days=3)
+async def test_a_warning_waits_for_the_hour_the_person_chose(db, session):
+    """A due date does not care what time it is. The person does.
+
+    The warnings used to go out on the first tick of the *server's* day, which
+    is half past three in the morning in Tehran — every day, to a shopkeeper
+    who had asked to be spoken to at nine in the evening. Three days of notice
+    is what `reminder_days` is for; none of it is spent by waiting for a civil
+    hour.
+    """
+    user = await linked(session, digest_enabled=False, reminder_days=3, digest_hour=21)
     book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
     await LoanService(session).create(
         book.id, user.id, "وام مسکن", 2_000_000, 24, NEXT_DAY
@@ -182,8 +225,50 @@ async def test_an_installment_warning_does_not_wait_for_the_digest_hour(db, sess
     adapter = SpyAdapter()
     loop = ReminderLoop(db, adapter, MemoryStateStore())
 
-    assert await loop.tick(now=at_hour(11), today=DAY) == 1
+    assert await loop.tick(now=at_hour(4), today=DAY) == 0
+    assert await loop.tick(now=at_hour(21), today=DAY) == 1
     assert "وام مسکن" in adapter.sent[0][1]
+
+
+async def test_a_tick_missed_at_the_chosen_hour_still_speaks_later_that_day(db, session):
+    """At or after the hour, not on it.
+
+    One slow tick at 21:00 — a long recurring catch-up, a restart — used to
+    cost the whole day's digest, silently. The once-a-day key still holds it
+    to one message.
+    """
+    user = await linked(session, digest_hour=21)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 100, occurred_on=DAY
+    )
+    await session.commit()
+
+    adapter = SpyAdapter()
+    loop = ReminderLoop(db, adapter, MemoryStateStore())
+
+    assert await loop.tick(now=at_hour(23), today=DAY) == 1
+    assert await loop.tick(now=at_hour(23), today=DAY) == 0
+
+
+async def test_everything_due_reaches_the_person_as_one_message(db, session):
+    """Three notifications in the same minute is noise, whatever they say."""
+    user = await linked(session, digest_hour=21)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 100, occurred_on=DAY
+    )
+    await DebtService(session).create(
+        book.id, user.id, "علی", Direction.OWED_TO_ME, 500_000, due_on=NEXT_DAY
+    )
+    await session.commit()
+
+    adapter = SpyAdapter()
+    assert await ReminderLoop(db, adapter, MemoryStateStore()).tick(
+        now=at_hour(21), today=DAY
+    ) == 1
+    text = adapter.sent[0][1]
+    assert "خلاصهٔ" in text and "علی" in text
 
 
 async def test_a_warning_is_also_only_sent_once_a_day(db, session):
@@ -198,8 +283,8 @@ async def test_a_warning_is_also_only_sent_once_a_day(db, session):
     loop = ReminderLoop(db, adapter, MemoryStateStore())
     day = DAY
 
-    assert await loop.tick(now=at_hour(9), today=day) == 1
-    assert await loop.tick(now=at_hour(10), today=day) == 0
+    assert await loop.tick(now=at_hour(21), today=day) == 1
+    assert await loop.tick(now=at_hour(22), today=day) == 0
 
 
 async def test_the_users_own_warning_window_is_honoured(db, session):
@@ -212,11 +297,11 @@ async def test_the_users_own_warning_window_is_honoured(db, session):
     await session.commit()
 
     loop = ReminderLoop(db, SpyAdapter(), MemoryStateStore())
-    assert await loop.tick(now=at_hour(9), today=DAY) == 0
+    assert await loop.tick(now=at_hour(21), today=DAY) == 0
 
     user.reminder_days = 30
     await session.commit()
-    assert await loop.tick(now=at_hour(9), today=DAY) == 1
+    assert await loop.tick(now=at_hour(21), today=DAY) == 1
 
 
 # ------------------------------------------------------------- addressing

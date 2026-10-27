@@ -52,12 +52,21 @@ class Attachment:
 # Telegram's documented limit for callback_data, the strictest of the three.
 CALLBACK_DATA_LIMIT = 64
 
+# The only styles Telegram accepts (Bot API 10.3): "danger" (red), "success"
+# (green) or "primary" (blue). Omitting the field leaves the colour to the app,
+# which is what every screen written before this did and still does.
+BUTTON_STYLES = ("danger", "success", "primary")
+
 
 @dataclass(frozen=True)
 class Button:
     text: str
     data: Optional[str] = None     # callback payload
     url: Optional[str] = None      # link instead of a callback
+    # Colour, so a destructive button can look destructive. Last on purpose:
+    # every existing call site builds a button positionally, so a new field
+    # anywhere earlier would silently re-interpret `Button("x", "data")`.
+    style: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.data and not self.url:
@@ -70,6 +79,15 @@ class Button:
             raise ValueError(
                 f"callback data is {len(self.data.encode('utf-8'))} bytes, over "
                 f"{CALLBACK_DATA_LIMIT}: {self.data!r}"
+            )
+        # Same all-or-nothing failure as the limit above: an unrecognised style
+        # is a bad reply_markup, so Telegram refuses the message and the person
+        # sees no screen rather than an uncoloured button. Caught here so a
+        # typo like "sucess" fails a test instead of a send.
+        if self.style is not None and self.style not in BUTTON_STYLES:
+            raise ValueError(
+                f"button style {self.style!r} is not one of "
+                f"{', '.join(BUTTON_STYLES)}"
             )
 
 
@@ -145,6 +163,12 @@ class Capabilities:
     polling: bool = True
     # Whether the provider can conceal a run of text behind a tap.
     spoiler: bool = False
+    # Whether the provider understands `style` on an inline button. Off by
+    # default, and deliberately not inferred from "speaks the Bot API": a
+    # provider that validates reply_markup strictly refuses the whole message
+    # over one unknown key, which costs the screen rather than the colour. Only
+    # an adapter tested against its live API turns this on.
+    button_style: bool = False
 
 
 class MessagingAdapter(Protocol):

@@ -79,7 +79,29 @@ in the UI rather than attempted and failed.
 | Answer a callback | ✓ | ✓ | — (nothing to answer) |
 | Webhook signature | ✓ | — | — |
 | Conceal text (spoiler) | ✓ | — | — |
+| Coloured button (`style`) | ✓ | — | — |
 | Long polling | ✓ | ✓ | — (cursor paging) |
+
+The last two are off for Bale although `botapi.py` is shared with it, and that
+asymmetry is a decision rather than an omission. Bale is the Telegram Bot API
+on another host by its own documentation, but the [roadmap](./roadmap.md)
+records that neither Bale nor Rubika has been tested against its live API, and
+the two failure modes are not symmetric: an unknown `reply_markup` key that is
+ignored costs nothing, while one that is rejected costs the *whole message*, so
+the reader loses the screen rather than the colour. `spoiler` set that
+precedent and `button_style` follows it. Turning either on is one keyword in
+`bale.py`, the day somebody tests it live.
+
+Rubika is a different case. Its keypad is `{id, type, button_text}`, which has
+nowhere to put a style at all, so `build_buttons` drops the field instead of
+refusing the button — the degradation this layer promises, rather than a
+refusal.
+
+`Button.style` is validated against `BUTTON_STYLES` in `adapters/base.py` when
+the button is constructed, so a typo fails in a screen test rather than on a
+send; an unrecognised style is a bad `reply_markup`, which Telegram refuses
+whole. No screen sets a style yet: the capability exists, and nothing is
+coloured by it.
 
 ## The conformance suite
 
@@ -153,9 +175,14 @@ taking every deployment down at once, and it puts a real person's account at
 risk to save writing an adapter.
 # Transaction descriptions and receipt presentation
 
-Normal entry asks for a description after the amount, with an explicit skip
-button. A photo/document/voice attachment and its caption can complete the entry
-atomically through `LedgerService.record`. The current transaction model stores
+A normal entry on a single-currency book saves on the amount; the description
+is optional and is added afterwards from the saved card, which offers it. A book
+holding more than one currency still asks after the amount — the currency, the
+rate if the market quote is unavailable, then the description — because a rate
+applied on someone's behalf is worth showing before it is kept. See
+[conversation-design.md](./conversation-design.md). A photo/document/voice
+attachment and its caption can complete the entry atomically through
+`LedgerService.record`. The current transaction model stores
 one provider-scoped attachment. Opening a receipt on its original messenger sends
 the media with the transaction summary and edit buttons. Telegram/Bale summaries
 exceeding the 1024 UTF-16 caption budget are sent untruncated as a reply to the

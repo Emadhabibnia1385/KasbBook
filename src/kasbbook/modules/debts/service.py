@@ -53,7 +53,7 @@ class DebtService:
         # Zero was let through while loans and recurring rules refused it, and a
         # debt of nothing sat in the list as a position.
         if value <= ZERO:
-            raise ValidationError("مبلغ باید بیشتر از صفر باشد؛ مثلاً ۵۰۰ هزار.")
+            raise ValidationError("مبلغ باید بیشتر از صفر باشد؛ مثلاً 500 هزار.")
 
         debt = Debt(
             book_id=book_id,

@@ -207,6 +207,10 @@ class RubikaAdapter:
         The id is what Rubika hands back on a press, so the callback payload
         goes there. A url button is rendered as `Link`, and its target lives in
         `button_url` because there is no separate url field on a simple button.
+
+        A `Button.style` has nowhere to go in this shape and is dropped rather
+        than refused: the screen that asked for a red button still gets a
+        working button here, which is the degradation this layer promises.
         """
         if not buttons:
             return None

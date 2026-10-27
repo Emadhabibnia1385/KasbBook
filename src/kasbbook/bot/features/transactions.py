@@ -185,8 +185,15 @@ class TransactionsFeature(Feature):
         # Checked before anything is drawn: the next screen names the book, and
         # a crafted button should not be a way to learn another book's name.
         await self.ctx.books.require(book.id, user.id, Permission.VIEW_TRANSACTIONS)
-        await self.ctx.state.set(key, {"flow": "tx", "book_id": str(book.id)})
-        return screens.pick_date(book, self.ctx.today(user))
+        # The day is assumed, not asked. It is today for almost every entry;
+        # `pick_type` names it so the assumption is visible, «تاریخ دیگر» there
+        # changes it, and the saved card can still edit it. One screen fewer
+        # between the person and the thing they came to do.
+        today = self.ctx.today(user)
+        await self.ctx.state.set(
+            key, {"flow": "tx", "book_id": str(book.id), "on": today.isoformat()}
+        )
+        return screens.pick_type(book, today)
 
     async def _ask_category(self, draft: dict, user, key: str):
         flow = Flow(draft["direction"])
@@ -443,12 +450,60 @@ class TransactionsFeature(Feature):
         # Nothing in flight, so try to read the line as a transaction.
         entry = quick.read(text, self.ctx.today(user))
         if isinstance(entry, quick.Unclear):
-            # Numbers were seen but none can be trusted as the amount: nothing
-            # is recorded, and the person is told which ones were seen.
-            return screens.unclear_line(entry.reason, entry.numbers)
+            # Numbers were seen but none can be trusted as the amount.
+            return await self._quick_unclear(text, entry, user, key)
         if entry is None:
+            # No amount at all, so no draft either: a line this bot cannot see
+            # an amount in is usually not addressed to it, and a draft left
+            # waiting on one would be a trap for the next message.
             return screens.unreadable_line()
+        return await self._quick_entry(entry, user, key)
 
+    async def _quick_unclear(self, text: str, refusal, user, key: str):
+        """A line with numbers in it but no amount that can be trusted.
+
+        Nothing is recorded. What the refusal can still offer is the readings
+        it would not choose between: they become a button each, and the typed
+        line is kept so a tap has something to read again — the refusal used to
+        drop both and cost the whole line retyped.
+
+        The draft is read by those buttons alone. `quick` is a button-only flow
+        (`conversation.py` hands a typed line to `quick_line` when no feature
+        claims the draft), so the next thing typed is read as a new line and
+        never swallowed as an answer to this question.
+        """
+        problem = None
+        if refusal.reason == "negative":
+            # `base.read_amount` is this bot's one reader of "how much?" and
+            # owns the sentence for a negative amount. The quick line reads
+            # through `quick.read`, so it never reached it: «فروش -250000» was
+            # answered with "I saw no amount in this message".
+            _, problem = read_amount(refusal.numbers[0])
+        if not refusal.amounts:
+            # Nothing to choose between: a rial amount, a zero or a missing
+            # category needs a different line, not a different reading of this
+            # one, so there is nothing a draft could be claimed by.
+            return screens.unclear_line(refusal.reason, refusal.numbers, problem=problem)
+
+        pending = {
+            "flow": "quick",
+            # Capped because a draft is stored, not because a line is: no
+            # amount hides past two hundred characters of category and note.
+            "line": text[:200],
+            "reason": refusal.reason,
+            "numbers": list(refusal.numbers),
+            "choices": [str(value) for value in refusal.amounts],
+            # Names this draft on its buttons; see _quick_callback.
+            "nonce": secrets.token_hex(3),
+        }
+        await self.ctx.state.set(key, pending)
+        return screens.unclear_line(
+            refusal.reason, refusal.numbers,
+            [Decimal(value) for value in pending["choices"]], pending["nonce"],
+        )
+
+    async def _quick_entry(self, entry, user, key: str):
+        """A line that read as an entry: whose book, then recorded or asked about."""
         books = await self.ctx.books.books_for_user(user.id)
         if not books:
             return screens.pick_book(books, "tx")
@@ -465,11 +520,45 @@ class TransactionsFeature(Feature):
         await self.ctx.state.set(key, pending)
 
         if len(books) == 1:
+            # Which book has one answer here. Which direction may have one too.
             pending["book_id"] = str(books[0].id)
             await self.ctx.state.set(key, pending)
-            return screens.quick_pick_flow(entry, pending["nonce"], books[0], self.ctx.today(user))
+            return await self._quick_settle(pending, user, key)
 
         return screens.quick_pick_book(entry, books, pending["nonce"], self.ctx.today(user))
+
+    async def _filed_flow(self, book, category: str, user):
+        """The direction this book has already filed this category under, or None.
+
+        Exact match, and only a flow that is actually on file: a null one is an
+        unclassified legacy category, and a near match («فروش» for «فروشگاه»)
+        would record the wrong direction — worse than the question it saves.
+        """
+        name = (category or "").strip()
+        for row in await self.ctx.categories.list(book.id, user.id):
+            if row.name == name and row.flow is not None:
+                return row.flow
+        return None
+
+    async def _quick_settle(self, draft: dict, user, key: str):
+        """Record it when the book already settles the direction; ask when it does not.
+
+        A `Category` is unique per (book, name) and carries its own `flow`, and
+        `CategoryService._ensure` refuses a transaction whose flow disagrees
+        with the one on file. So for a name this book has used before,
+        «درآمد است یا هزینه؟» was never the person's question: one answer
+        recorded and the other was refused at the end of the flow. A tap that
+        can only be right one way is not a choice, so it is no longer asked —
+        «فروش 250ک» is now one message and nothing else.
+
+        A name the book has never used is still asked about. That is the half
+        of the question that was always real.
+        """
+        book = await self.ctx.books.get_book(uuid.UUID(draft["book_id"]))
+        flow = await self._filed_flow(book, draft["category"], user)
+        if flow is None:
+            return await self._quick_screen(draft, user)
+        return await self._quick_record(draft["nonce"], flow, user, key, inferred=True)
 
     async def _daily_date_text(self, text: str, draft: dict, user, key: str):
         view = draft.get("view", "a")
@@ -505,45 +594,145 @@ class TransactionsFeature(Feature):
             await self.ctx.books.require(uuid.UUID(argument), user.id, Permission.VIEW_TRANSACTIONS)
             draft["book_id"] = argument
             await self.ctx.state.set(key, draft)
+            if draft.get("amount"):
+                # Which book was the real question; the direction may not be.
+                return await self._quick_settle(draft, user, key)
             return await self._quick_screen(draft, user)
 
-        if action == "flow":
-            # Claimed before it is recorded: two taps in flight (webhook mode)
-            # must not both see the draft. The loser gets the "old" answer.
-            draft = await self.ctx.state.pop(key)
-            if draft.get("flow") != "quick" or draft.get("nonce", "") != nonce:
-                if draft:
-                    await self.ctx.state.set(key, draft)
-                return screens.stale(None, user.display_name)
+        if action == "amt":
+            # The person has pointed at which of the figures is the amount.
+            # The line is read again from scratch — what the button carries is
+            # a position, not an amount, so a crafted one cannot name a figure
+            # the line does not contain.
+            line = draft.get("line") or ""
             try:
-                book = await self.ctx.books.get_book(uuid.UUID(draft["book_id"]))
+                index = int(argument)
+            except ValueError:
+                index = -1
+            entry = quick.resolve(line, index, self.ctx.today(user)) if line else None
+            if isinstance(entry, quick.Unclear):
+                return await self._quick_unclear(line, entry, user, key)
+            if entry is None:
+                return screens.unreadable_line()
+            return await self._quick_entry(entry, user, key)
+
+        if action == "flow":
+            try:
                 flow = Flow(argument)
-                transaction = await self.ctx.ledger.record(
-                    book_id=book.id,
-                    actor_user_id=user.id,
-                    flow=flow,
-                    scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
-                    category=draft["category"],
-                    amount=Decimal(draft["amount"]),
-                    description=draft.get("description"),
-                    occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
-                )
-            except Exception:
-                # A refused record must not eat the draft: give it back.
-                await self.ctx.state.set(key, draft)
-                raise
-            return screens.transaction_saved(
-                book, flow, transaction.category,
-                transaction.converted_amount, book.base_currency,
-                transaction.occurred_on, transaction.description,
-            )
+            except ValueError:
+                # Not a direction this product has; nothing this button says
+                # can be acted on.
+                return screens.stale(None, user.display_name)
+            return await self._quick_record(nonce, flow, user, key)
+
+        if action == "undo":
+            return await self._quick_undo(argument, nonce, user, key)
 
         return screens.stale(None, user.display_name)
+
+    async def _quick_record(self, nonce: str, flow: Flow, user, key: str,
+                            inferred: bool = False):
+        """Claim the draft and record it: the one place a quick line becomes money.
+
+        `inferred` means the direction came from the book's own category rather
+        than from a tap, which changes only what the card says and whether it
+        offers a way back — the recording itself is the same one either way.
+        """
+        # Claimed before it is recorded: two taps in flight (webhook mode)
+        # must not both see the draft. The loser gets the "old" answer.
+        draft = await self.ctx.state.pop(key)
+        if draft.get("flow") != "quick" or draft.get("nonce", "") != nonce \
+                or not draft.get("amount"):
+            if draft:
+                await self.ctx.state.set(key, draft)
+            return screens.stale(None, user.display_name)
+        try:
+            book = await self.ctx.books.get_book(uuid.UUID(draft["book_id"]))
+            transaction = await self.ctx.ledger.record(
+                book_id=book.id,
+                actor_user_id=user.id,
+                flow=flow,
+                scope=SCOPE_FOR_BOOK.get(book.type, Scope.WORK),
+                category=draft["category"],
+                amount=Decimal(draft["amount"]),
+                description=draft.get("description"),
+                occurred_on=date.fromisoformat(draft["on"]) if draft.get("on") else None,
+            )
+        except Exception:
+            # A refused record must not eat the draft: give it back.
+            await self.ctx.state.set(key, draft)
+            raise
+
+        undo_id = ""
+        if inferred and await self.ctx.books.can(
+            book.id, user.id, Permission.DELETE_TRANSACTION
+        ):
+            # The direction was not chosen by the person, so one tap has to be
+            # able to take it back. The draft is kept for that tap alone, and
+            # it still holds the book and what the line said — so undoing can
+            # ask the question that was skipped without the line being retyped.
+            undo_id = str(transaction.id)
+            draft["undo"] = undo_id
+            await self.ctx.state.set(key, draft)
+
+        return screens.transaction_saved(
+            book, flow, transaction.category,
+            transaction.converted_amount, book.base_currency,
+            transaction.occurred_on, transaction.description,
+            inferred=inferred, undo_id=undo_id, nonce=nonce,
+        )
+
+    async def _quick_undo(self, transaction_id: str, nonce: str, user, key: str):
+        """Take back an entry whose direction the bot supplied, and ask instead.
+
+        A button that flipped the direction would be a button that can only
+        fail: `CategoryService._ensure` refuses a transaction whose flow
+        disagrees with the stored category, and that is the same rule that made
+        the guess safe in the first place. So this offers the only correction
+        the data allows — the entry goes, and the question that was skipped is
+        asked, with the line it was read from still in hand.
+        """
+        draft = await self.ctx.state.pop(key)
+        if draft.get("flow") != "quick" or draft.get("nonce", "") != nonce \
+                or draft.get("undo") != transaction_id:
+            if draft:
+                await self.ctx.state.set(key, draft)
+            return screens.stale(None, user.display_name)
+        try:
+            await self.ctx.ledger.delete(
+                uuid.UUID(draft["book_id"]), user.id, uuid.UUID(transaction_id)
+            )
+        except Exception:
+            # Nothing was removed, so the way back must stay where it was.
+            await self.ctx.state.set(key, draft)
+            raise
+
+        draft.pop("undo")
+        # A new name for the draft: what is drawn next is a new question, and
+        # the button that was just used must not act on anything again.
+        draft["nonce"] = secrets.token_hex(3)
+        await self.ctx.state.set(key, draft)
+        return screens.with_notice(
+            "↩️ تراکنش حذف شد", await self._quick_screen(draft, user)
+        )
 
     async def _quick_screen(self, draft: dict, user):
         """The screen a quick draft is currently waiting on, or None."""
         if draft.get("flow") != "quick":
             return None
+        if draft.get("undo"):
+            # Already recorded, and kept only so one tap can take it back.
+            # Drawing the confirm screen again would offer to record a second
+            # copy of something that is already in the book.
+            return None
+        if not draft.get("amount"):
+            # A refusal waiting on which reading was meant. It has the line and
+            # the readings and no amount, because the amount is what it is for.
+            return screens.unclear_line(
+                draft.get("reason", "several"), draft.get("numbers") or [],
+                [Decimal(value) for value in draft.get("choices") or []],
+                draft.get("nonce", ""),
+            )
         entry = quick.QuickEntry(
             draft["category"], Decimal(draft["amount"]), draft.get("description"),
             date.fromisoformat(draft["on"]) if draft.get("on") else None,
@@ -617,6 +806,12 @@ class TransactionsFeature(Feature):
             }
             return screens.pick_currency(codes, balances)
 
+        # This step stays, and it is not merely a prompt for an optional note:
+        # it is where a captioned receipt completes the entry in one message,
+        # and `ledger.record` takes that receipt under the CREATE permission
+        # while `attach_receipt` afterwards requires EDIT_TRANSACTION. Saving on
+        # the amount instead would have quietly taken receipts away from a
+        # member who may record but not edit. One tap is worth less than that.
         draft["awaiting"] = "description"
         await self.ctx.state.set(key, draft)
         return screens.ask_description()

@@ -92,7 +92,7 @@ class LoanService:
         if amount <= ZERO:
             raise ValidationError("مبلغ قسط باید بیشتر از صفر باشد")
         if installment_count <= 0:
-            raise ValidationError("تعداد اقساط باید حداقل ۱ باشد")
+            raise ValidationError("تعداد اقساط باید حداقل 1 باشد")
 
         loan = Loan(
             book_id=book_id,

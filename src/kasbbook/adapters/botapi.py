@@ -188,17 +188,31 @@ class BotApiAdapter:
 
     # ---------------------------------------------------------- outbound
     def build_buttons(self, buttons: Sequence[Sequence[Button]]) -> Optional[Dict]:
+        """Rows of raw `InlineKeyboardButton` dicts.
+
+        `style` is sent only where the provider says it understands it. Bale
+        speaks this same dialect, but it has never been tested against a live
+        API — the roadmap says so — and an unknown key in reply_markup is not
+        safely ignorable: if the remote end validates it, the rejection takes
+        the whole message, so the reader loses the screen and not merely the
+        colour. A provider without the capability gets exactly the payload it
+        got before this field existed.
+        """
         if not buttons:
             return None
 
+        styled = self.capabilities.button_style
         rows = []
         for row in buttons:
-            rendered = []
+            rendered: List[Dict[str, Any]] = []
             for button in row:
                 if button.url:
-                    rendered.append({"text": button.text, "url": button.url})
+                    item: Dict[str, Any] = {"text": button.text, "url": button.url}
                 else:
-                    rendered.append({"text": button.text, "callback_data": button.data})
+                    item = {"text": button.text, "callback_data": button.data}
+                if styled and button.style:
+                    item["style"] = button.style
+                rendered.append(item)
             rows.append(rendered)
         return {"inline_keyboard": rows}
 

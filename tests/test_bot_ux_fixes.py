@@ -141,7 +141,11 @@ async def test_a_line_that_could_mean_two_sums_is_asked_not_recorded(session, li
     reply = await convo.handle(says(line))
 
     assert reply.text.lstrip(screens.RLM).startswith("❓")
-    assert not any(d.startswith("qk:") for d in datas(reply)), "no draft to confirm"
+    # Nothing to confirm: no button records this line as it was read. A
+    # `qk:amt:` button may be here and is the opposite of a guess — it is the
+    # person answering which figure is the amount, which is what was asked.
+    assert not any(d.startswith(("qk:flow:", "qk:book:")) for d in datas(reply)), \
+        "no draft to confirm"
     assert await recorded(session, user, book) == []
     # And there is an example the person can copy.
     assert "مثلاً" in reply.text or "مثال" in reply.text

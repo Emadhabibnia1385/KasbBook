@@ -10,6 +10,7 @@ from typing import List, Optional, Sequence, Tuple
 from ...adapters.base import Button
 from ...modules.books.models import Book, BookType
 from ...modules.exchange.models import CURRENCY_NAMES
+from ...shared.parsing import to_ascii_digits
 
 
 RLM = "‏"
@@ -89,11 +90,21 @@ def welcome(display_name: str, first_run: bool = False) -> Screen:
 
 
 def main_menu() -> List[List[Button]]:
+    """The home keyboard: the one verb on its own row, then peers in pairs.
+
+    Five stacked full-width buttons made the shortest errand a scroll, and the
+    recording button opened a menu that only asked the same thing again. So
+    «ثبت تراکنش» now starts the flow itself (`tx:one`) and the daily list,
+    which used to be two taps away behind that menu, sits beside the reports it
+    belongs with. `dl:v` carries no day on purpose: the handler falls back to
+    the person's today, so the button needs no date and costs no bytes.
+    """
     return [
-        [Button("📌 ثبت تراکنش", data="tx:new")],
-        [Button("📊 گزارش‌ها", data="rep:menu")],
-        [Button("📚 دفترهای من", data="book:list")],
-        [Button("🔔 یادآورها", data="rm:panel")],
+        [Button("📌 ثبت تراکنش", data="tx:one")],
+        [Button("📅 تراکنش‌های هر روز", data="dl:v"),
+         Button("📊 گزارش‌ها", data="rep:menu")],
+        [Button("📚 دفترهای من", data="book:list"),
+         Button("🔔 یادآورها", data="rm:panel")],
         [Button("👤 حساب کاربری", data="acc:panel")],
     ]
 
@@ -145,7 +156,11 @@ def cancelled(display_name: str) -> Screen:
 _UNCLEAR = {
     "several": "چند عدد دیدم ({numbers}) و نفهمیدم کدام مبلغ است.\nمبلغ را بلافاصله بعد از دسته بنویس و تعداد را بعدش؛ مثلاً: «خرید نان 20000 2 عدد»",
     "grouping": "«{numbers}» را نمی‌شود با اطمینان خواند: 1.5 است یا 15؟\nبرای اعشار از نقطه بنویس و برای هزارگان از ویرگول؛ مثلاً: 1.5م یا 1,500,000",
-    "dots": "«{numbers}» 250 است یا 250,000؟\nبرای هزارگان از ویرگول بنویس؛ مثلاً: 250,000",
+    "dots": "«{numbers}» {plain} است یا {grouped}؟\nبرای هزارگان از ویرگول بنویس؛ مثلاً: {grouped}",
+    # More than one dot has only one sensible reading, but picking it silently
+    # would be a guess about money, so it is offered back to be confirmed.
+    "dots_many": "«{numbers}» را با نقطه نمی‌توان مطمئن خواند؛ منظورت {grouped} است؟\n"
+                 "برای هزارگان از ویرگول بنویس؛ مثلاً: {grouped}",
     "rial": "«{numbers}» ریال است؟ دفتر با تومان حساب می‌شود.\nمبلغ را به تومان بنویس؛ مثلاً: «فروش 25000»",
     "nocategory": "مبلغ {numbers} را دیدم ولی نفهمیدم برای چیست.\nاول دسته را بنویس؛ مثلاً: «فروش 250000»",
     "zero": "مبلغ باید بیشتر از صفر باشد.\nمثال: «فروش 250000»",
@@ -155,6 +170,15 @@ _UNCLEAR = {
 
 def unclear_reason(reason: str, numbers: Sequence[str]) -> str:
     """Why an amount could not be read, and how to write it so it can."""
+    if reason == "dots" and numbers:
+        # Both readings are computed from the figure that was typed. The
+        # question used to name 250 whatever it was asked about, so «1.500.000»
+        # was answered with two readings of a number nobody had written.
+        typed = to_ascii_digits(numbers[0])
+        plain = f"{Decimal(typed):,f}".rstrip("0").rstrip(".") if typed.count(".") == 1 else ""
+        grouped = f"{int(typed.replace('.', '')):,}"
+        key = "dots" if plain else "dots_many"
+        return _UNCLEAR[key].format(numbers=numbers[0], plain=plain, grouped=grouped)
     return _UNCLEAR.get(reason, _UNCLEAR["several"]).format(numbers=" و ".join(numbers))
 
 
@@ -162,7 +186,7 @@ def error(message: str, back: Optional[str] = None) -> Screen:
     """A refusal. With `back` the person returns to where they were, not home."""
     if back:
         return rtl(f"⚠️ {message}"), [[Button("⬅️ بازگشت", data=back)]]
-    return rtl(f"⚠️ {message}"), [[Button("⬅️ منوی اصلی", data="nav:home")]]
+    return rtl(f"⚠️ {message}"), [home_row()]
 
 
 # Domain errors reach the bot in whatever language the service wrote them. The
@@ -203,6 +227,48 @@ def user_message(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         return "ورودی درست نیست؛ بررسی کن و دوباره امتحان کن."
     return "کار انجام نشد؛ دوباره امتحان کن."
+
+
+# ------------------------------------------------------------- navigation
+# One glyph and one word per action, in one place. These were written by hand
+# at 131 of the package's buttons, and the glyph had come to track the module
+# rather than the action: planning and books said «↩️ انصراف» where payroll,
+# account and wallet said «⬅️ انصراف», and transactions said both in the same
+# flow. `↩️` for cancel is the one a test pins, so it is the one that stays.
+def back_row(data: str) -> List[Button]:
+    """Up one level. `data` is the parent's own callback — `nav:home` only when
+    home really is the parent, which is true just for the main menu's children."""
+    return [Button("⬅️ بازگشت", data=data)]
+
+
+def cancel_row(data: str = "nav:cancel") -> List[Button]:
+    """Abandons the draft. `data` is the screen the flow began on, where there
+    is one: the default sends the person home, which is right only at the top."""
+    return [Button("↩️ انصراف", data=data)]
+
+
+def home_row() -> List[Button]:
+    """The way out when there is no parent to go up to.
+
+    A third action, not a spelling of the other two: `back_row` would say
+    «بازگشت» on a screen that is not returning anywhere, and a saved
+    confirmation or a refusal with no known parent is exactly that. It existed
+    as a hand-written label in three places — `error` below, the saved card and
+    the saved conversion — which is the tell that it wanted a helper.
+    """
+    return [Button("⬅️ منوی اصلی", data="nav:home")]
+
+
+def rows_of(buttons: Sequence[Button], per_row: int = 2) -> List[List[Button]]:
+    """Buttons laid out `per_row` to a row, two by default.
+
+    Lived in `transactions` as `_pairs`, where five screens used it and the
+    other seven modules could not reach it — the package is a star around this
+    module, so a feature's screens may not import another feature's. Never more
+    than three to a row: a fourth Persian label wraps or is cut on a phone.
+    """
+    per_row = max(1, min(3, per_row))
+    return [list(buttons[i:i + per_row]) for i in range(0, len(buttons), per_row)]
 
 
 def confirm_delete(what: str, yes_data: str, no_data: str) -> Screen:

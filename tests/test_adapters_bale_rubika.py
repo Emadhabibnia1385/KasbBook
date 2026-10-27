@@ -128,6 +128,27 @@ async def test_a_bale_deep_link_points_at_ble_ir():
     assert bale().create_deep_link("ABC") == "https://ble.ir/KasbBookBot?start=ABC"
 
 
+async def test_bale_is_not_sent_a_button_style_it_has_never_been_asked_about():
+    """Bale speaks the Telegram dialect, but nobody has asked it this question.
+
+    `style` is documented by Telegram, not by Bale, and Bale has never been
+    tested against a live API here. An unknown key in reply_markup either gets
+    ignored or gets the whole message refused — and that second outcome costs
+    the reader the screen, not the colour. So the field waits for a provider
+    that declares it, and until then Bale's payload is unchanged.
+    """
+    fake = FakeBotApi()
+    assert bale().capabilities.button_style is False
+
+    await bale(fake).send_message(
+        OutgoingMessage("1", "حذف؟", [[Button("حذف", data="tx:del:1", style="danger")]])
+    )
+
+    item = fake.calls[0]["body"]["reply_markup"]["inline_keyboard"][0][0]
+    assert item == {"text": "حذف", "callback_data": "tx:del:1"}
+    assert list(item) == ["text", "callback_data"]
+
+
 async def test_bale_edits_the_screen_rather_than_appending():
     fake = FakeBotApi()
     await bale(fake).edit_message(OutgoingMessage("1", "تازه", edit_message_id="5"))
@@ -217,6 +238,21 @@ async def test_rubika_buttons_carry_the_payload_in_the_id():
     assert button["id"] == "book:list"
     assert button["button_text"] == "دفترها"
     assert button["type"] == "Simple"
+
+
+async def test_a_rubika_keypad_simply_has_nowhere_to_put_a_style():
+    """A styled button is not an error on Rubika; it is a button without colour.
+
+    Rubika's keypad is `{id, type, button_text}` — there is no style field to
+    fill, so the screen that asked for red gets the same button it got before.
+    Degrading is the contract here; raising would take a working screen off a
+    whole provider for a cosmetic reason.
+    """
+    keypad = rubika().build_buttons([[Button("حذف", data="tx:del:1", style="danger")]])
+    button = keypad["rows"][0]["buttons"][0]
+
+    assert button == {"id": "tx:del:1", "type": "Simple", "button_text": "حذف"}
+    assert "style" not in json.dumps(keypad)
 
 
 async def test_a_rubika_url_button_is_a_link_not_a_callback():
@@ -393,6 +429,25 @@ async def test_every_adapter_sends_the_buttons_it_was_given(name):
         OutgoingMessage("1", "سلام", [[Button("دفترها", data="book:list")]])
     )
     assert "book:list" in json.dumps(fake.calls[0]["body"], ensure_ascii=False)
+
+
+@pytest.mark.parametrize("name", sorted(ADAPTERS))
+async def test_a_styled_button_still_reaches_every_provider(name):
+    """A screen asks for colour once; three providers must still show it.
+
+    Only the provider that declares the capability sends the field — the other
+    two must drop it and send the button anyway, rather than refuse the screen
+    or raise on a keyboard shape with no room for it.
+    """
+    adapter, fake = _build(name)
+    message_id = await adapter.send_message(
+        OutgoingMessage("1", "حذف؟", [[Button("حذف", data="tx:del:1", style="danger")]])
+    )
+
+    assert message_id, f"{name} returned no message id"
+    body = json.dumps(fake.calls[0]["body"], ensure_ascii=False)
+    assert "tx:del:1" in body
+    assert ('"style": "danger"' in body) is adapter.capabilities.button_style
 
 
 @pytest.mark.parametrize("name", sorted(ADAPTERS))

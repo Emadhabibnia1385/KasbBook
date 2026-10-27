@@ -94,6 +94,18 @@ def rows(reply):
     return [[b.text for b in row] for row in reply.buttons]
 
 
+def listed(reply, category):
+    """Whether an entry for `category` is on the screen. Its button carries the
+    amount beside the name, so this is a substring question, not membership."""
+    return any(label.startswith(f"{category} · ") for label in entry_labels(reply))
+
+
+def entry_labels(reply):
+    """Every entry button's label. One button carries the category and the
+    amount now, so two entries share a row and the list is half as tall."""
+    return [b.text for row in reply.buttons for b in row]
+
+
 # ================================================================ the rule
 async def test_a_shops_day_splits_the_way_the_first_generation_did(session):
     user, shop = await shop_day(session)
@@ -185,8 +197,10 @@ async def test_a_single_entry_takes_a_typed_jalali_date(session):
     shop = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
     convo = await conversation(session)
 
-    reply = await convo.handle(press("tx:one"))  # one book, so straight to the date
-    assert "تاریخ" in reply.text
+    # One book, so straight to the type — the day is assumed and named in the
+    # heading, and «تاریخ دیگر» on that screen is what asks for another one.
+    reply = await convo.handle(press("tx:one"))
+    assert "درآمد است یا هزینه؟" in reply.text
     await convo.handle(press("tx:on:ask"))
 
     reply = await convo.handle(says("1404/12/28"))
@@ -232,9 +246,9 @@ async def test_the_daily_list_reads_like_the_old_one(session):
                  "💾 مانده پس از هزینه‌ها: 670", "💾 مانده پس از قسط: 650"):
         assert line in reply.text, line
 
-    assert ["نت ملی", "1,000"] in rows(reply)
+    assert "نت ملی · 1,000" in entry_labels(reply)
     assert any(label.startswith("— درآمد (") for label in labels(reply))
-    assert "فردا" not in labels(reply)  # tomorrow's line stays on tomorrow
+    assert not listed(reply, "فردا")  # tomorrow's line stays on tomorrow
     # One book: "new" offers its four kinds directly, as the old list did.
     assert len([b for row in reply.buttons for b in row
                 if (b.data or "").startswith("dl:add:")]) == 4
@@ -253,7 +267,7 @@ async def test_previous_and_next_move_one_day_and_keep_the_filter(session):
 
     reply = await convo.handle(press(by_text["روز بعد ▶️"]))
     assert "1404/12/29" in reply.text
-    assert "فردا" in labels(reply)
+    assert listed(reply, "فردا")
 
 
 async def test_the_filter_shows_only_the_book_it_names(session):
@@ -264,13 +278,13 @@ async def test_the_filter_shows_only_the_book_it_names(session):
     convo = await conversation(session)
 
     everything = await convo.handle(press(f"dl:v:{TOKEN}:a:0"))
-    assert "نت ملی" in labels(everything) and "ناهار تیم" in labels(everything)
+    assert listed(everything, "نت ملی") and listed(everything, "ناهار تیم")
     assert "✅ همه" in labels(everything)
     # Each book keeps its own summary; nothing is summed across them.
     assert "— 💼 مغازه —" in everything.text and "— 👥 تیم الف —" in everything.text
 
     only_team = await convo.handle(press(f"dl:v:{TOKEN}:{team.id}:0"))
-    assert "ناهار تیم" in labels(only_team) and "نت ملی" not in labels(only_team)
+    assert listed(only_team, "ناهار تیم") and not listed(only_team, "نت ملی")
     assert "🔎 فقط: 👥 تیم الف" in only_team.text
     assert "🧾 هزینه: 40" in only_team.text
     assert "مانده پس از" not in only_team.text  # a team's money is not anyone's savings
@@ -288,7 +302,7 @@ async def test_adding_from_the_list_lands_on_that_day_and_comes_back(session):
 
     assert "1404/12/28" in reply.text
     assert "🧾 هزینه کاری: 550" in reply.text
-    assert ["کرایه", "250"] in rows(reply)
+    assert "کرایه · 250" in entry_labels(reply)
 
     added = [tx for tx in await LedgerService(session).transactions(shop.id, user.id, DAY, DAY)
              if tx.category == "کرایه"]
@@ -392,7 +406,7 @@ async def test_a_crafted_button_does_not_open_someone_elses_book(session):
     ):
         reply = await stranger.handle(press(data, external_id="555002"))
         assert "مغازه" not in reply.text, data
-        assert "نت ملی" not in labels(reply), data
+        assert not listed(reply, "نت ملی"), data
 
 
 # ===================================================================== API

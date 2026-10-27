@@ -12,6 +12,8 @@ import pytest
 
 from kasbbook.modules.books.models import BookType
 from kasbbook.modules.books.service import BookService
+from kasbbook.modules.budgets.models import BudgetKind
+from kasbbook.modules.budgets.service import BudgetService
 from kasbbook.modules.debts.models import Direction
 from kasbbook.modules.debts.service import DebtService
 from kasbbook.modules.identity.models import Provider
@@ -478,3 +480,144 @@ async def test_the_digest_follows_the_books_day_not_the_servers(session):
 
     assert reminder is not None
     assert "250,000" in reminder.text
+
+
+# ------------------------------------------------- what the digest is worth reading for
+# Pinned, never date.today(): the budget lines count the days left in the Jalali
+# month, and a test that reads the real clock says something different on the
+# last of Shahrivar than it does on the second.
+BUDGET_DAY = date(2026, 8, 24)        # 1405/06/02 — 29 days of that month left
+MONTH_LAST_DAY = date(2026, 9, 22)    # 1405/06/31
+
+
+async def _spent(session, book, user, target, amount, on=BUDGET_DAY, limit=1_000_000):
+    await BudgetService(session).set_budget(
+        book.id, user.id, BudgetKind.CATEGORY, target, limit
+    )
+    await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, target, amount, occurred_on=on
+    )
+
+
+async def test_the_digest_names_the_budget_the_day_is_pressing_against(session):
+    """A total is a number. A ceiling with a month to go is a reason to open the bot."""
+    user, book = await setup(session)
+    await _spent(session, book, user, "خرید", 900_000)
+
+    reminder = await ReminderService(session).daily_digest(user.id, BUDGET_DAY)
+
+    assert reminder is not None
+    assert "90% از بودجهٔ «خرید» مصرف شده" in reminder.text
+    assert "29 روز تا پایان ماه" in reminder.text
+    assert await LedgerService(session).trial_balance(book.id) == (
+        Decimal("900000"), Decimal("900000")
+    )
+
+
+async def test_the_last_day_of_the_month_is_said_as_a_day_not_a_count(session):
+    """«0 روز تا پایان ماه» is a sentence nobody writes."""
+    user, book = await setup(session)
+    await _spent(session, book, user, "خرید", 900_000, on=MONTH_LAST_DAY)
+
+    reminder = await ReminderService(session).daily_digest(user.id, MONTH_LAST_DAY)
+    assert "امروز آخرین روز ماه است" in reminder.text
+    assert "0 روز" not in reminder.text
+
+
+async def test_a_budget_with_room_left_stays_out_of_the_digest(session):
+    """Below the line the budgets service draws there is nothing to act on."""
+    user, book = await setup(session)
+    await _spent(session, book, user, "خرید", 300_000)
+
+    reminder = await ReminderService(session).daily_digest(user.id, BUDGET_DAY)
+    assert reminder is not None            # the day itself is still reported
+    assert "بودجه" not in reminder.text
+
+
+async def test_a_budget_already_over_says_by_how_much(session):
+    user, book = await setup(session)
+    await _spent(session, book, user, "خرید", 1_250_000)
+
+    reminder = await ReminderService(session).daily_digest(user.id, BUDGET_DAY)
+    assert "⛔" in reminder.text
+    assert "250,000 رد شد" in reminder.text
+
+
+async def test_a_quiet_day_stays_quiet_even_with_a_budget_over(session):
+    """A ceiling that is over stays over until the month ends.
+
+    Repeating that every evening to somebody who recorded nothing is what
+    teaches people to stop reading this message — and then the one that matters
+    is not read either. It rides on the day's own figures or it is not sent.
+    """
+    user, book = await setup(session)
+    await _spent(session, book, user, "خرید", 1_250_000)
+
+    quiet = BUDGET_DAY + timedelta(days=1)
+    assert await ReminderService(session).daily_digest(user.id, quiet) is None
+
+
+async def test_one_persons_digest_never_carries_another_books_budget(session):
+    mine_user, mine = await setup(session)
+    other_user, theirs = await setup(session)
+
+    await _spent(session, mine, mine_user, "خرید", 950_000)
+    await _spent(session, theirs, other_user, "حمل", 950_000)
+
+    reminder = await ReminderService(session).daily_digest(mine_user.id, BUDGET_DAY)
+    assert "خرید" in reminder.text
+    assert "حمل" not in reminder.text
+    assert await LedgerService(session).trial_balance(theirs.id) == (
+        Decimal("950000"), Decimal("950000")
+    )
+
+
+async def test_a_debt_reminder_says_which_way_it_runs(session):
+    """An arrow on its own does not say who owes whom."""
+    user, book = await setup(session)
+    debts = DebtService(session)
+    await debts.create(book.id, user.id, "علی", Direction.OWED_TO_ME, 500_000,
+                       due_on=date.today())
+    await debts.create(book.id, user.id, "رضا", Direction.I_OWE, 200_000,
+                       due_on=date.today())
+
+    reminder = await ReminderService(session).due_debts(user.id, days_ahead=3)
+    assert "طلب من از علی" in reminder.text
+    assert "بدهی من به رضا" in reminder.text
+
+
+async def test_what_is_worth_saying_is_the_services_call_not_the_loops(session):
+    """The loop decides *when* to speak. Which reminders exist is read here,
+    from the person's own preferences, so both clients get the same answer."""
+    user, book = await setup(session)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 100
+    )
+    await DebtService(session).create(
+        book.id, user.id, "علی", Direction.OWED_TO_ME, 500, due_on=date.today()
+    )
+
+    service = ReminderService(session)
+    assert [r.kind for r in await service.for_user(user.id)] == ["digest", "debt_due"]
+
+    user.digest_enabled = False
+    await session.flush()
+    assert [r.kind for r in await service.for_user(user.id)] == ["debt_due"]
+
+
+async def test_a_line_that_could_only_say_zero_is_left_out(session):
+    """A day with expense and no income says so in two lines, not four.
+
+    «درآمد: 0» carries nothing, and the balance below it would be the expense
+    again with a minus in front. The daily list drops its own empty lines for
+    the same reason.
+    """
+    user, book = await setup(session)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.EXPENSE, Scope.WORK, "خرید", 400_000, occurred_on=BUDGET_DAY
+    )
+
+    reminder = await ReminderService(session).daily_digest(user.id, BUDGET_DAY)
+    assert "400,000" in reminder.text
+    assert "درآمد" not in reminder.text
+    assert "مانده" not in reminder.text

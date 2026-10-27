@@ -204,10 +204,12 @@ class AccountFeature(Feature):
         except KasbBookError as exc:
             # Stay in the flow so the answer can be corrected without starting
             # again, except for a wrong current password, which starts over.
+            # Either way the account panel is where this came from, so the
+            # refusal leads back there instead of only offering the main menu.
             if field == "password_new" and draft.get("current"):
                 await self.ctx.state.clear(key)
-                return screens.error(screens.user_message(exc))
-            return screens.error(screens.user_message(exc))
+                return screens.error(screens.user_message(exc), back="acc:panel")
+            return screens.error(screens.user_message(exc), back="acc:panel")
 
         await self.ctx.state.clear(key)
         return await self._account_panel(user)
@@ -225,6 +227,8 @@ class AccountFeature(Feature):
         target = await self.ctx.account_login.complete(user.id, identity.id,
             uuid.UUID(draft["challenge_id"]), to_ascii_digits(text))
         if target is None:
-            return screens.error("کد معتبر نیست یا منقضی شده است.")
+            # A mistyped code is one tap from being tried again: the panel
+            # holds the button that starts the login over.
+            return screens.error("کد معتبر نیست یا منقضی شده است.", back="acc:panel")
         await self.ctx.state.clear(key)
         return screens.welcome(target.display_name)

@@ -93,7 +93,7 @@ class LedgerService:
     @staticmethod
     def _description(value):
         if value is not None and len(value) > 500:
-            raise ValidationError("توضیحات حداکثر ۵۰۰ حرف است.")
+            raise ValidationError("توضیحات حداکثر 500 حرف است.")
         return (value.strip() or None) if value is not None else None
 
     # -------------------------------------------------------------- accounts

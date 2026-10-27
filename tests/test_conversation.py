@@ -8,6 +8,7 @@ everywhere else.
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -1028,3 +1029,112 @@ def test_an_explicitly_empty_docs_url_switches_the_guide_off(monkeypatch):
 
     monkeypatch.setenv("KASBBOOK_DOCS_URL", "https://mine.example.com/docs/")
     assert Settings.from_env().docs_url == "https://mine.example.com/docs/"
+
+
+# ------------------------------------------------------ a refusal's way back
+async def test_a_refusal_inside_a_flow_comes_back_to_it_not_to_the_home_screen(session):
+    """A domain error used to end the errand, wherever it was raised.
+
+    `Conversation.handle` rendered every `KasbBookError` with no `back`, so
+    `screens.error` fell back to its «منوی اصلی» and one refused setting threw
+    the person out of the panel they were standing in. The area of the button
+    that failed is enough to know where that was.
+    """
+    await linked_user(session)
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("acc:tzset:Mars/Olympus"))
+
+    assert "⚠️" in reply.text
+    assert [b.data for row in reply.buttons for b in row] == ["acc:panel"]
+    assert any("بازگشت" in b.text for row in reply.buttons for b in row)
+    assert not any("منوی اصلی" in b.text for row in reply.buttons for b in row)
+
+
+async def test_the_refusal_says_nothing_about_whether_someone_elses_book_exists(session):
+    """The whole screen is the same for a book that is not yours and one that never was.
+
+    `books.require` answers NotFound rather than PermissionDenied exactly so a
+    book id cannot be probed by watching which refusal comes back. A way back
+    built from the id would hand that difference over in the buttons instead of
+    the text, so it is built from the area alone — and this pins both halves of
+    the answer, not just the sentence.
+    """
+    owner = await linked_user(session, "مالک", "555001")
+    book = await BookService(session).create_book(owner.id, "خصوصی", BookType.BUSINESS)
+    await linked_user(session, "غریبه", "999")
+
+    convo = await conversation(session)
+    theirs = await convo.handle(press(f"rp:{book.id}:w:0", external_id="999"))
+    nobodys = await convo.handle(press(f"rp:{uuid.uuid4()}:w:0", external_id="999"))
+
+    assert "⚠️" in theirs.text
+    assert theirs.text == nobodys.text
+    assert [(b.text, b.data) for row in theirs.buttons for b in row] \
+        == [(b.text, b.data) for row in nobodys.buttons for b in row]
+    # And what it does offer names no book: the stranger's own report menu.
+    assert [b.data for row in theirs.buttons for b in row] == ["rep:menu"]
+
+
+async def test_a_refusal_with_no_knowable_parent_still_offers_a_way_out(session):
+    """Most of the bot keeps the main menu, and that is the decision, not a gap.
+
+    An area that exists only inside a book — the entry flow here — has no
+    parent that does not name the book, and naming it would either refuse a
+    second time (the book is usually what was refused) or answer the probe the
+    test above forbids. So the refusal keeps «منوی اصلی»: one tap, never a
+    screen with nothing on it.
+    """
+    await linked_user(session)
+    convo = await conversation(session)
+
+    reply = await convo.handle(press(f"tx:book:{uuid.uuid4()}"))
+
+    assert "⚠️" in reply.text
+    assert [b.data for row in reply.buttons for b in row] == ["nav:home"]
+
+
+async def test_every_way_back_a_refusal_offers_answers_without_refusing(session):
+    """A refusal must never become a second refusal.
+
+    Every target in the map is pressed the way the button would press it, by an
+    account with a book and by one with none, and none may answer with a
+    refusal of its own. This is also why the targets are the main menu's own
+    destinations: home offers all of them to every linked account, so nothing
+    further has to be proved about them.
+    """
+    from kasbbook.bot import screens
+    from kasbbook.bot.conversation import _HOME_DESTINATIONS, _PARENT_SCREEN
+
+    assert set(_PARENT_SCREEN.values()) <= _HOME_DESTINATIONS
+
+    owner = await linked_user(session, "عماد", "555001")
+    await BookService(session).create_book(owner.id, "مغازه", BookType.BUSINESS)
+    await linked_user(session, "تازه", "999")
+
+    convo = await conversation(session)
+    for target in sorted(set(_PARENT_SCREEN.values())):
+        for who in ("555001", "999"):
+            reply = await convo.handle(press(target, external_id=who))
+            # A refusal is the screen whose first line is the cause; a ⚠️
+            # further down is a notice, which the account panel carries.
+            first = reply.text.lstrip(screens.RLM).splitlines()[0]
+            assert not first.startswith("⚠️"), (target, who, reply.text)
+            assert reply.buttons, (target, who)
+
+
+def test_the_way_back_is_read_from_the_area_and_nothing_else():
+    """No id, no draft, no lookup — which is what makes the refusal unreadable.
+
+    Two different ids under one area have to produce the same target, or the
+    target is a channel of its own. A typed line and a command carry no area at
+    all, and a book-shaped area has no id-free parent; all three keep home.
+    """
+    from kasbbook.bot.conversation import _back_target
+
+    assert _back_target(press(f"rp:{uuid.uuid4()}:w:0")) == "rep:menu"
+    assert _back_target(press(f"rp:{uuid.uuid4()}:w:0")) == "rep:menu"
+    assert _back_target(press(f"pr:list:{uuid.uuid4()}")) is None
+    assert _back_target(says("سلام")) is None
+    assert _back_target(command("start")) is None
+    assert _back_target(press("")) is None

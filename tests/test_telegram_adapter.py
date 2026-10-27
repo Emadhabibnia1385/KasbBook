@@ -270,6 +270,63 @@ async def test_buttons_render_as_a_telegram_inline_keyboard():
     assert markup[1][0] == {"text": "راهنما", "url": "https://example.com"}
 
 
+async def test_a_styled_button_carries_its_colour_to_telegram():
+    """Red for destructive, blue for the primary action — Telegram's own field.
+
+    `style` is one of "danger", "success" or "primary" on
+    InlineKeyboardButton (Bot API 10.3); anything else is a refused message,
+    which is why the value is checked when the button is built.
+    """
+    fake = FakeTelegram()
+
+    await fake.adapter().send_message(
+        OutgoingMessage(
+            chat_id="1",
+            text="حذف تراکنش؟",
+            buttons=[[
+                Button("حذف", data="tx:del:1", style="danger"),
+                Button("تأیید", data="tx:keep:1", style="success"),
+                Button("راهنما", url="https://example.com", style="primary"),
+            ]],
+        )
+    )
+
+    row = fake.last()["body"]["reply_markup"]["inline_keyboard"][0]
+    assert row[0] == {"text": "حذف", "callback_data": "tx:del:1", "style": "danger"}
+    assert row[1] == {"text": "تأیید", "callback_data": "tx:keep:1", "style": "success"}
+    assert row[2] == {"text": "راهنما", "url": "https://example.com", "style": "primary"}
+
+
+async def test_an_unstyled_button_is_sent_exactly_as_it_was_before():
+    """A new optional field must not change one byte of the payloads without it.
+
+    Key order is asserted too, not just equality: a `"style": None` that reads
+    as equal enough in Python still travels on the wire, and the point of the
+    field being optional is that an uncoloured button is the same request it
+    always was.
+    """
+    fake = FakeTelegram()
+
+    await fake.adapter().send_message(
+        OutgoingMessage(chat_id="1", text="سلام",
+                        buttons=[[Button("دفترها", data="book:list")]])
+    )
+
+    item = fake.last()["body"]["reply_markup"]["inline_keyboard"][0][0]
+    assert item == {"text": "دفترها", "callback_data": "book:list"}
+    assert list(item) == ["text", "callback_data"]
+
+
+async def test_a_style_telegram_does_not_know_cannot_be_built():
+    """A typo would cost the whole screen, so it fails here instead."""
+    for good in ("danger", "success", "primary"):
+        Button("ok", data="x", style=good)
+
+    for bad in ("sucess", "DANGER", "red", "warning", ""):
+        with pytest.raises(ValueError):
+            Button("bad", data="x", style=bad)
+
+
 async def test_a_message_without_buttons_sends_no_markup():
     fake = FakeTelegram()
     adapter = fake.adapter()
@@ -369,6 +426,7 @@ async def test_telegram_declares_every_capability():
     assert caps.inline_buttons and caps.edit_message and caps.delete_message
     assert caps.send_file and caps.receive_file and caps.deep_link
     assert caps.webhook and caps.polling
+    assert caps.spoiler and caps.button_style
 
 
 async def test_the_adapter_never_reaches_the_database():

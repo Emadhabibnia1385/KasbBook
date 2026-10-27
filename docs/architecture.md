@@ -62,10 +62,17 @@ conversation. Two features claiming the same prefix or flow fail at import.
 `bot/screens/` renders, split the same way: one module per feature
 (`account`, `books`, `payroll`, `planning`, `reports`, `transactions`,
 `wallet`) and `common` for what several share — `rtl()`, money formatting, the
-home, error, stale and cancelled screens. `bot/screens/__init__.py` re-exports
-every name explicitly, so callers keep writing `screens.X`. The package is a
-star: a feature's screens import only `common`, and `common` imports none of
-them.
+home, error, stale and cancelled screens, and the navigation vocabulary every
+feature's keyboards are built from (`back_row()`, `cancel_row()`, `rows_of()`).
+`bot/screens/__init__.py` re-exports every name explicitly, so callers keep
+writing `screens.X`. The package is a star: a feature's screens import only
+`common`, and `common` imports none of them.
+
+That star is why shared *copy and layout* belong in `common` and nowhere else:
+a rule that lives inside one feature cannot be reached by the others, so they
+reinvent it, and the bot ends up saying two things for one action. See
+[conversation-design.md](./conversation-design.md) for the vocabulary and the
+keyboard grammar those helpers carry.
 
 Screens are pure functions — data in, text and buttons out — so every one of
 them is tested without a token, a network, or a database. A screen imports no
@@ -82,6 +89,23 @@ The provider arrives as a constructor argument, taken from `adapter.provider`.
 It used to be hardcoded to `Provider.TELEGRAM` in the runner, which meant a
 Bale update would have resolved to whichever Telegram account shared its
 numeric id. The test that runs the same loop against Bale is what found it.
+
+### Whichever step commits is the step that claims the draft
+
+A multi-step bot flow keeps a draft in the state store and records it at one
+step. In webhook mode each update gets its own session and two of them run
+concurrently, so two copies of that one step can arrive at once — a double tap,
+or the same line sent twice. The guard is that the committing step takes the
+draft out of the store atomically before recording: one copy finds a draft, the
+other finds nothing and is told its message is old.
+
+The invariant that matters is the coupling, not the mechanism: a claim sitting
+one step behind the commit protects nothing, so when the commit moves the claim
+moves with it. The recording flow has already exercised that in both
+directions — the commit went from the description prompt to the amount message
+and back. Nothing in the type system says so, so it is said here, in
+[conversation-design.md](./conversation-design.md), and asserted by tests that
+race two identical updates.
 
 ### Rules live in services, once
 

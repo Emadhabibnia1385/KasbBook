@@ -15,6 +15,8 @@ feature that owns it.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingMessage
@@ -45,6 +47,65 @@ FEATURES: tuple = (
 )
 FEATURE_BY_PREFIX, FEATURE_BY_FLOW = index(FEATURES)
 
+
+# Where a refusal offers to go back to, by the area of the button that failed.
+# An area missing here keeps `screens.error`'s own fallback, the main menu.
+#
+# Two rules decide what may be listed, and both are about a refusal not making
+# things worse:
+#
+# - The target names no book, category or entry. An id in the way back could
+#   only come from the callback that just failed, and what failed is usually
+#   that very id - a book this account may not see, an entry already gone - so
+#   "back" would refuse a second time. It would leak, too: `books.require`
+#   answers NotFound rather than PermissionDenied exactly so a stranger's book
+#   cannot be told apart from one that never existed, and a button offered for
+#   the one and not the other hands that difference straight back. Built from
+#   the area alone, the screen is identical either way, which is the point.
+# - The target is one of the main menu's own destinations. Home offers those to
+#   every linked account unconditionally, which is the only evidence worth
+#   having that the target renders for whoever just hit the refusal - and none
+#   of them needs the work the savepoint has already rolled back.
+#
+# What is left is the areas rooted in the main menu. Everything that exists
+# only inside a book - its categories, budgets, debts, loans, recurring rules,
+# wallet and payroll, and the entry flow's own steps - has no parent that does
+# not name the book, so it keeps the main menu. That is the narrow half of the
+# bot on purpose: a second refusal, or a probe, costs more than a tap.
+_PARENT_SCREEN = {
+    "book": "book:list",
+    # One area under four prefixes: rp, rb and rc all hang off the book picker
+    # that `rep:menu` draws.
+    "rep": "rep:menu",
+    "rp": "rep:menu",
+    "rb": "rep:menu",
+    "rc": "rep:menu",
+    "dl": "dl:v",
+    "acc": "acc:panel",
+    "rm": "rm:panel",
+}
+
+# The main menu's callbacks, as home itself offers them, so the second rule is
+# checked rather than remembered. A target that falls out of the menu is
+# dropped back to home instead of being trusted: the test suite pins the map,
+# so the mistake is loud there and harmless here.
+_HOME_DESTINATIONS = frozenset(
+    button.data for row in screens.main_menu() for button in row if button.data
+)
+
+
+def _back_target(event: IncomingEvent) -> Optional[str]:
+    """The screen a refusal offers to return to, or None for the main menu.
+
+    A pure function of the callback's area: no draft is read and no id is
+    carried, so the same area refuses the same way whatever was asked about.
+    A typed line, a command or an attachment names no area and gets home.
+    """
+    if event.kind is not EventKind.CALLBACK:
+        return None
+    area = (event.callback_data or "").split(":")[0]
+    back = _PARENT_SCREEN.get(area)
+    return back if back in _HOME_DESTINATIONS else None
 
 
 class Conversation:
@@ -83,8 +144,13 @@ class Conversation:
             async with self.session.begin_nested():
                 text, buttons = await self._route(event, key)
         except KasbBookError as exc:
-            # Domain errors are answers, not crashes: the user sees why.
-            text, buttons = screens.error(screens.user_message(exc))
+            # Domain errors are answers, not crashes: the user sees why - and,
+            # where the area they were in has a parent that cannot refuse in
+            # turn, the way back to it rather than being dropped home with
+            # whatever they were doing lost. See `_PARENT_SCREEN`.
+            text, buttons = screens.error(
+                screens.user_message(exc), _back_target(event)
+            )
 
         return OutgoingMessage(
             chat_id=event.chat_id,
@@ -186,6 +252,12 @@ class Conversation:
             # silently sent home.
             return screens.stale(None, user.display_name)
 
+        # An unknown area, deliberately the same answer as a retired one. The
+        # two cannot be told apart from here, and from where the person sits
+        # they are one event: a button that no longer does anything. Nearly
+        # every one of these is a message older than the refactor that renamed
+        # the prefix - which is what «قدیمی» already says - and the only other
+        # source is hand-written data, which needs no explanation.
         return screens.stale(None, user.display_name)
 
     # ----------------------------------------------------- free text steps

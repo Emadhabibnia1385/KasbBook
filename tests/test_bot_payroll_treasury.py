@@ -248,7 +248,10 @@ async def test_a_fund_that_has_taken_money_cannot_be_deleted(session):
     )
     await payroll.calculate(owner.id, period.id)
 
-    reply = await convo.handle(press(f"tf:del:{fund.id}"))
+    # The bin asks before it deletes, so the refusal arrives on the confirm.
+    asked = await convo.handle(press(f"tf:del:{fund.id}"))
+    assert "مطمئنی" in asked.text
+    reply = await convo.handle(press(f"tf:delok:{fund.id}"))
     assert "حذف نمی‌شود" in reply.text
     assert len(await treasury.funds(book.id, owner.id)) == 1
 
@@ -574,7 +577,10 @@ async def test_clearing_a_share_stops_that_member_being_paid(session):
 
     await convo.handle(press(f"sh:open:{book.id}"))
     await convo.handle(press(f"sh:set:{colleague.id}"))
-    reply = await convo.handle(press("sh:clear"))
+    # Taking a share away is confirmed first: it stops that member being paid.
+    asked = await convo.handle(press("sh:clear"))
+    assert "مطمئنی" in asked.text
+    reply = await convo.handle(press("sh:clearok"))
 
     assert colleague.id not in await payroll.shares(book.id, owner.id)
     assert "تعریف نشده" in reply.text
@@ -864,7 +870,11 @@ async def test_the_bot_can_take_back_the_last_payment(session):
     detail = await convo.handle(press(f"pr:slip:{slip.id}"))
     assert any("برگرداندن آخرین پرداخت" in label for label in labels(detail))
 
-    await convo.handle(press(f"pr:unpay:{slip.payments[0].id}"))
+    # Voiding is money leaving the record, so it asks before it does it.
+    payment_id = slip.payments[0].id
+    asked = await convo.handle(press(f"pr:unpay:{payment_id}"))
+    assert "مطمئنی" in asked.text
+    await convo.handle(press(f"pr:unpayok:{payment_id}"))
     await session.refresh(slip, attribute_names=["payments"])
     assert slip.paid_total == Decimal("0")
 

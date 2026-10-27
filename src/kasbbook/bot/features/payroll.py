@@ -128,7 +128,7 @@ class PayrollFeature(Feature):
         # Everything below acts on something already in the database, so the
         # book comes from that record rather than from the callback — a book id
         # in a button is a book id someone can edit.
-        if action in ("rtog", "rdel"):
+        if action in ("rtog", "rdel", "rdelok"):
             from ...modules.treasury.models import TreasuryRule
 
             rule = await self.ctx.session.get(TreasuryRule, uuid.UUID(argument))
@@ -137,6 +137,23 @@ class PayrollFeature(Feature):
 
             book = await self.ctx.books.get_book(rule.book_id)
             fund_id = rule.fund_id
+            if action == "rdel":
+                # A 🗑 the width of an emoji sits next to the toggle, and the
+                # two were one mistap apart with nothing in between.
+                #
+                # Gated with the permission the deletion itself needs. A
+                # confirm reads the record out loud, and `require` is what
+                # stops an id being probed by someone who may not act on it.
+                await self.ctx.books.require(
+                    book.id, user.id, Permission.MANAGE_PAYROLL
+                )
+                basis = screens.BASIS_LABELS.get(rule.basis.value, rule.basis.value)
+                return screens.confirm_delete(
+                    f"قاعدهٔ «{basis}»\n\n"
+                    "از دورهٔ بعد چیزی به این قاعده کنار گذاشته نمی‌شود. "
+                    "آنچه تا حالا برداشته سر جایش می‌ماند.",
+                    f"tf:rdelok:{rule.id}", f"tf:open:{fund_id}",
+                )
             if action == "rtog":
                 await self.ctx.treasury.toggle_rule(book.id, user.id, rule.id)
             else:
@@ -166,6 +183,17 @@ class PayrollFeature(Feature):
             return await self._fund_detail(book, user, fund)
 
         if action == "del":
+            # The name is the fund's own, so the confirm passes the same gate
+            # `delete_fund` does rather than reading it out on an id alone.
+            await self.ctx.books.require(book.id, user.id, Permission.MANAGE_PAYROLL)
+            return screens.confirm_delete(
+                f"صندوق «{fund.name}»\n\n"
+                "قاعده‌هایش هم با آن می‌رود و دفتر دیگر چیزی در این صندوق "
+                "کنار نمی‌گذارد.",
+                f"tf:delok:{fund.id}", f"tf:open:{fund.id}",
+            )
+
+        if action == "delok":
             await self.ctx.treasury.delete_fund(book.id, user.id, fund.id)
             return await self._fund_screen(book, user)
 
@@ -255,19 +283,56 @@ class PayrollFeature(Feature):
             })
             return screens.period_ask_date(period, "start" if action == "dstart" else "end")
 
-        if action == "del":
+        if action in ("del", "delok"):
             period = await self.ctx.payroll.get_period(uuid.UUID(argument))
             book = await self.ctx.books.get_book(period.book_id)
+            if action == "del":
+                # A whole month's work, one tap from gone. Gated like the
+                # deletion, so the label is not read out on an id alone.
+                await self.ctx.books.require(
+                    book.id, user.id, Permission.MANAGE_PAYROLL
+                )
+                return screens.confirm_delete(
+                    f"دورهٔ «{period.label}»\n\n"
+                    "هر چه در این دوره ثبت شده — فیش، کسر و اضافه، کارکرد — "
+                    "با آن حذف می‌شود.",
+                    f"pr:delok:{period.id}", f"pr:open:{period.id}",
+                )
             await self.ctx.payroll.delete_period(user.id, period.id)
             await self.ctx.state.clear(key)
             return await self._period_list_screen(book, user)
 
-        if action == "unpay":
+        if action in ("unpay", "unpayok"):
+            from ...modules.payroll.models import Payment, Payslip
+
+            if action == "unpay":
+                # This is money: the button sits under the payslip saying how
+                # much went out, and pressing it used to take it back at once.
+                payment = await self.ctx.session.get(Payment, uuid.UUID(argument))
+                if payment is None:
+                    return screens.error(
+                        "این پرداخت دیگر وجود ندارد؛ شاید برگردانده شده است."
+                    )
+                # The gate `void_payment` holds, held here too: this confirm
+                # names an amount and a day, and a payment id must not read
+                # those out to someone who could not void it.
+                paid_slip = await self.ctx.session.get(Payslip, payment.payslip_id)
+                await self.ctx.books.require(
+                    paid_slip.book_id, user.id, Permission.MANAGE_PAYROLL
+                )
+                return screens.confirm_delete(
+                    f"پرداخت {screens.fmt_currency(payment.amount, payment.currency)}"
+                    f" در {jalali.to_text(payment.paid_on)}\n\n"
+                    "این مبلغ از فیش برداشته می‌شود و همان‌قدر دوباره بدهکار "
+                    "می‌ماند. خودِ پولی که رد و بدل شده برنمی‌گردد.",
+                    f"pr:unpayok:{payment.id}", f"pr:slip:{payment.payslip_id}",
+                )
+
             slip = await self.ctx.payroll.void_payment(user.id, uuid.UUID(argument))
             book = await self.ctx.books.get_book(slip.book_id)
             person = await self.ctx.identity.get_user(slip.user_id)
             await self.ctx.state.clear(key)
-            return screens.payslip_detail(book, slip, person.display_name)
+            return await self._payslip_screen(book, slip, person.display_name)
 
         if action == "pcur":
             # Carries a currency code rather than a payslip id, so it is
@@ -302,7 +367,9 @@ class PayrollFeature(Feature):
 
         if action == "slips":
             slips = await self.ctx.payroll.payslips(user.id, period.id)
-            return screens.payslip_list(book, slips, await self.ctx.member_names(book.id))
+            return screens.payslip_list(
+                book, period, slips, await self.ctx.member_names(book.id)
+            )
 
         if action == "adj":
             adjustments = await self.ctx.payroll.adjustments(user.id, period.id)
@@ -321,6 +388,16 @@ class PayrollFeature(Feature):
 
         return screens.stale(None, user.display_name)
 
+    async def _payslip_screen(self, book, slip, name: str):
+        """A payslip with the period it belongs to.
+
+        The screen says where the reader is, and a payslip is four levels in:
+        the period is not on the record in any form a person can read, only as
+        an id, so it is fetched rather than guessed at.
+        """
+        period = await self.ctx.payroll.get_period(slip.period_id)
+        return screens.payslip_detail(book, period, slip, name)
+
     async def _payslip_action(self, action: str, argument: str, user, key: str):
         from ...modules.payroll.models import Payslip
 
@@ -337,14 +414,14 @@ class PayrollFeature(Feature):
 
         if action == "slip":
             await self.ctx.state.clear(key)
-            return screens.payslip_detail(book, slip, name)
+            return await self._payslip_screen(book, slip, name)
 
         if action in ("payall", "pay") and outstanding <= 0:
             # A button from an older screen. Since it was drawn the slip was
             # settled, or recalculated below what had been paid; show it as
             # it is now rather than try to pay a negative amount.
             await self.ctx.state.clear(key)
-            return screens.payslip_detail(book, slip, name)
+            return await self._payslip_screen(book, slip, name)
 
         if action in ("payall", "pay"):
             # "Pay all" is the common case by a long way: someone was paid what
@@ -362,7 +439,7 @@ class PayrollFeature(Feature):
                                                      book.base_currency, codes)
             await self.ctx.payroll.pay(user.id, slip.id, outstanding)
             await self.ctx.session.refresh(slip)
-            return screens.payslip_detail(book, slip, name)
+            return await self._payslip_screen(book, slip, name)
 
         return screens.stale(None, user.display_name)
 
@@ -502,7 +579,7 @@ class PayrollFeature(Feature):
                                conversion_rate=rate)
         await self.ctx.state.clear(key)
         await self.ctx.session.refresh(slip, attribute_names=["payments"])
-        return screens.payslip_detail(book, slip, name)
+        return await self._payslip_screen(book, slip, name)
 
     async def _payslip_text(self, text: str, draft: dict, user, key: str):
         from ...modules.payroll.models import Payslip
@@ -537,7 +614,7 @@ class PayrollFeature(Feature):
         await self.ctx.payroll.pay(user.id, slip.id, amount)
         await self.ctx.session.refresh(slip)
         await self.ctx.state.clear(key)
-        return screens.payslip_detail(book, slip, name)
+        return await self._payslip_screen(book, slip, name)
 
     async def _adjustment_text(self, text: str, draft: dict, user, key: str):
         if "user_id" not in draft:
@@ -607,8 +684,18 @@ class PayrollFeature(Feature):
                 names.get(uuid.UUID(draft["user_id"]), "—"), argument
             )
 
-        if action == "clear":
+        if action in ("clear", "clearok"):
             if "user_id" in draft:
+                if action == "clear":
+                    # Sits in the same column as the five basis buttons, and
+                    # taking someone's share away stops them being paid at all.
+                    names = await self.ctx.member_names(book.id)
+                    return screens.confirm_delete(
+                        f"سهم {names.get(uuid.UUID(draft['user_id']), '—')}\n\n"
+                        "از محاسبهٔ بعد به بعد فیشی نمی‌گیرد. فیش‌هایی که "
+                        "صادر شده دست نمی‌خورد.",
+                        "sh:clearok", f"sh:set:{draft['user_id']}",
+                    )
                 await self.ctx.payroll.clear_share(
                     book.id, user.id, uuid.UUID(draft["user_id"])
                 )

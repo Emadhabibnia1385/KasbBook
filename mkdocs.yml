@@ -55,6 +55,7 @@ nav:
       - Data model: data-model.md
       - Double-entry: double-entry.md
       - Payroll & treasury: payroll.md
+      - Conversation design: conversation-design.md
       - Providers: providers.md
   - Using it:
       - The API: api.md
@@ -116,6 +117,7 @@ plugins:
             Data model: مدل داده
             Double-entry: دفتر دوطرفه
             Payroll & treasury: حقوق و خزانه
+            Conversation design: طراحی گفتگو
             Providers: پیام‌رسان‌ها
             Using it: استفاده
             The API: رابط برنامه‌نویسی

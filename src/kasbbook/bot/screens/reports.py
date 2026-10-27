@@ -12,7 +12,9 @@ from ...shared import jalali
 from .common import (
     Screen,
     _book_buttons,
+    back_row,
     fmt,
+    rows_of,
     rtl,
 )
 
@@ -20,10 +22,16 @@ from .common import (
 # ------------------------------------------------------------------ reports
 def report_menu(books: Sequence[Book]) -> Screen:
     if not books:
-        return rtl("هنوز دفتری نداری."), [[Button("⬅️ بازگشت", data="nav:home")]]
+        # «هنوز دفتری نداری.» on its own explained nothing and led nowhere but
+        # home. One state, one sentence, and the button that resolves it: the
+        # same words the entry flow and the book list use.
+        return (
+            rtl("هنوز دفتری نداری. اول یک دفتر بساز (مثلاً «مغازه»)، بعد تراکنش‌هایت را در آن ثبت کن."),
+            [[Button("➕ ساخت دفتر", data="book:new")], back_row("nav:home")],
+        )
 
     buttons = _book_buttons(books, lambda b: f"rep:book:{b.id}")
-    buttons.append([Button("⬅️ بازگشت", data="nav:home")])
+    buttons.append(back_row("nav:home"))
     return rtl("گزارش کدام دفتر؟"), buttons
 
 
@@ -47,16 +55,10 @@ def period_menu(book: Book, years: Sequence[int], today: Optional[date] = None) 
                data=f"rp:{book.id}:m:{last_year}:{last_month:02d}"),
     ])
 
-    buffer: List[Button] = []
-    for year in years[:6]:
-        buffer.append(Button(f"سال {year}", data=f"rp:{book.id}:y:{year}"))
-        if len(buffer) == 2:
-            rows.append(buffer)
-            buffer = []
-    if buffer:
-        rows.append(buffer)
+    rows += rows_of([Button(f"سال {year}", data=f"rp:{book.id}:y:{year}")
+                     for year in years[:6]])
 
-    rows.append([Button("⬅️ بازگشت", data="rep:menu")])
+    rows.append(back_row("rep:menu"))
     return rtl(f"📊 {book.name}\n\nگزارش کدام بازه را ببینم؟"), rows
 
 
@@ -78,7 +80,7 @@ def period_report(
     return rtl(body), [
         [Button("🏷 تفکیک دسته‌ها", data=f"rb:{book.id}:{spec}")],
         [Button("📥 خروجی CSV", data=f"rc:{book.id}:{spec}")],
-        [Button("⬅️ بازگشت", data=f"rep:book:{book.id}")],
+        back_row(f"rep:book:{book.id}"),
     ]
 
 
@@ -99,7 +101,7 @@ def category_breakdown(book: Book, period_label: str, buckets, spec: str) -> Scr
             lines.append(f"• {name}: {fmt(total, book.base_currency)} ({share}%، {count} مورد)")
 
     return rtl("\n".join(lines)), [
-        [Button("⬅️ بازگشت", data=f"rp:{book.id}:{spec}")],
+        back_row(f"rp:{book.id}:{spec}"),
     ]
 
 
@@ -129,5 +131,5 @@ def book_report(book: Book, totals: dict) -> Screen:
     )
     return text, [
         [Button("➕ ثبت تراکنش", data="tx:new")],
-        [Button("⬅️ بازگشت", data="rep:menu")],
+        back_row("rep:menu"),
     ]

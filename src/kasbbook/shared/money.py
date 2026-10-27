@@ -22,7 +22,7 @@ ZERO = Decimal("0")
 
 Amount = Union[Decimal, int, str]
 
-TOO_LARGE = "مبلغ بیش از حد بزرگ است؛ عددی کمتر از ۱۰ به توان ۲۴ وارد کن."
+TOO_LARGE = "مبلغ بیش از حد بزرگ است؛ عددی کمتر از 10 به توان 24 وارد کن."
 
 
 def to_decimal(value: Optional[Amount]) -> Decimal:

@@ -5,8 +5,9 @@ Wiring only. `ReminderService` decides *what* to say and to whom; this decides
 reuse every line of the reminder logic without reusing any of this file.
 
 Sending twice is worse than not sending: a duplicate digest teaches people to
-ignore the bot. Every send is recorded first, keyed by user and day, so a
-restart mid-loop cannot repeat one.
+ignore the bot. Every send is recorded first, keyed by user and by *that
+person's* day, so a restart mid-loop cannot repeat one — and neither can the
+server's own date turning over in the middle of somebody's evening.
 """
 
 from __future__ import annotations
@@ -73,7 +74,9 @@ class ReminderLoop:
     async def tick(self, now: Optional[datetime] = None, today: Optional[date] = None) -> int:
         """One pass. Returns how many messages were sent."""
         moment = now or datetime.now(tz=ZoneInfo("UTC"))
-        day = today or moment.date()
+        # Recurring rules belong to books, not to people, so they run on the
+        # server's day. Everything addressed to a person below runs on theirs.
+        server_day = today or moment.date()
         sent = 0
 
         async for session in self.database.session():
@@ -87,12 +90,12 @@ class ReminderLoop:
             # be booked by nothing at all. Committed before anyone is told,
             # so a failed send never undoes a booking.
             recurring = (
-                await RecurringService(session).run_due(until=day)
+                await RecurringService(session).run_due(until=server_day)
                 if self.book_recurring else RecurringRun()
             )
             await session.commit()
             chats = dict(recipients)
-            for notice in await service.recurring_notices(recurring, today=day):
+            for notice in await service.recurring_notices(recurring, today=server_day):
                 external_id = chats.get(notice.user_id)
                 if external_id is None:
                     # The owner is not on this messenger. Their own loop never
@@ -111,36 +114,53 @@ class ReminderLoop:
                 if user is None or not user.is_active:
                     continue
 
-                # The digest waits for the hour the user chose; the warnings do
-                # not, because a due date does not care what time it is.
-                due = []
-                if user.digest_enabled and _local_hour(user, moment) == user.digest_hour:
-                    digest = await service.daily_digest(user_id, day)
-                    if digest is not None:
-                        due.append(digest)
+                # At or after the hour they chose, never before it. "A due date
+                # does not care what time it is" is true of the date and false
+                # of the person: the warnings ignored the hour, so on the
+                # server's day they went out on its first tick — half past
+                # three in the morning in Tehran, every day, to somebody who
+                # had asked to be spoken to at nine in the evening.
+                #
+                # `>=` rather than `==` because one missed tick at 21:00 — a
+                # long recurring catch-up, a restart — used to cost the whole
+                # day's digest in silence. The key below still holds it to one.
+                if _local_hour(user, moment) < user.digest_hour:
+                    continue
 
-                for reminder in (
-                    await service.due_installments(user_id, user.reminder_days, today=day),
-                    await service.due_debts(user_id, user.reminder_days, today=day),
-                ):
-                    if reminder is not None:
-                        due.append(reminder)
+                # Their day, not the server's: the service owns that conversion
+                # so the day a message is *about* and the day it is deduplicated
+                # on cannot drift apart. See `ReminderService.today_for`.
+                person_day = await service.today_for(user_id, today, moment)
 
-                for reminder in due:
-                    if await self._already_sent(reminder.kind, user_id, day):
-                        continue
+                fresh = []
+                for reminder in await service.for_user(user_id, today, moment):
+                    if not await self._already_sent(reminder.kind, user_id, person_day):
+                        fresh.append(reminder)
+                if not fresh:
+                    continue
 
-                    # Recorded before sending: a crash between the two costs one
-                    # missed reminder, which is cheaper than a duplicate.
-                    await self._mark_sent(reminder.kind, user_id, day)
-                    try:
-                        await self.adapter.send_plain(external_id, reminder.text)
-                        sent += 1
-                    except Exception:
-                        logger.warning(
-                            "could not deliver %s to %s", reminder.kind, user_id,
-                            exc_info=True,
-                        )
+                # One message, not three. Everything here fires in the same
+                # tick, and three notifications in the same minute is noise
+                # whatever they say — which is what teaches somebody to swipe
+                # the bot away without reading it. Each kind keeps its own key,
+                # so one that only becomes true later in the evening still
+                # arrives on its own.
+                #
+                # Recorded before sending: a crash between the two costs one
+                # missed reminder, which is cheaper than a duplicate.
+                for reminder in fresh:
+                    await self._mark_sent(reminder.kind, user_id, person_day)
+                try:
+                    await self.adapter.send_plain(
+                        external_id, "\n\n".join(item.text for item in fresh)
+                    )
+                    sent += 1
+                except Exception:
+                    logger.warning(
+                        "could not deliver %s to %s",
+                        ", ".join(item.kind for item in fresh), user_id,
+                        exc_info=True,
+                    )
 
             await session.commit()
 

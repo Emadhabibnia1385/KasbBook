@@ -6,9 +6,10 @@
 
 **Bookkeeping for a small business, wherever that business already talks.**
 
-Type `فروش ۲۵۰ک` and it is recorded. The same account works from Telegram, Bale
-and Rubika, and over an HTTP API. Money is exact, the calendar is Jalali, and
-every transaction has a balanced journal entry behind it.
+Type `فروش 250ک`, say whether it is income or expense, and it is recorded. The
+same account works from Telegram, Bale and Rubika, and over an HTTP API. Money
+is exact, the calendar is Jalali, and every transaction has a balanced journal
+entry behind it.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Emadhabibnia1385/KasbBook/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Emadhabibnia1385/KasbBook/actions)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
@@ -68,16 +69,25 @@ The update script takes a backup, runs the tests, migrates, restarts, and
 
 ## Quick entry
 
-Most entries never touch a menu.
+A typed line and one tap, instead of a walk through menus.
 
 ```
-فروش ۲۵۰ک          →  income, "فروش", 250,000
-اجاره ۲م           →  expense, "اجاره", 2,000,000
-خرید ۱۲۵۰۰۰ دیروز  →  expense, dated yesterday
+فروش 250ک              →  "فروش", 250,000, today
+اجاره 1.2م بابت مرداد  →  "اجاره", 1,200,000, note "بابت مرداد"
+دیروز خرید 125000      →  "خرید", 125,000, dated yesterday
 ```
 
-Persian digits, `ک` for thousand, `م` for million, Jalali dates with either
-separator. Anything it cannot read, it asks about rather than guessing.
+The category leads and the amount splits the line, so whatever follows it is
+the note; a date may sit before the category. Digits in either script, `ک` for
+thousand and `م` for million whether glued to the number or standing beside it,
+Jalali dates with any separator. One tap then says income or expense, because
+the one thing a category cannot settle is the direction.
+
+Anything ambiguous is asked about rather than guessed — and the failure worth
+guarding against is the silent kind, where a dropped thousand-fold multiplier
+books 250,000 as 250. Every form the line may take has a test pinning what it
+means. The screens behind it are laid out in
+[docs/conversation-design.md](./docs/conversation-design.md).
 
 ## What it does
 
@@ -149,10 +159,10 @@ cd KasbBook && python3 -m venv venv
 ./venv/bin/python -m pytest tests -q
 ```
 
-The suite runs on SQLite with no network and no token, in about forty
-seconds. The migration tests additionally rehearse against a real
-PostgreSQL when `KASBBOOK_TEST_POSTGRES_URL` is set, which is what CI does,
-because that is where the interesting failures live.
+The suite runs on SQLite with no network and no token: a checkout and the dev
+requirements are the whole setup. The migration tests additionally rehearse
+against a real PostgreSQL when `KASBBOOK_TEST_POSTGRES_URL` is set, which is
+what CI does, because that is where the interesting failures live.
 
 See [docs/development.md](./docs/development.md).
 
@@ -166,6 +176,7 @@ See [docs/development.md](./docs/development.md).
 | [Data model](./docs/data-model.md) | accounts, identities, books, permissions |
 | [Double-entry](./docs/double-entry.md) | how the ledger stays balanced |
 | [Payroll & treasury](./docs/payroll.md) | periods, shares, funds, payslips |
+| [Conversation design](./docs/conversation-design.md) | the bot's vocabulary, its keyboards, what a tap costs |
 | [Providers](./docs/providers.md) | Telegram, Bale, Rubika, and adding one |
 | [The API](./docs/api.md) | endpoints, auth, conventions |
 | [Security](./docs/security.md) | tokens, hashing, what is stored and what is not |
