@@ -37,6 +37,16 @@ def _piped(script: str, env: dict[str, str] | None = None) -> subprocess.Complet
         # `input=` gives bash its script down a pipe, which is the whole point:
         # it reproduces `curl ... | bash`, where stdin is the script itself.
         env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/tmp", **(env or {})},
+        # "No terminal" has to be made true, not hoped for. Pipes on stdio say
+        # nothing about the CONTROLLING terminal, which a child inherits — and
+        # `lib.sh` decides whether to prompt by opening /dev/tty, not by looking
+        # at stdin. So these ran with whatever terminal started pytest: no tty
+        # in CI and the tests passed, a live tty when an operator runs
+        # `sudo bash scripts/update.sh` over ssh, where `ask` blocked on a
+        # `read` nobody was going to answer until the timeout killed it and the
+        # deploy rolled back. setsid() leaves the session, so /dev/tty cannot be
+        # opened and the answer is the same everywhere.
+        start_new_session=True,
         timeout=60,
     )
 
@@ -73,6 +83,24 @@ def test_no_terminal_produces_no_device_noise():
     result = _piped(PREAMBLE + 'ask X "  q: "\necho done')
     assert "Device not configured" not in result.stderr, result.stderr
     assert "/dev/tty" not in result.stderr, result.stderr
+
+
+def test_the_harness_has_no_terminal_whatever_started_pytest():
+    """`_piped`'s "no terminal" enforced, rather than inherited and hoped for.
+
+    Two of these tests reach `ask`'s `read` with nothing in the environment to
+    answer it, and whether that read blocks depends on the controlling terminal
+    of whoever ran pytest — not on the pipes. That is the worst way for a test
+    to be wrong: green in CI and on a laptop, hanging until the 60s timeout on
+    the one machine that matters, where it took a deploy down with it. Pinned
+    here so the guarantee cannot quietly go back to being ambient.
+    """
+    result = _piped(PREAMBLE + 'echo "tty=[${KASBBOOK_TTY}]"')
+
+    assert "tty=[]" in result.stdout, (
+        "lib.sh found a terminal to prompt on, so `ask` can block here: "
+        + result.stdout + result.stderr
+    )
 
 
 def test_a_value_carrying_shell_is_refused():
