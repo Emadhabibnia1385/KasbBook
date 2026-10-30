@@ -45,12 +45,23 @@ class SpyAdapter:
 
     def __init__(self, fail: bool = False) -> None:
         self.sent: list = []
+        # Parallel to `sent`, rather than a third item in those tuples: every
+        # assertion below unpacks a chat and a text, and a keyboard is not
+        # what any of them are about.
+        self.keyboards: list = []
         self.fail = fail
 
     async def send_plain(self, chat_id: str, text: str):
+        return self._record(chat_id, text, ())
+
+    async def send_message(self, message):
+        return self._record(message.chat_id, message.text, message.buttons)
+
+    def _record(self, chat_id: str, text: str, buttons):
         if self.fail:
             raise RuntimeError("telegram is down")
         self.sent.append((chat_id, text))
+        self.keyboards.append(buttons)
         return "1"
 
 
@@ -131,6 +142,72 @@ async def test_the_digest_arrives_at_the_hour_the_user_chose(db, session):
     assert await loop.tick(now=at_hour(21), today=DAY) == 1
     assert "خلاصهٔ" in adapter.sent[0][1]
     assert "250,000" in adapter.sent[0][1]
+
+
+async def test_the_digest_offers_the_day_it_is_about(db, session):
+    """The one message with no screen behind it, and now a way into one.
+
+    It ended on a figure: «خلاصهٔ امروز» said 250,000 and the five entries
+    behind that number were the main menu, then the daily list, then finding
+    today in it. The button carries no day on purpose — `dl:v` falls back to
+    the reader's own today, which is the day this message is already about.
+    """
+    user = await linked(session, digest_enabled=True, digest_hour=21)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 250_000, occurred_on=DAY
+    )
+    await session.commit()
+
+    adapter = SpyAdapter()
+    assert await ReminderLoop(db, adapter, MemoryStateStore()).tick(
+        now=at_hour(21), today=DAY) == 1
+
+    ((button,),) = adapter.keyboards[0]
+    assert button.data == "dl:v"
+    assert "امروز" in button.text
+
+
+async def test_a_warning_on_its_own_offers_no_button(db, session):
+    """The button belongs to the digest, not to the message it rides in.
+
+    An installment warning is about a date still ahead and a debt about one
+    book; today's list is neither, and a button to it on a day nothing was
+    recorded opens an empty screen.
+    """
+    user = await linked(session, digest_enabled=False, reminder_days=3, digest_hour=21)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LoanService(session).create(book.id, user.id, "وام مسکن", 2_000_000, 24, NEXT_DAY)
+    await session.commit()
+
+    adapter = SpyAdapter()
+    assert await ReminderLoop(db, adapter, MemoryStateStore()).tick(
+        now=at_hour(21), today=DAY) == 1
+    assert adapter.keyboards[0] == []
+
+
+async def test_a_digest_beside_a_warning_is_one_message_with_one_button(db, session):
+    """Why the offer is read from the kinds rather than taken as a flag.
+
+    Everything due on the same evening leaves as one message. Asking each
+    reminder what it offers and collecting the answers would put the same
+    button on the screen twice; asking once, of the whole message, cannot.
+    """
+    user = await linked(session, digest_enabled=True, reminder_days=3, digest_hour=21)
+    book = await BookService(session).create_book(user.id, "مغازه", BookType.BUSINESS)
+    await LedgerService(session).record(
+        book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", 250_000, occurred_on=DAY
+    )
+    await LoanService(session).create(book.id, user.id, "وام مسکن", 2_000_000, 24, NEXT_DAY)
+    await session.commit()
+
+    adapter = SpyAdapter()
+    assert await ReminderLoop(db, adapter, MemoryStateStore()).tick(
+        now=at_hour(21), today=DAY) == 1
+
+    text = adapter.sent[0][1]
+    assert "خلاصهٔ" in text and "وام مسکن" in text
+    assert [[b.data for b in row] for row in adapter.keyboards[0]] == [["dl:v"]]
 
 
 async def test_nothing_arrives_at_the_wrong_hour(db, session):

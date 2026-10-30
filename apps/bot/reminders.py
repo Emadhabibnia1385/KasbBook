@@ -18,6 +18,8 @@ from datetime import date, datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from kasbbook.adapters.base import OutgoingMessage
+from kasbbook.bot import screens
 from kasbbook.bot.state import StateStore
 from kasbbook.modules.identity.models import Provider, User
 from kasbbook.modules.recurring.service import RecurringRun, RecurringService
@@ -150,10 +152,17 @@ class ReminderLoop:
                 # missed reminder, which is cheaper than a duplicate.
                 for reminder in fresh:
                     await self._mark_sent(reminder.kind, user_id, person_day)
+                # Through `send_message` rather than `send_plain`, because the
+                # digest now carries a button to the day it is about. An empty
+                # keyboard is what `send_plain` would have sent anyway — both
+                # adapters attach a markup only when there is one — so this is
+                # one path, not a branch on whether today had a digest in it.
                 try:
-                    await self.adapter.send_plain(
-                        external_id, "\n\n".join(item.text for item in fresh)
-                    )
+                    await self.adapter.send_message(OutgoingMessage(
+                        external_id,
+                        "\n\n".join(item.text for item in fresh),
+                        screens.reminder_actions([item.kind for item in fresh]),
+                    ))
                     sent += 1
                 except Exception:
                     logger.warning(

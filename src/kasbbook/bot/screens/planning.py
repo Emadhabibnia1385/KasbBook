@@ -513,6 +513,36 @@ def recurring_ask_start(*, cancel_data: str = "nav:cancel",
 
 
 # =============================================================== reminders
+def reminder_actions(kinds: Sequence[str]) -> List[List[Button]]:
+    """The buttons the evening message carries, for the kinds actually in it.
+
+    Written here and not beside the sending code: a button built in the loop is
+    invisible to every sweep over this package, and the reminder service must
+    not know what a callback is — on Rubika a button press arrives as a
+    message, not a callback, and keeping that difference is the adapter's job.
+
+    The digest earns one. It is the only thing the bot says with no screen
+    behind it, so «خلاصهٔ امروز» named a figure and gave no way to ask which
+    entries it was: the way to them was the main menu, then the day. `dl:v`
+    with no day falls back to the person's own today, which is the day the
+    digest is about, and spends four of the callback's sixty-four bytes.
+
+    A warning arriving alone earns nothing: an installment is a date still
+    ahead and a debt belongs to one book, and neither is today's list. The loop
+    merges a day's reminders into one message, so what is offered is read from
+    the kinds that went into it rather than assumed.
+
+    Pressing it replaces the summary with the list, the way every button in
+    this bot replaces the screen it was on. That is the trade and it is
+    deliberate: the list carries the same day in more detail, and a chat that
+    keeps both is a transcript. Past the two days a provider lets a message be
+    edited, the adapter sends a new one instead.
+    """
+    if "digest" in kinds:
+        return [[Button("📅 تراکنش‌های امروز", data="dl:v")]]
+    return []
+
+
 def reminder_settings(user) -> Screen:
     digest = "روشن ✅" if user.digest_enabled else "خاموش ❌"
     text = rtl(

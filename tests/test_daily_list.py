@@ -256,6 +256,24 @@ async def test_the_daily_list_reads_like_the_old_one(session):
     assert not any("همه" in label for label in labels(reply))
 
 
+async def test_the_dateless_button_lands_on_the_persons_today(session, monkeypatch):
+    """`dl:v` with no day — what the main menu and the evening digest both send.
+
+    The day is left off so the button costs no callback bytes, which makes the
+    fallback the only thing deciding which day those two open. Nothing pressed
+    it until this test: every other case here names its day in the payload.
+    """
+    await shop_day(session)
+    monkeypatch.setattr(jalali, "today_in", lambda *a, **k: DAY)
+    convo = await conversation(session)
+
+    reply = await convo.handle(press("dl:v"))
+
+    assert "1404/12/28" in reply.text
+    assert listed(reply, "نت ملی")
+    assert not listed(reply, "فردا")
+
+
 async def test_previous_and_next_move_one_day_and_keep_the_filter(session):
     user, shop = await shop_day(session)
     convo = await conversation(session)
