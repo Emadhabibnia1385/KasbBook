@@ -21,6 +21,8 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -171,6 +173,36 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Transaction {self.flow.value} {self.converted_amount} {self.base_currency}>"
+
+
+class TransactionAttachment(UUIDPrimaryKey, Timestamped, Base):
+    """A file attached from the web panel: a photo of a receipt, a scanned invoice.
+
+    The bot's receipt is the messenger's own file id and never our bytes (see
+    `Transaction.receipt_file_id`). The web has no messenger to hold the file, so
+    these bytes are ours, and that is a different thing to protect: a row here is
+    somebody's paperwork. So the file is only ever read through the service's
+    gate, its type is decided by its bytes and not by what the client claimed,
+    and it lives in the database rather than on a disk so that the nightly backup
+    and a restore carry it with the transaction it belongs to.
+    """
+
+    __tablename__ = "transaction_attachments"
+    __table_args__ = (Index("ix_attachment_tx", "transaction_id"),)
+
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    transaction_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False
+    )
+    uploaded_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    file_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
 
 
 class JournalEntry(UUIDPrimaryKey, Timestamped, Base):

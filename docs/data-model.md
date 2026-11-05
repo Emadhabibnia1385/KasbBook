@@ -91,6 +91,15 @@ Receipts store the **provider's file id**, never the bytes. Showing one sends
 that id back. Nothing is downloaded, nothing is stored, and there is no bucket
 of other people's photographs to secure.
 
+The web panel has no messenger to hold a file, so a file attached there is a
+different thing: `TransactionAttachment` stores the **bytes**, in the database,
+so the backup and a restore carry them with the transaction. That is a
+deliberate exception to the rule above and the reason it is small: five files
+per transaction, 1.5 MB each, only photos and PDFs, with the type decided from
+the file's own bytes rather than its name. A file is only ever read through the
+service's permission gate, and is served with `nosniff` and a sandboxing
+content-security-policy so that it can only be looked at.
+
 Alongside the id sit `receipt_kind`, `receipt_file_name` and
 `receipt_mime_type`, because the id is opaque and says none of that. Without
 them a PDF invoice and a photograph of a till roll are the same row: the screen

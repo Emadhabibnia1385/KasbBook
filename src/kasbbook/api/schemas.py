@@ -347,8 +347,18 @@ class TransactionResponse(MoneyModel):
     # the messenger that received it — the id is opaque and provider-scoped, so
     # it would mean nothing to an HTTP client and is deliberately not returned.
     has_receipt: bool = False
+    # Files attached from the web panel; the list of them is its own call.
+    attachment_count: int = 0
     receipt_kind: Optional[str] = None
     receipt_file_name: Optional[str] = None
+
+
+class AttachmentResponse(Model):
+    id: uuid.UUID
+    file_name: str
+    content_type: str
+    size: int
+    created_at: datetime
 
 
 class TransactionPage(Model):

@@ -168,8 +168,14 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 A transaction carries `has_receipt`, `receipt_kind` and `receipt_file_name`.
 The file id itself is not returned: it is opaque and scoped to the messenger
 holding the file, so it would mean nothing here and handing it out only widens
-what a leak exposes. Attaching a receipt is a bot flow — there is no upload
-endpoint yet.
+what a leak exposes. Attaching a receipt from the bot stores the messenger's file id. From the web
+there are files of our own, under
+`/books/{id}/transactions/{tx}/attachments`: `GET` lists them, `POST` (multipart
+field `file`) adds one, `GET /{attachment}` downloads it and `DELETE
+/{attachment}` removes it. A file is a JPEG, PNG, WebP, GIF or PDF of at most
+1.5 MB (the reverse proxy refuses bigger bodies anyway), at most five per
+transaction; the type is read from the bytes, so a renamed file is refused.
+`attachment_count` on the transaction says how many there are.
 
 `scope` is optional and defaults from the book type. `currency` defaults to the
 book's own, and a different one must be a currency the book has enabled and

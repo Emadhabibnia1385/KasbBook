@@ -27,6 +27,7 @@ from .modules.ledger.models import (
     JournalEntry,
     JournalLine,
     Transaction,
+    TransactionAttachment,
 )
 from .modules.payroll.models import (
     Adjustment,
@@ -76,6 +77,7 @@ __all__ = [
     "RecurringRule",
     "ShareRule",
     "Transaction",
+    "TransactionAttachment",
     "TreasuryAllocation",
     "TreasuryFund",
     "TreasuryRule",

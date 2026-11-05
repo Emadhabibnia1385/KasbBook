@@ -10,7 +10,9 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Query, UploadFile
+from fastapi.responses import Response
+from urllib.parse import quote
 
 from ...modules.books.models import BookType, CostPolicy, Permission, Role
 from ...modules.books.service import BookService
@@ -19,11 +21,13 @@ from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.ledger.models import Flow, Scope
 from ...modules.exchange.service import ExchangeService
+from ...modules.ledger.attachments import MAX_BYTES, AttachmentService
 from ...modules.ledger.service import LedgerService
 from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
+    AttachmentResponse,
     BaseCurrencyRequest,
     BookRequest,
     ConversionRequest,
@@ -314,9 +318,10 @@ async def list_transactions(
     start = (page - 1) * per_page
     visible = rows[start:start + per_page]
     activities = await LedgerService(session).activities(user.id, visible)
+    counts = await AttachmentService(session).counts(book_id, user.id, [row.id for row in visible])
 
     return TransactionPage(
-        items=[_transaction(row, activities[row.id]) for row in visible],
+        items=[_transaction(row, activities[row.id], counts.get(row.id, 0)) for row in visible],
         total=len(rows), page=page, per_page=per_page,
     )
 
@@ -358,7 +363,8 @@ async def get_transaction(
     if row is None:
         raise NotFound("transaction")
     activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
-    return _transaction(row, activity)
+    count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
+    return _transaction(row, activity, count)
 
 
 @router.delete("/{book_id}/transactions/{transaction_id}", status_code=204)
@@ -374,10 +380,11 @@ async def edit_transaction(book_id: uuid.UUID, transaction_id: uuid.UUID, body: 
     changes = body.model_dump(exclude_unset=True)
     row = await LedgerService(session).update(book_id, user.id, transaction_id, **changes)
     activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
-    return _transaction(row, activity)
+    count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
+    return _transaction(row, activity, count)
 
 
-def _transaction(row, activity) -> TransactionResponse:
+def _transaction(row, activity, attachment_count: int = 0) -> TransactionResponse:
     return TransactionResponse(
         id=row.id,
         flow=row.flow.value,
@@ -393,4 +400,58 @@ def _transaction(row, activity) -> TransactionResponse:
         has_receipt=row.receipt_file_id is not None,
         receipt_kind=row.receipt_kind,
         receipt_file_name=row.receipt_file_name,
+        attachment_count=attachment_count,
     )
+
+
+# ---------------------------------------------------------- attachments
+@router.get("/{book_id}/transactions/{transaction_id}/attachments",
+            response_model=List[AttachmentResponse])
+async def list_attachments(
+    book_id: uuid.UUID, transaction_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[AttachmentResponse]:
+    rows = await AttachmentService(session).list(book_id, user.id, transaction_id)
+    return [AttachmentResponse(id=r.id, file_name=r.file_name, content_type=r.content_type,
+                               size=r.size, created_at=r.created_at) for r in rows]
+
+
+@router.post("/{book_id}/transactions/{transaction_id}/attachments",
+             response_model=AttachmentResponse, status_code=201)
+async def add_attachment(
+    book_id: uuid.UUID, transaction_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    file: UploadFile = File(...),
+) -> AttachmentResponse:
+    """Attach a photo or a PDF (up to 1.5 MB). The type is read from the bytes, not the name."""
+    # One byte past the limit is enough to know it is too big without reading the rest.
+    data = await file.read(MAX_BYTES + 1)
+    row = await AttachmentService(session).add(book_id, user.id, transaction_id, file.filename, data)
+    return AttachmentResponse(id=row.id, file_name=row.file_name, content_type=row.content_type,
+                              size=row.size, created_at=row.created_at)
+
+
+@router.get("/{book_id}/transactions/{transaction_id}/attachments/{attachment_id}")
+async def download_attachment(
+    book_id: uuid.UUID, transaction_id: uuid.UUID, attachment_id: uuid.UUID,
+    user: CurrentUser, session: SessionDep,
+) -> Response:
+    row = await AttachmentService(session).read(book_id, user.id, transaction_id, attachment_id)
+    return Response(
+        content=row.data,
+        media_type=row.content_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(row.file_name)}",
+            # Served from our own origin, so it must not be able to do anything but be looked at.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.delete("/{book_id}/transactions/{transaction_id}/attachments/{attachment_id}",
+               status_code=204)
+async def delete_attachment(
+    book_id: uuid.UUID, transaction_id: uuid.UUID, attachment_id: uuid.UUID,
+    user: CurrentUser, session: SessionDep,
+) -> None:
+    await AttachmentService(session).remove(book_id, user.id, transaction_id, attachment_id)
