@@ -1,15 +1,18 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { CompactRows } from "./CompactRows";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
 	ConfirmDialog,
+	Collapsible,
 	DataTable,
 	EmptyState,
 	FormRoot,
 	Modal,
+	useIsNarrow,
 	PageHeader,
 	RadioGroupField,
 	StatusChip,
@@ -37,7 +40,9 @@ const PER_PAGE = 20;
 const amountRule = z
 	.string()
 	.transform(toAscii)
-	.refine((value) => /^\d+(\.\d{1,4})?$/.test(value) && Number(value) > 0, { error: t.transactions.badAmount });
+	.refine((value) => /^\d+(\.\d{1,4})?$/.test(value) && Number(value) > 0, {
+		error: t.transactions.badAmount,
+	});
 
 const schema = z.object({
 	flow: z.enum(["income", "expense"]),
@@ -60,7 +65,15 @@ function plainAmount(value: string): string {
 	return value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 }
 
-function EditForm({ book, row, onDone }: { book: BookResponse; row: TransactionResponse; onDone: () => void }) {
+function EditForm({
+	book,
+	row,
+	onDone,
+}: {
+	book: BookResponse;
+	row: TransactionResponse;
+	onDone: () => void;
+}) {
 	const queryClient = useQueryClient();
 	const edit = useBooksEditTransaction();
 	const form = useForm<EditValues>({
@@ -83,8 +96,10 @@ function EditForm({ book, row, onDone }: { book: BookResponse; row: TransactionR
 				const changes: Record<string, string | null> = {};
 				if (values.amount !== plainAmount(row.original_amount)) changes.amount = values.amount;
 				if (values.category !== row.category) changes.category = values.category;
-				if ((values.description || null) !== (row.description || null)) changes.description = values.description || null;
-				if (pickedDay(values.occurred_on) !== row.occurred_on) changes.occurred_on = pickedDay(values.occurred_on);
+				if ((values.description || null) !== (row.description || null))
+					changes.description = values.description || null;
+				if (pickedDay(values.occurred_on) !== row.occurred_on)
+					changes.occurred_on = pickedDay(values.occurred_on);
 				if (Object.keys(changes).length === 0) {
 					onDone();
 					return;
@@ -112,7 +127,13 @@ function EditForm({ book, row, onDone }: { book: BookResponse; row: TransactionR
 				isRequired
 			/>
 			<TextField name="category" label={t.transactions.category} isRequired />
-			<CategoryChips bookId={book.id} flow={flow} onPick={(name) => form.setValue("category", name, { shouldValidate: true, shouldDirty: true })} />
+			<CategoryChips
+				bookId={book.id}
+				flow={flow}
+				onPick={(name) =>
+					form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
+				}
+			/>
 			<DayField name="occurred_on" label={t.transactions.date} isRequired />
 			<TextField name="description" label={t.transactions.note} />
 			<SubmitButton>{t.common.save}</SubmitButton>
@@ -140,7 +161,8 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 						bookId: book.id,
 						data: {
 							flow: values.flow,
-							scope: book.type === "personal" ? "personal" : book.type === "business" ? "work" : "team",
+							scope:
+								book.type === "personal" ? "personal" : book.type === "business" ? "work" : "team",
 							category: values.category,
 							amount: values.amount,
 							description: values.description || null,
@@ -162,12 +184,42 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 					{ value: "income", label: t.common.income },
 				]}
 			/>
-			<TextField name="amount" label={t.transactions.amount} inputMode="decimal" dir="ltr" isRequired />
+			<TextField
+				name="amount"
+				label={t.transactions.amount}
+				inputMode="decimal"
+				dir="ltr"
+				isRequired
+			/>
 			<TextField name="category" label={t.transactions.category} isRequired />
-			<CategoryChips bookId={book.id} flow={flow} onPick={(name) => form.setValue("category", name, { shouldValidate: true, shouldDirty: true })} />
+			<CategoryChips
+				bookId={book.id}
+				flow={flow}
+				onPick={(name) =>
+					form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
+				}
+			/>
 			<TextField name="description" label={t.transactions.note} />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
+	);
+}
+
+// On a phone the date range is folded away until wanted; it opens by itself while a filter is active.
+function Filters({
+	narrow,
+	filtered,
+	children,
+}: {
+	narrow: boolean;
+	filtered: boolean;
+	children: React.ReactNode;
+}) {
+	if (!narrow) return <>{children}</>;
+	return (
+		<Collapsible title={t.txExtra.filter} defaultOpen={filtered}>
+			{children}
+		</Collapsible>
 	);
 }
 
@@ -183,6 +235,7 @@ function List({ book }: { book: BookResponse }) {
 	const filtered = Boolean(range.since || range.until);
 	const query = useBooksListTransactions(book.id, { ...range, page, per_page: PER_PAGE });
 	const remove = useBooksDeleteTransaction();
+	const narrow = useIsNarrow("md");
 	const pages = Math.max(1, Math.ceil((query.data?.total ?? 0) / PER_PAGE));
 
 	return (
@@ -192,95 +245,129 @@ function List({ book }: { book: BookResponse }) {
 				description={book.name}
 				actions={<Button onPress={() => setAdding(true)}>{t.transactions.add}</Button>}
 			/>
-			<fieldset className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-				<legend className="sr-only">{t.txExtra.filter}</legend>
-				<DayField
-					label={t.txExtra.since}
-					value={since}
-					onChange={(value) => {
-						setSince(value);
-						setPage(1);
-					}}
-				/>
-				<DayField
-					label={t.txExtra.until}
-					value={until}
-					errorMessage={range.since && range.until && range.since > range.until ? t.txExtra.badRange : undefined}
-					onChange={(value) => {
-						setUntil(value);
-						setPage(1);
-					}}
-				/>
-				{filtered ? (
-					<Button
-						variant="ghost"
-						onPress={() => {
-							setSince("");
-							setUntil("");
+			<Filters narrow={narrow} filtered={filtered}>
+				<fieldset className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+					<legend className="sr-only">{t.txExtra.filter}</legend>
+					<DayField
+						label={t.txExtra.since}
+						value={since}
+						onChange={(value) => {
+							setSince(value);
 							setPage(1);
 						}}
-					>
-						{t.txExtra.clearFilter}
-					</Button>
-				) : null}
-			</fieldset>
-			<DataTable<TransactionResponse>
-				ariaLabel={t.nav.transactions}
-				cards="md"
-				status={query.isError ? "error" : query.isLoading ? "loading" : "ready"}
-				onRetry={() => void query.refetch()}
-				rows={query.data?.items}
-				getRowId={(row) => row.id}
-				emptyTitle={filtered ? t.txExtra.filteredEmptyTitle : t.transactions.emptyTitle}
-				empty={filtered ? t.txExtra.filteredEmpty : t.transactions.empty}
-				columns={[
-					{ id: "category", header: t.transactions.category, isRowHeader: true, cell: (row) => row.category },
-					{
-						id: "amount",
-						header: t.transactions.amount,
-						align: "end",
-						cell: (row) => (
-							<span className={row.flow === "income" ? "text-success" : undefined}>
-								{row.flow === "income" ? "+" : "−"}
-								{formatMoney(row.converted_amount, book.currency)}
-							</span>
-						),
-					},
-					{
-						id: "kind",
-						header: t.transactions.kind,
-						cell: (row) => (
-							<StatusChip
-								tone={row.flow === "income" ? "success" : "neutral"}
-								label={row.flow === "income" ? t.common.income : t.common.expense}
-							/>
-						),
-					},
-					{ id: "date", header: t.transactions.date, cell: (row) => formatDay(row.occurred_on) },
-					{ id: "note", header: t.transactions.note, cell: (row) => row.description ?? "—" },
-					{
-						id: "actions",
-						header: "",
-						isActions: true,
-						cell: (row) => (
-							<div className="flex gap-1">
-								<Button size="sm" variant="ghost" onPress={() => setEditing(row)}>
-									{t.common.edit}
-								</Button>
-								<Button size="sm" variant="ghost" onPress={() => setRemoving(row)}>
-									{t.common.delete}
-								</Button>
-							</div>
-						),
-					},
-				]}
-				pagination={{ page, pageCount: pages, onPageChange: setPage }}
-			/>
+					/>
+					<DayField
+						label={t.txExtra.until}
+						value={until}
+						errorMessage={
+							range.since && range.until && range.since > range.until
+								? t.txExtra.badRange
+								: undefined
+						}
+						onChange={(value) => {
+							setUntil(value);
+							setPage(1);
+						}}
+					/>
+					{filtered ? (
+						<Button
+							variant="ghost"
+							onPress={() => {
+								setSince("");
+								setUntil("");
+								setPage(1);
+							}}
+						>
+							{t.txExtra.clearFilter}
+						</Button>
+					) : null}
+				</fieldset>
+			</Filters>
+			{narrow ? (
+				<CompactRows
+					book={book}
+					rows={query.data?.items}
+					status={query.isError ? "error" : query.isLoading ? "loading" : "ready"}
+					onRetry={() => void query.refetch()}
+					emptyTitle={filtered ? t.txExtra.filteredEmptyTitle : t.transactions.emptyTitle}
+					empty={filtered ? t.txExtra.filteredEmpty : t.transactions.empty}
+					page={page}
+					pageCount={pages}
+					onPageChange={setPage}
+					onEdit={setEditing}
+					onRemove={setRemoving}
+				/>
+			) : (
+				<DataTable<TransactionResponse>
+					ariaLabel={t.nav.transactions}
+					cards="md"
+					status={query.isError ? "error" : query.isLoading ? "loading" : "ready"}
+					onRetry={() => void query.refetch()}
+					rows={query.data?.items}
+					getRowId={(row) => row.id}
+					emptyTitle={filtered ? t.txExtra.filteredEmptyTitle : t.transactions.emptyTitle}
+					empty={filtered ? t.txExtra.filteredEmpty : t.transactions.empty}
+					columns={[
+						{
+							id: "category",
+							header: t.transactions.category,
+							isRowHeader: true,
+							cell: (row) => row.category,
+						},
+						{
+							id: "amount",
+							header: t.transactions.amount,
+							align: "end",
+							cell: (row) => (
+								<span dir="ltr" className={row.flow === "income" ? "text-success" : undefined}>
+									{row.flow === "income" ? "+" : "−"}
+									{formatMoney(row.converted_amount, book.currency)}
+								</span>
+							),
+						},
+						{
+							id: "kind",
+							header: t.transactions.kind,
+							cell: (row) => (
+								<StatusChip
+									tone={row.flow === "income" ? "success" : "neutral"}
+									label={row.flow === "income" ? t.common.income : t.common.expense}
+								/>
+							),
+						},
+						{ id: "date", header: t.transactions.date, cell: (row) => formatDay(row.occurred_on) },
+						{ id: "note", header: t.transactions.note, cell: (row) => row.description ?? "—" },
+						{
+							id: "actions",
+							header: "",
+							isActions: true,
+							cell: (row) => (
+								<div className="flex gap-1">
+									<Button size="sm" variant="ghost" onPress={() => setEditing(row)}>
+										{t.common.edit}
+									</Button>
+									<Button size="sm" variant="ghost" onPress={() => setRemoving(row)}>
+										{t.common.delete}
+									</Button>
+								</div>
+							),
+						},
+					]}
+					pagination={{ page, pageCount: pages, onPageChange: setPage }}
+				/>
+			)}
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.transactions.add} size="sm">
 				<AddForm book={book} onDone={() => setAdding(false)} />
 			</Modal>
-			<Modal isOpen={editing !== null} onOpenChange={(open) => !open && setEditing(null)} title={t.txExtra.edit} size="sm">
-				{editing ? <EditForm key={editing.id} book={book} row={editing} onDone={() => setEditing(null)} /> : null}
+			<Modal
+				isOpen={editing !== null}
+				onOpenChange={(open) => !open && setEditing(null)}
+				title={t.txExtra.edit}
+				size="sm"
+			>
+				{editing ? (
+					<EditForm key={editing.id} book={book} row={editing} onDone={() => setEditing(null)} />
+				) : null}
 			</Modal>
 			<ConfirmDialog
 				isOpen={removing !== null}
@@ -307,6 +394,7 @@ function List({ book }: { book: BookResponse }) {
 export function Transactions() {
 	const { book, isLoading } = useActiveBook();
 	if (isLoading) return null;
-	if (!book) return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book)
+		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
 	return <List book={book} />;
 }
