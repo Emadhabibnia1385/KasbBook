@@ -1,0 +1,18 @@
+// One place that names the icons the shell uses, so a screen imports `Home`, not a path.
+export { default as HomeIcon } from "~icons/solar/home-2-linear";
+export { default as HomeActiveIcon } from "~icons/solar/home-2-bold";
+export { default as ListIcon } from "~icons/solar/bill-list-linear";
+export { default as ListActiveIcon } from "~icons/solar/bill-list-bold";
+export { default as ChartIcon } from "~icons/solar/chart-2-linear";
+export { default as ChartActiveIcon } from "~icons/solar/chart-2-bold";
+export { default as PlanIcon } from "~icons/solar/target-linear";
+export { default as MoreIcon } from "~icons/solar/menu-dots-bold";
+export { default as TeamIcon } from "~icons/solar/users-group-rounded-linear";
+export { default as BookIcon } from "~icons/solar/book-2-linear";
+export { default as AccountIcon } from "~icons/solar/user-circle-linear";
+export { default as LogoutIcon } from "~icons/solar/logout-2-linear";
+export { default as InstallIcon } from "~icons/solar/download-minimalistic-linear";
+export { default as PlusIcon } from "~icons/solar/add-circle-bold";
+export { default as UpIcon } from "~icons/solar/arrow-up-linear";
+export { default as DownIcon } from "~icons/solar/arrow-down-linear";
+export { default as TelegramIcon } from "~icons/solar/plain-bold";

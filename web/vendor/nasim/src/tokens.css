@@ -1,0 +1,374 @@
+/* «نسیم» tokens over HeroUI's variables, loaded after @heroui/styles and unlayered so they win. */
+
+@theme {
+  --font-sans: var(--nasim-font), var(--nasim-font-fallback);
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+
+  /* Persian ascenders and diacritics need more air than Latin text. */
+  --text-xs--line-height: 1.65;
+  --text-sm--line-height: 1.75;
+  --text-base--line-height: 1.75;
+  --text-lg--line-height: 1.6;
+  --text-xl--line-height: 1.5;
+  --text-2xl--line-height: 1.4;
+  --text-3xl--line-height: 1.3;
+}
+
+/* The one status HeroUI has no name for: information that is neither good nor bad news. */
+@theme inline {
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-info-soft-foreground: var(--info-soft-foreground);
+}
+
+:root {
+  --nasim-font-fallback:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
+
+  /* Geometry */
+  --radius: 0.5rem;
+  --field-radius: 0.875rem;
+  --nasim-page-gutter: 1rem;
+  --nasim-tap-target: 2.75rem; /* 44px: primary actions on a phone */
+
+  /* Safe areas: the device's (env) or Telegram's, the larger; fullscreen adds the buttons' strip. */
+  --nasim-safe-top: max(
+    env(safe-area-inset-top, 0px),
+    calc(
+      var(
+          --tg-viewport-safe-area-inset-top,
+          var(--tg-safe-area-inset-top, 0px)
+        ) +
+        var(
+          --tg-viewport-content-safe-area-inset-top,
+          var(--tg-content-safe-area-inset-top, 0px)
+        )
+    )
+  );
+  --nasim-safe-right: max(
+    env(safe-area-inset-right, 0px),
+    calc(
+      var(
+          --tg-viewport-safe-area-inset-right,
+          var(--tg-safe-area-inset-right, 0px)
+        ) +
+        var(
+          --tg-viewport-content-safe-area-inset-right,
+          var(--tg-content-safe-area-inset-right, 0px)
+        )
+    )
+  );
+  --nasim-safe-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    calc(
+      var(
+          --tg-viewport-safe-area-inset-bottom,
+          var(--tg-safe-area-inset-bottom, 0px)
+        ) +
+        var(
+          --tg-viewport-content-safe-area-inset-bottom,
+          var(--tg-content-safe-area-inset-bottom, 0px)
+        )
+    )
+  );
+  --nasim-safe-left: max(
+    env(safe-area-inset-left, 0px),
+    calc(
+      var(
+          --tg-viewport-safe-area-inset-left,
+          var(--tg-safe-area-inset-left, 0px)
+        ) +
+        var(
+          --tg-viewport-content-safe-area-inset-left,
+          var(--tg-content-safe-area-inset-left, 0px)
+        )
+    )
+  );
+
+  /* The strips a host app (Telegram) paints around the page: they follow the page and the tab bar. */
+  --nasim-chrome-top: var(--background);
+  --nasim-chrome-bottom: var(--surface);
+
+  /* Fields are bordered in both themes: a field and its card share a fill in dark mode. */
+  --field-border-width: 1px;
+  /* HeroUI reads this in the number, search and group fields but never defines it. */
+  --color-field-border-invalid: var(--danger);
+}
+
+/* Physical insets (a notch is left or right however the page reads): px-safe, px-page, p-page. */
+@utility px-page {
+  padding-left: max(var(--nasim-page-gutter), var(--nasim-safe-left));
+  padding-right: max(var(--nasim-page-gutter), var(--nasim-safe-right));
+}
+
+@utility px-safe {
+  padding-left: var(--nasim-safe-left);
+  padding-right: var(--nasim-safe-right);
+}
+
+@utility p-page {
+  padding-top: max(var(--nasim-page-gutter), var(--nasim-safe-top));
+  padding-right: max(var(--nasim-page-gutter), var(--nasim-safe-right));
+  padding-bottom: max(var(--nasim-page-gutter), var(--nasim-safe-bottom));
+  padding-left: max(var(--nasim-page-gutter), var(--nasim-safe-left));
+}
+
+:root,
+.light,
+[data-theme='light'] {
+  --background: oklch(0.975 0.005 245);
+  --foreground: oklch(0.21 0.02 255);
+  --surface: oklch(1 0 0);
+  --surface-secondary: oklch(0.96 0.006 245);
+  --surface-tertiary: oklch(0.94 0.008 245);
+  --overlay: oklch(1 0 0);
+  --muted: oklch(0.48 0.02 255);
+  --default: oklch(0.94 0.008 250);
+  --default-foreground: oklch(0.21 0.02 255);
+  --border: oklch(0.9 0.008 250);
+  --separator: oklch(0.93 0.006 250);
+
+  /* The brand colour: accent.ts fits a tenant's accent per scheme into --nasim-accent-*. */
+  --accent: var(--nasim-accent-light, oklch(0.5 0.15 245));
+  --accent-foreground: var(--nasim-accent-foreground-light, oklch(0.9911 0 0));
+  --success: oklch(0.7329 0.1935 150.81);
+  --success-foreground: oklch(0.2103 0.0059 285.89);
+  --warning: oklch(0.7819 0.1585 72.33);
+  --warning-foreground: oklch(0.2103 0.0059 285.89);
+  --danger: oklch(0.53 0.2 26);
+  --danger-foreground: oklch(0.9911 0 0);
+  --info: oklch(0.5 0.17 255);
+  --info-foreground: oklch(0.9911 0 0);
+  --info-soft: color-mix(in oklab, var(--info) 15%, transparent);
+  --info-soft-foreground: color-mix(
+    in oklab,
+    var(--info) 50%,
+    var(--foreground) 50%
+  );
+  /* Soft status text reads 4.5:1 on a hovered row (--default) and on the tertiary surface too. */
+  --success-soft-foreground: color-mix(
+    in oklab,
+    var(--success) 50%,
+    var(--foreground) 50%
+  );
+  --warning-soft-foreground: color-mix(
+    in oklab,
+    var(--warning) 50%,
+    var(--foreground) 50%
+  );
+  /* Pinned (they match HeroUI's) because accent.ts and tokens.test.ts rely on these formulas. */
+  --accent-hover: color-mix(
+    in oklab,
+    var(--accent) 90%,
+    var(--accent-foreground) 10%
+  );
+  --accent-soft: color-mix(in oklab, var(--accent) 15%, transparent);
+  --accent-soft-foreground: color-mix(
+    in oklab,
+    var(--accent) 70%,
+    var(--foreground) 30%
+  );
+
+  --focus: color-mix(in oklab, var(--accent) 62%, var(--foreground));
+  --field-background: oklch(1 0 0);
+  --field-border: oklch(0.62 0.02 255);
+  --field-border-hover: oklch(0.52 0.02 255);
+  --field-border-focus: var(--focus);
+
+  --nasim-scrollbar-thumb: oklch(0 0 0 / 0.28);
+  --nasim-scrollbar-thumb-hover: oklch(0 0 0 / 0.45);
+}
+
+.dark,
+[data-theme='dark'] {
+  --background: oklch(0.15 0.014 255);
+  --foreground: oklch(0.975 0.004 250);
+  --surface: oklch(0.2 0.016 255);
+  --surface-secondary: oklch(0.24 0.017 255);
+  --surface-tertiary: oklch(0.28 0.018 255);
+  --overlay: oklch(0.235 0.017 255);
+  --muted: oklch(0.73 0.02 255);
+  --default: oklch(0.29 0.018 255);
+  --default-foreground: oklch(0.975 0.004 250);
+  --border: oklch(0.33 0.018 255);
+  --separator: oklch(0.29 0.017 255);
+
+  --accent: var(--nasim-accent-dark, oklch(0.645 0.15 245));
+  --accent-foreground: var(
+    --nasim-accent-foreground-dark,
+    oklch(0.2103 0.0059 285.89)
+  );
+  --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+
+  --warning: oklch(0.8203 0.1388 76.34);
+  /* Error text and borders sit on dark surfaces, so danger is light here and carries dark text. */
+  --danger: oklch(0.66 0.18 25);
+  --danger-foreground: oklch(0.2103 0.0059 285.89);
+  --info: oklch(0.75 0.12 250);
+  --info-foreground: oklch(0.2103 0.0059 285.89);
+  --info-soft: color-mix(in oklab, var(--info) 12%, transparent);
+  --info-soft-foreground: color-mix(
+    in oklab,
+    var(--info) 45%,
+    var(--foreground) 55%
+  );
+
+  /* The soft text colour leans on the page text more, so it stays readable on a dark tint. */
+  --accent-soft-foreground: color-mix(
+    in oklab,
+    var(--accent) 45%,
+    var(--foreground) 55%
+  );
+
+  --focus: color-mix(in oklab, var(--accent) 62%, var(--foreground));
+  --field-background: oklch(0.24 0.017 255);
+  --field-border: oklch(0.58 0.02 255);
+  --field-border-hover: oklch(0.68 0.02 255);
+  --field-border-focus: var(--focus);
+
+  --nasim-scrollbar-thumb: oklch(1 0 0 / 0.24);
+  --nasim-scrollbar-thumb-hover: oklch(1 0 0 / 0.4);
+}
+
+@layer base {
+  html {
+    /* Farsi digits (fonts.css): ASCII 0-9 draw as ۰-۹; font-mono values ignore it. */
+    font-feature-settings: var(--nasim-font-features);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    min-height: 100dvh;
+  }
+
+  /* Links, buttons and custom controls outside HeroUI still show where focus is. */
+  :where(a, button, [tabindex]):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 28%, transparent);
+  }
+
+  /* Thin, track-less scrollbars so the platform bar does not jut past rounded corners. */
+  :not(.alert-dialog__backdrop, .modal__backdrop, .drawer__backdrop) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--nasim-scrollbar-thumb) transparent;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    &::-webkit-scrollbar-track,
+    &::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: var(--nasim-scrollbar-thumb);
+      border-radius: 9999px;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+      background-color: var(--nasim-scrollbar-thumb-hover);
+    }
+  }
+}
+
+/* Fixes over HeroUI defaults, kept here so every screen gets them. */
+@layer components {
+  /* An invalid field shows it in its border (all states), not only in the focus ring. */
+  :is(.input, .textarea, .select, .input-otp__slot)[data-invalid='true'] {
+    --field-border: var(--danger);
+    --field-border-hover: var(--danger);
+    --field-border-focus: var(--danger);
+  }
+
+  /*
+   * HeroUI 3.2.6 RTL: a side drawer aligns with logical justify-start/end but slides in with a
+   * physical translate, so in a right-to-left page "right" opened on the left. Placement names stay
+   * physical: "right" docks to the right edge, "left" to the left edge.
+   */
+  [dir='rtl'] .drawer__content--right {
+    justify-content: flex-start;
+  }
+  [dir='rtl'] .drawer__content--left {
+    justify-content: flex-end;
+  }
+
+  /* A card never grows past its column: a table or a chart inside it scrolls, the page does not. */
+  .card {
+    min-width: 0;
+  }
+
+  /* Tailwind fades a placeholder to half the text colour (3.4:1 on white): the token holds 4.5:1. */
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--field-placeholder);
+  }
+
+  /* Off, a switch's track is its edge: 3:1 on the surface (WCAG 1.4.11), hovered or not. */
+  .switch {
+    --switch-control-bg: var(--field-border);
+    --switch-control-bg-hover: color-mix(
+      in oklab,
+      var(--field-border),
+      var(--foreground) 15%
+    );
+  }
+
+  /* Toasts clear the home indicator, notch, Telegram's bars and a host bar (--nasim-bottom-bar). */
+  :is(
+    .toast-region--bottom,
+    .toast-region--bottom-start,
+    .toast-region--bottom-end
+  ) {
+    bottom: calc(
+      1rem + max(var(--nasim-safe-bottom), var(--nasim-bottom-bar, 0px))
+    );
+  }
+
+  :is(.toast-region--top, .toast-region--top-start, .toast-region--top-end) {
+    top: calc(1rem + var(--nasim-safe-top));
+  }
+
+  /* The toast close button only appears on hover: touch and keyboard users never see it. */
+  .toast:focus-within .toast__close-button {
+    pointer-events: auto;
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .toast[data-frontmost='true']:not([data-exiting='true'])
+      .toast__close-button {
+      pointer-events: auto;
+      opacity: 1;
+      width: 1.5rem;
+      height: 1.5rem;
+    }
+  }
+
+  /* Touch: small controls keep their look but get a centred 44px hit area. */
+  @media (pointer: coarse) {
+    :is(.close-button, .button--icon-only, .toast__close-button)::after {
+      content: '';
+      position: absolute;
+      inset-block: min(0px, calc((100% - var(--nasim-tap-target)) / 2));
+      inset-inline: min(0px, calc((100% - var(--nasim-tap-target)) / 2));
+    }
+
+    .number-field__group {
+      height: var(--nasim-tap-target);
+    }
+
+    .number-field__increment-button,
+    .number-field__decrement-button {
+      width: var(--nasim-tap-target);
+    }
+  }
+}

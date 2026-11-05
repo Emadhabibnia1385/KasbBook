@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "oxc", "jsx-a11y"],
+  "ignorePatterns": ["dist", "node_modules", "vendor", ".tanstack", "src/api/generated", "src/api/zod", "src/routeTree.gen.ts"],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          { "name": "@heroui/react", "message": "Import design-system components from \"@nyxon/nasim\"." },
+          { "name": "@heroui/styles", "message": "Only @nyxon/nasim may use HeroUI directly." },
+          { "name": "react-aria-components", "message": "Only @nyxon/nasim may use React Aria directly." },
+          { "name": "@tma.js/bridge", "message": "Telegram goes through \"@/shared/telegram\"." },
+          { "name": "@tma.js/sdk", "message": "Telegram goes through \"@/shared/telegram\"." },
+          { "name": "@tma.js/sdk-react", "message": "Telegram goes through \"@/shared/telegram\"." }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/routes/**", "src/routeTree.gen.ts"],
+      "rules": { "react/only-export-components": "off" }
+    },
+    {
+      "files": ["src/shared/telegram/**"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
+}

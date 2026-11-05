@@ -1,0 +1,21 @@
+@import "tailwindcss" source("../src");
+@import "@heroui/styles";
+@import "@nyxon/nasim/tokens.css";
+@import "@nyxon/nasim/fonts.css";
+@import "./app/fonts.css";
+/* Tailwind skips node_modules, where the workspace link lives, so it reads the real folder. */
+@source "../vendor/nasim/src";
+
+/* The installed app is a native-looking surface: no rubber-band over the shell. */
+html,
+body {
+	overscroll-behavior-y: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+}

@@ -134,6 +134,11 @@ def create_app(
         lifespan=lifespan,
         docs_url="/docs",
         openapi_url="/openapi.json",
+        # `<tag>_<function>` rather than the default that appends the path and
+        # method: the web panel's generated client takes its function names
+        # from these, and `books_list_books` reads better than
+        # `list_books_api_v1_books_get`.
+        generate_unique_id_function=lambda route: f"{route.tags[0]}_{route.name}" if route.tags else route.name,
     )
 
     origins = [o.strip() for o in os.environ.get("KASBBOOK_CORS_ORIGINS", "").split(",") if o.strip()]

@@ -1,0 +1,30 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+	"files": {
+		"includes": [
+			"**",
+			"!dist",
+			"!node_modules",
+			"!.tanstack",
+			"!public",
+			"!vendor/nasim",
+			"!src/routeTree.gen.ts",
+			"!package.json",
+			"!bun.lock",
+			"!tsconfig*.json",
+			"!.oxlintrc.json"
+		]
+	},
+	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 100 },
+	"linter": { "enabled": false },
+	"assist": { "enabled": false },
+	"javascript": {
+		"formatter": { "quoteStyle": "double", "semicolons": "always", "trailingCommas": "all" }
+	},
+	"css": {
+		"parser": { "tailwindDirectives": true },
+		"formatter": { "enabled": true }
+	},
+	"json": { "formatter": { "enabled": false } }
+}

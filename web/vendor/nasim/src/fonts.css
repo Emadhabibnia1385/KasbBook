@@ -1,0 +1,48 @@
+/*
+ * Which font the page speaks. The app loads the files itself (next/font, or an @font-face of its
+ * own) and names each family here only as a fallback: when next/font exposes `--font-<id>`, that
+ * wins, and its own fallback list comes with it. Nasim never downloads a font.
+ */
+
+/* data-font on <html> sets the page's font, on an element a preview of it; none is Vazirmatn. */
+[data-font] {
+  --font-sans: var(--nasim-font), var(--nasim-font-fallback);
+  font-feature-settings: var(--nasim-font-features);
+}
+
+/* ss01 and ss20 draw Farsi digits in Vazirmatn and Estedad; the other builds have them built in. */
+:root,
+[data-font='vazirmatn'] {
+  --nasim-font: var(--font-vazirmatn, 'Vazirmatn');
+  --nasim-font-features: 'ss01';
+}
+
+[data-font='estedad'] {
+  --nasim-font: var(--font-estedad, 'Estedad');
+  --nasim-font-features: 'ss20';
+}
+
+[data-font='mikhak'] {
+  --nasim-font: var(--font-mikhak, 'Mikhak');
+  --nasim-font-features: normal;
+}
+
+[data-font='sahel'] {
+  --nasim-font: var(--font-sahel, 'Sahel');
+  --nasim-font-features: normal;
+}
+
+[data-font='shabnam'] {
+  --nasim-font: var(--font-shabnam, 'Shabnam');
+  --nasim-font-features: normal;
+}
+
+[data-font='noto-sans-arabic'] {
+  --nasim-font: var(--font-noto-sans-arabic, 'Noto Sans Arabic FD');
+  --nasim-font-features: normal;
+}
+
+[data-font='parastoo'] {
+  --nasim-font: var(--font-parastoo, 'Parastoo');
+  --nasim-font-features: normal;
+}

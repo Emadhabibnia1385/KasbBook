@@ -1,0 +1,13 @@
+{
+  "package": "@nyxon/nasim",
+  "version": "0.7.0",
+  "repository": "nyxon-tech/nyxon-tech",
+  "path": "libs/nasim",
+  "commit": "0cd24b9cbf7e22f682988f7a110d079f37303e34",
+  "overrides": {
+    "react-aria": "3.52.1",
+    "react-aria-components": "1.21.1",
+    "react-stately": "3.50.0"
+  },
+  "sha256": "144e6eeec969638cfe668a1dd6e896881d1596bc2f33f581a439d46a3a3709ff"
+}
