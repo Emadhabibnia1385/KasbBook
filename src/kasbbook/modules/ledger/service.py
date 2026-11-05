@@ -291,7 +291,17 @@ class LedgerService:
         user_id: uuid.UUID,
         since: Optional[date] = None,
         until: Optional[date] = None,
+        flows: Optional[Sequence[Flow]] = None,
+        categories: Optional[Sequence[str]] = None,
+        text: Optional[str] = None,
     ) -> Sequence[Transaction]:
+        """The book's transactions, narrowed by any of: dates, income/expense, categories, words.
+
+        Every filter that is given must hold (an AND between kinds), and several values of one kind
+        are alternatives (an OR inside it): "rent or shipping, expenses only, this month". The words
+        match the category and the note, the same way the search does, and one character is too
+        little to mean anything, so it is ignored rather than matching the whole book.
+        """
         await self.books.require(book_id, user_id, Permission.VIEW_TRANSACTIONS)
 
         stmt = select(Transaction).where(Transaction.book_id == book_id)
@@ -299,9 +309,30 @@ class LedgerService:
             stmt = stmt.where(Transaction.occurred_on >= since)
         if until is not None:
             stmt = stmt.where(Transaction.occurred_on <= until)
+        if flows:
+            stmt = stmt.where(Transaction.flow.in_(list(flows)))
+        if categories:
+            stmt = stmt.where(Transaction.category.in_(list(categories)))
+        needle = (text or "").strip()
+        if len(needle) >= 2:
+            # `%` and `_` are LIKE wildcards: "50%" must find "50%", and `\` is escaped first
+            # because it is the escape character itself.
+            escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            stmt = stmt.where(
+                Transaction.category.ilike(pattern, escape="\\")
+                | func.coalesce(Transaction.description, "").ilike(pattern, escape="\\")
+            )
 
         stmt = stmt.order_by(Transaction.occurred_on, Transaction.created_at)
         return (await self.session.execute(stmt)).scalars().all()
+
+    @staticmethod
+    def split_totals(rows: Sequence[Transaction]) -> tuple:
+        """(income, expense) over these rows, in the book's base currency."""
+        income = sum((r.converted_amount for r in rows if r.flow is Flow.INCOME), ZERO)
+        expense = sum((r.converted_amount for r in rows if r.flow is Flow.EXPENSE), ZERO)
+        return quantize(income), quantize(expense)
 
     async def recent_categories(
         self,

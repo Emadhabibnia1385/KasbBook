@@ -361,11 +361,14 @@ class AttachmentResponse(Model):
     created_at: datetime
 
 
-class TransactionPage(Model):
+class TransactionPage(MoneyModel):
     items: List[TransactionResponse]
     total: int
     page: int
     per_page: int
+    # Over every match, not just this page: «how much did I spend on rent» is the question.
+    total_income: Decimal = Decimal("0")
+    total_expense: Decimal = Decimal("0")
 
 
 class TransactionSearchPage(MoneyModel):

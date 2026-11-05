@@ -299,6 +299,9 @@ async def list_transactions(
     until: Optional[str] = None,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=200),
+    flow: Optional[List[str]] = Query(default=None, description="income and/or expense; repeat for both"),
+    category: Optional[List[str]] = Query(default=None, description="repeat for several categories"),
+    q: Optional[str] = Query(default=None, max_length=100, description="words in the category or the note"),
 ) -> TransactionPage:
     from datetime import date as date_type
 
@@ -311,8 +314,11 @@ async def list_transactions(
             raise ValidationError(f"{field} must be a date like 2026-08-25") from None
 
     rows = await LedgerService(session).transactions(
-        book_id, user.id, parse(since, "since"), parse(until, "until")
+        book_id, user.id, parse(since, "since"), parse(until, "until"),
+        flows=[_as_enum(Flow, value, "flow") for value in flow] if flow else None,
+        categories=category or None, text=q,
     )
+    totals = LedgerService.split_totals(rows)
     # Newest first, which is what a list is read for.
     rows = list(reversed(rows))
     start = (page - 1) * per_page
@@ -323,6 +329,7 @@ async def list_transactions(
     return TransactionPage(
         items=[_transaction(row, activities[row.id], counts.get(row.id, 0)) for row in visible],
         total=len(rows), page=page, per_page=per_page,
+        total_income=totals[0], total_expense=totals[1],
     )
 
 
