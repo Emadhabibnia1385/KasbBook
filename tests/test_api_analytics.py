@@ -182,6 +182,113 @@ async def test_top_categories_carry_share_and_delta_and_respect_the_limit(api):
     assert rows[1]["percent"] is None
 
 
+# ----------------------------------------------------- category by month
+async def test_category_monthly_keeps_the_top_apart_and_folds_the_rest(api):
+    headers = await signed_in(api, "p@example.com")
+    book = await new_book(api, headers)
+    now = today()
+    last = jalali.add_months(now, -1)
+    # Over the window: اجاره 900, حقوق 500, تبلیغات 120, برق 60, آب 30.
+    await add(api, headers, book, "expense", "400", last, category="اجاره")
+    await add(api, headers, book, "expense", "500", now, category="اجاره")
+    await add(api, headers, book, "expense", "500", now, category="حقوق")
+    await add(api, headers, book, "expense", "120.50", last, category="تبلیغات")
+    await add(api, headers, book, "expense", "60", now, category="برق")
+    await add(api, headers, book, "expense", "30", last, category="آب")
+    # Income is another direction and must not leak into an expense view.
+    await add(api, headers, book, "income", "9999", now, category="فروش")
+
+    body = (await api.get(
+        f"{BASE}/{book}/analytics/category-monthly?months=3&top=2", headers=headers)).json()
+
+    assert body["flow"] == "expense"
+    first, previous, current = body["months"]
+    # The window is three months and the oldest has nothing: it is still a column.
+    assert first["total"] == "0.0000"
+    y, m, _ = jalali.to_parts(now)
+    assert current["period"] == f"{y}-{m:02d}"
+    # Every month lists the same segments in the same order, zeros included.
+    names = [(s["category"], s["is_other"]) for s in current["segments"]]
+    assert names == [("اجاره", False), ("حقوق", False), ("سایر", True)]
+    assert [(s["category"], s["is_other"]) for s in first["segments"]] == names
+    assert [s["amount"] for s in first["segments"]] == ["0.0000"] * 3
+    # Last month: 400 of اجاره; تبلیغات 120.50 + آب 30 folded together.
+    assert [s["amount"] for s in previous["segments"]] == ["400.0000", "0.0000", "150.5000"]
+    assert previous["total"] == "550.5000"
+    # This month: 60 of برق is the only thing folded.
+    assert [s["amount"] for s in current["segments"]] == ["500.0000", "500.0000", "60.0000"]
+    assert current["total"] == "1060.0000"
+
+
+async def test_category_monthly_has_no_other_segment_when_nothing_was_folded(api):
+    headers = await signed_in(api, "q@example.com")
+    book = await new_book(api, headers)
+    await add(api, headers, book, "income", "70", today(), category="فروش")
+
+    body = (await api.get(
+        f"{BASE}/{book}/analytics/category-monthly?months=2&flow=income", headers=headers)).json()
+
+    assert body["flow"] == "income"
+    assert [[s["category"] for s in month["segments"]] for month in body["months"]] == [["فروش"], ["فروش"]]
+    assert not any(s["is_other"] for month in body["months"] for s in month["segments"])
+
+
+async def test_category_monthly_on_an_empty_book_lists_the_months_and_no_segments(api):
+    headers = await signed_in(api, "r@example.com")
+    book = await new_book(api, headers)
+
+    body = (await api.get(f"{BASE}/{book}/analytics/category-monthly?months=4", headers=headers)).json()
+
+    assert len(body["months"]) == 4
+    assert all(m["segments"] == [] and m["total"] == "0.0000" for m in body["months"])
+
+
+async def test_category_monthly_judges_the_top_over_the_window_not_per_month(api):
+    headers = await signed_in(api, "s@example.com")
+    book = await new_book(api, headers)
+    now = today()
+    last = jalali.add_months(now, -1)
+    # Last month برق is the single biggest; over the window اجاره is. With top=1
+    # برق must be folded in both months or its colour would change between them.
+    await add(api, headers, book, "expense", "300", last, category="برق")
+    await add(api, headers, book, "expense", "100", last, category="اجاره")
+    await add(api, headers, book, "expense", "400", now, category="اجاره")
+
+    body = (await api.get(
+        f"{BASE}/{book}/analytics/category-monthly?months=2&top=1", headers=headers)).json()
+
+    previous, current = body["months"]
+    assert [(s["category"], s["amount"]) for s in previous["segments"]] == [
+        ("اجاره", "100.0000"), ("سایر", "300.0000")]
+    assert [(s["category"], s["amount"]) for s in current["segments"]] == [
+        ("اجاره", "400.0000"), ("سایر", "0.0000")]
+
+
+async def test_category_monthly_refuses_a_bad_flow_or_window(api):
+    headers = await signed_in(api, "t@example.com")
+    book = await new_book(api, headers)
+    url = f"{BASE}/{book}/analytics/category-monthly"
+
+    assert (await api.get(f"{url}?flow=sideways", headers=headers)).status_code == 422
+    for months in (0, 25, -3):
+        assert (await api.get(f"{url}?months={months}", headers=headers)).status_code == 422
+    for top in (0, 13):
+        assert (await api.get(f"{url}?top={top}", headers=headers)).status_code == 422
+    assert (await api.get(url, headers=headers)).status_code == 200
+
+
+async def test_category_monthly_ignores_another_books_transactions(api):
+    owner = await signed_in(api, "u@example.com")
+    other = await signed_in(api, "v@example.com")
+    book = await new_book(api, owner)
+    theirs = await new_book(api, other)
+    await add(api, other, theirs, "expense", "777", today(), category="اجاره")
+
+    body = (await api.get(f"{BASE}/{book}/analytics/category-monthly?months=1", headers=owner)).json()
+
+    assert body["months"][0]["segments"] == []
+
+
 # ----------------------------------------------------------- cumulative
 async def test_cumulative_lines_are_aligned_by_day_number(api):
     headers = await signed_in(api, "f@example.com")
@@ -318,7 +425,7 @@ async def test_a_stranger_gets_not_found_from_every_endpoint(api):
 
     for path in (
         "cashflow", "weekday", "scope-split", "compare", "top-categories",
-        "cumulative", "overview-kpis", "budget-vs-actual",
+        "cumulative", "overview-kpis", "budget-vs-actual", "category-monthly",
     ):
         reply = await api.get(f"{BASE}/{book}/analytics/{path}", headers=stranger)
         assert reply.status_code == 404, path

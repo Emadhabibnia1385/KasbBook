@@ -1,0 +1,1 @@
+import{Mt as e,ct as t,kt as n,ot as r}from"./strings-UURT3zlX.js";var i=e(n(),1);function a(e=!0){let[n,r]=(0,i.useState)(e),a=(0,i.useRef)(!1),o=(0,i.useCallback)(e=>{a.current=!0,r(!!e)},[]);return t(()=>{a.current||r(!1)},[]),[o,n]}function o(e=!0){let t=r(),[n,i]=a(e);return{id:i?t:void 0,ref:n}}export{o as t};

@@ -11,6 +11,7 @@ import { reportsExportCsv } from "@/api/generated/reports/reports";
 import type { BookResponse } from "@/api/generated/model";
 import {
 	BridgePanel,
+	CategoryMonthlyPanel,
 	CumulativePanel,
 	ExpenseDonutPanel,
 	FlowPanel,
@@ -33,6 +34,7 @@ function Body({ book, period }: { book: BookResponse; period: string }) {
 		<div className="flex flex-col gap-5">
 			<CompareCards book={book} period={period} />
 			<FlowPanel book={book} period={period} kind={kind} />
+			<CategoryMonthlyPanel book={book} />
 			<div className="grid gap-5 lg:grid-cols-2">
 				<CumulativePanel book={book} period={period} title={r.cumulativeTitle} />
 				<BridgePanel book={book} period={period} />

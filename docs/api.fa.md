@@ -203,6 +203,7 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `GET …/scope-split` | `?period=` ← جمع کاری، شخصی و تیمی (همیشه هر سه) |
 | `GET …/compare` | `?period=` ← این دوره در برابر قبلی، مطلق و درصدی، و دسته‌های بزرگ |
 | `GET …/top-categories` | `?period=&flow=expense&limit=8` ← هر دسته با سهم و تغییرش از دورهٔ قبل |
+| `GET …/category-monthly` | `?months=6&flow=expense&top=6` ← هر ماه به تفکیک دسته: بزرگ‌ترین `top` دسته در کل بازه، بقیه در «سایر» (`is_other`)؛ همهٔ ماه‌ها همان بخش‌ها را به همان ترتیب دارند |
 | `GET …/cumulative` | `?period=` ← درآمد، هزینه و خالص تجمعی روزبه‌روز، کنار خالص دورهٔ قبل در همان شمارهٔ روز |
 | `GET …/overview-kpis` | `?period=` ← موجودی، نرخ پس‌انداز، میانگین هزینهٔ روزانه، بزرگ‌ترین هزینه، پوشش به روز |
 | `GET …/budget-vs-actual` | `?period=1405-08` ← مصرف هر بودجه و سهم گذشته از ماه |

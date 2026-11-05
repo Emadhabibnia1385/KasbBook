@@ -1,6 +1,8 @@
-import { SectionCard } from "@nyxon/nasim";
+import { FilterChips, SectionCard } from "@nyxon/nasim";
+import { useState } from "react";
 import {
 	useAnalyticsCashflow,
+	useAnalyticsCategoryMonthly,
 	useAnalyticsCompare,
 	useAnalyticsCumulative,
 	useAnalyticsScopeSplit,
@@ -17,7 +19,9 @@ import {
 	Donut,
 	GroupedColumns,
 	LineCompare,
+	OTHER_COLOR,
 	type Slice,
+	StackedColumns,
 	WeekdayBars,
 } from "@/shared/charts";
 import { addMoney, negateMoney, subtractMoney } from "@/shared/decimal";
@@ -384,6 +388,65 @@ export function BridgePanel({ book, period }: { book: BookResponse; period: stri
 						}}
 					</Loaded>
 				)}
+			</Loaded>
+		</SectionCard>
+	);
+}
+
+/** Each month cut into the categories that made it up: which cost grew, and which one only looked big. */
+export function CategoryMonthlyPanel({ book }: { book: BookResponse }) {
+	const [flow, setFlow] = useState<"expense" | "income">("expense");
+	const query = useAnalyticsCategoryMonthly(book.id, { months: 6, flow, top: 5 });
+	const a = t.analytics.dashboard;
+	return (
+		<SectionCard title={a.categoryMonthlyTitle}>
+			<div className="mb-3">
+				<FilterChips
+					label={a.categoryMonthlyFlow}
+					value={flow}
+					onChange={(value) => setFlow(value as typeof flow)}
+					options={[
+						{ value: "expense", label: t.common.expense },
+						{ value: "income", label: t.common.income },
+					]}
+				/>
+			</div>
+			<Loaded query={query}>
+				{(data) => {
+					// One part per category name, in the order they first appear, with «سایر» always last and grey.
+					const names: { name: string; other: boolean }[] = [];
+					for (const month of data.months)
+						for (const segment of month.segments)
+							if (!names.some((known) => known.name === segment.category))
+								names.push({ name: segment.category, other: Boolean(segment.is_other) });
+					names.sort((left, right) => Number(left.other) - Number(right.other));
+					return (
+						<StackedColumns
+							title={a.categoryMonthlyTitle}
+							hideTitle
+							summary={a.categoryMonthlySummary}
+							rowHeader={t.analytics.chart.month}
+							formatValue={money(book)}
+							total={{ key: "total", name: a.categoryMonthlyTotal }}
+							parts={names.map((entry, index) => ({
+								key: entry.name,
+								name: entry.name,
+								color: entry.other ? OTHER_COLOR : categoryColor(index),
+							}))}
+							rows={data.months.map((month) => ({
+								key: month.period,
+								label: month.label,
+								title: periodLabel(month.period),
+								values: {
+									...Object.fromEntries(
+										month.segments.map((segment) => [segment.category, segment.amount]),
+									),
+									total: month.total,
+								},
+							}))}
+						/>
+					);
+				}}
 			</Loaded>
 		</SectionCard>
 	);

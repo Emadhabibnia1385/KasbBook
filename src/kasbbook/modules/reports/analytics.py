@@ -37,6 +37,10 @@ from .service import Period, ReportService, month, week, year
 # starts it, so a weekday chart and a "this week" report agree on day one.
 WEEKDAYS = ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه")
 
+# What the categories after the biggest few are called when they are folded
+# together. The word is data the panel shows, like the weekday names above.
+OTHER_LABEL = "سایر"
+
 _HUNDRED = Decimal(100)
 _PERCENT_SCALE = Decimal("0.01")
 
@@ -151,6 +155,28 @@ class CategoryMove:
     move: Change
     # Only filled by `top_categories`, where a share of the period's total means something.
     share_percent: Optional[Decimal] = None
+
+
+@dataclass(frozen=True)
+class CategorySegment:
+    category: str
+    amount: Decimal
+    # The folded «سایر» bucket, as opposed to a real category that happens to
+    # carry the same name: a client keys on this, not on the label.
+    is_other: bool = False
+
+
+@dataclass(frozen=True)
+class CategoryMonth:
+    year: int
+    month: int
+    # Every category of the legend, in legend order, zeros included, so a
+    # column chart can read position i as the same category in every month.
+    segments: List[CategorySegment]
+
+    @property
+    def total(self) -> Decimal:
+        return quantize(sum((s.amount for s in self.segments), ZERO))
 
 
 @dataclass(frozen=True)
@@ -339,6 +365,57 @@ class AnalyticsService:
             replace(m, share_percent=_percent(m.current, total) or ZERO)
             for m in moves[:limit]
         ]
+
+    # ------------------------------------------------------ category by month
+    async def category_monthly(
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        months: int,
+        flow: Flow,
+        top: int,
+        today: Optional[date] = None,
+    ) -> List[CategoryMonth]:
+        """Each of the last N months split by category, the biggest `top` kept apart.
+
+        "Biggest" is judged over the whole window, not month by month: a
+        category that is the top cost in one month and absent in the rest would
+        otherwise change colour from column to column, and a stacked chart is
+        only readable when one colour means one category throughout. Everything
+        outside the top is folded into one «سایر» segment, present only when
+        something was folded. Months with no activity are still listed.
+        """
+        wanted = jalali.recent_months(months, today)
+        start = jalali.month_range(*wanted[0])[0]
+        end = jalali.month_range(*wanted[-1])[1]
+        # `Period` wants a spec and a label, which a window of loose months has none of.
+        window = Period("", start, end, "")
+
+        per_month: Dict[Tuple[int, int], Dict[str, Decimal]] = {key: {} for key in wanted}
+        overall: Dict[str, Decimal] = {}
+        for tx in await self._rows(book_id, user_id, window):
+            if tx.flow is not flow:
+                continue
+            y, m, _ = jalali.to_parts(tx.occurred_on)
+            bucket = per_month.get((y, m))
+            if bucket is None:
+                continue
+            bucket[tx.category] = bucket.get(tx.category, ZERO) + tx.converted_amount
+            overall[tx.category] = overall.get(tx.category, ZERO) + tx.converted_amount
+
+        # Name breaks a tie so two equal categories keep the same order on every request.
+        ranked = sorted(overall, key=lambda name: (-overall[name], name))
+        kept = ranked[:top]
+        folded = len(ranked) > top
+
+        out: List[CategoryMonth] = []
+        for (y, m), bucket in per_month.items():
+            segments = [CategorySegment(name, quantize(bucket.get(name, ZERO))) for name in kept]
+            if folded:
+                rest = sum((v for name, v in bucket.items() if name not in kept), ZERO)
+                segments.append(CategorySegment(OTHER_LABEL, quantize(rest), is_other=True))
+            out.append(CategoryMonth(y, m, segments))
+        return out
 
     # --------------------------------------------------------------- compare
     async def compare(

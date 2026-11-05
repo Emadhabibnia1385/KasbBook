@@ -45,6 +45,26 @@ class ScopePoint(MoneyModel):
     transaction_count: int
 
 
+class CategorySegment(MoneyModel):
+    category: str
+    amount: Decimal
+    # True for the folded «سایر» bucket; a real category may share its name.
+    is_other: bool = False
+
+
+class CategoryMonthPoint(MoneyModel):
+    period: str
+    label: str
+    total: Decimal
+    # The same categories in the same order in every month, zeros included.
+    segments: List[CategorySegment]
+
+
+class CategoryMonthlyResponse(MoneyModel):
+    flow: str
+    months: List[CategoryMonthPoint]
+
+
 class Figures(MoneyModel):
     income: Decimal
     expense: Decimal

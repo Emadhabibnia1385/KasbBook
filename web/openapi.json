@@ -790,6 +790,59 @@
         "title": "CategoryLine",
         "type": "object"
       },
+      "CategoryMonthPoint": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "label",
+          "total",
+          "segments"
+        ],
+        "title": "CategoryMonthPoint",
+        "type": "object"
+      },
+      "CategoryMonthlyResponse": {
+        "properties": {
+          "flow": {
+            "title": "Flow",
+            "type": "string"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryMonthPoint"
+            },
+            "title": "Months",
+            "type": "array"
+          }
+        },
+        "required": [
+          "flow",
+          "months"
+        ],
+        "title": "CategoryMonthlyResponse",
+        "type": "object"
+      },
       "CategoryRequest": {
         "properties": {
           "flow": {
@@ -845,6 +898,30 @@
           "flow"
         ],
         "title": "CategoryResponse",
+        "type": "object"
+      },
+      "CategorySegment": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "is_other": {
+            "default": false,
+            "title": "Is Other",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "category",
+          "amount"
+        ],
+        "title": "CategorySegment",
         "type": "object"
       },
       "CategoryUpdate": {
@@ -5603,6 +5680,120 @@
           }
         },
         "summary": "Cashflow",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/category-monthly": {
+      "get": {
+        "description": "The last N months, each split by category: the biggest few and «سایر» for the rest.",
+        "operationId": "analytics_category_monthly",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "months",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 24,
+              "minimum": 1,
+              "title": "Months",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "expense or income",
+            "in": "query",
+            "name": "flow",
+            "required": false,
+            "schema": {
+              "default": "expense",
+              "description": "expense or income",
+              "title": "Flow",
+              "type": "string"
+            }
+          },
+          {
+            "description": "categories kept apart; the rest are folded into «سایر»",
+            "in": "query",
+            "name": "top",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "description": "categories kept apart; the rest are folded into «سایر»",
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Top",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryMonthlyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Category Monthly",
         "tags": [
           "analytics"
         ]

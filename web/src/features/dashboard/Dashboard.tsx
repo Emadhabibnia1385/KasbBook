@@ -13,6 +13,7 @@ import { useBooksListTransactions } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
 import {
 	CashflowPanel,
+	CategoryMonthlyPanel,
 	CumulativePanel,
 	ExpenseDonutPanel,
 	ScopeDonutPanel,
@@ -98,6 +99,7 @@ export function Dashboard() {
 				<ExpenseDonutPanel book={book} period={period} title={a.categoryDonutTitle} />
 			</div>
 			<MoreCharts>
+				<CategoryMonthlyPanel book={book} />
 				<BudgetGauges book={book} period={period} />
 				<div className="grid gap-5 lg:grid-cols-2">
 					<WeekdayPanel book={book} period={period} title={a.weekdayTitle} />

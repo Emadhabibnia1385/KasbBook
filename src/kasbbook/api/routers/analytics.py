@@ -25,6 +25,9 @@ from ..schemas_analytics import (
     BudgetActualResponse,
     CashflowPoint,
     CategoryDelta,
+    CategoryMonthlyResponse,
+    CategoryMonthPoint,
+    CategorySegment,
     CompareResponse,
     CumulativePoint,
     CumulativeResponse,
@@ -68,6 +71,13 @@ def _spec_text(period: Period) -> str:
     if parts[0] == "y":
         return parts[1]
     return "week" if period.spec == "w:0" else period.spec
+
+
+def _flow(text: str) -> Flow:
+    try:
+        return Flow(text.lower())
+    except ValueError:
+        raise ValidationError("flow must be income or expense") from None
 
 
 def _delta(move) -> Delta:
@@ -178,19 +188,43 @@ async def top_categories(
     limit: int = Query(default=8, ge=1, le=50),
 ) -> List[TopCategory]:
     """The biggest categories this period, each with its change since the last."""
-    try:
-        direction = Flow(flow.lower())
-    except ValueError:
-        raise ValidationError("flow must be income or expense") from None
-
     today = _today(user)
     moves = await analytics_service.AnalyticsService(session).top_categories(
-        book_id, user.id, _period(period, today), direction, limit, today
+        book_id, user.id, _period(period, today), _flow(flow), limit, today
     )
     return [
         TopCategory(**_category_delta(m).model_dump(), share_percent=m.share_percent)
         for m in moves
     ]
+
+
+@router.get("/category-monthly", response_model=CategoryMonthlyResponse)
+async def category_monthly(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    months: int = Query(default=6, ge=1, le=24),
+    flow: str = Query(default="expense", description="expense or income"),
+    top: int = Query(default=6, ge=1, le=12, description="categories kept apart; the rest are folded into «سایر»"),
+) -> CategoryMonthlyResponse:
+    """The last N months, each split by category: the biggest few and «سایر» for the rest."""
+    direction = _flow(flow)
+    rows = await analytics_service.AnalyticsService(session).category_monthly(
+        book_id, user.id, months, direction, top, _today(user)
+    )
+    return CategoryMonthlyResponse(
+        flow=direction.value,
+        months=[
+            CategoryMonthPoint(
+                period=f"{r.year}-{r.month:02d}", label=jalali.month_name(r.month), total=r.total,
+                segments=[
+                    CategorySegment(category=s.category, amount=s.amount, is_other=s.is_other)
+                    for s in r.segments
+                ],
+            )
+            for r in rows
+        ],
+    )
 
 
 @router.get("/cumulative", response_model=CumulativeResponse)

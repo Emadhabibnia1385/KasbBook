@@ -79,14 +79,25 @@ export function formatMoney(value: string | number, currency: string): string {
 /** A compact figure for a chart's axis or a tight card: ۱٫۲ میلیون. */
 export function formatCompact(value: number): string {
 	const abs = Math.abs(value);
-	const unit = abs >= 1e9 ? [1e9, "میلیارد"] : abs >= 1e6 ? [1e6, "میلیون"] : abs >= 1e3 ? [1e3, "هزار"] : null;
+	const unit =
+		abs >= 1e9
+			? [1e9, "میلیارد"]
+			: abs >= 1e6
+				? [1e6, "میلیون"]
+				: abs >= 1e3
+					? [1e3, "هزار"]
+					: null;
 	if (!unit) return formatAmount(Math.round(value));
 	const scaled = Math.round((value / (unit[0] as number)) * 10) / 10;
 	return `${formatAmount(scaled)} ${unit[1]}`;
 }
 
 const dayFormat = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "long" });
-const fullFormat = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { year: "numeric", month: "long", day: "numeric" });
+const fullFormat = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+	year: "numeric",
+	month: "long",
+	day: "numeric",
+});
 
 /** An ISO date (2026-11-05) in the Jalali calendar: ۱۴ آبان. */
 export function formatDay(iso: string): string {
@@ -104,7 +115,10 @@ export function toAscii(text: string): string {
 		.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
 }
 
-const periodParts = new Intl.DateTimeFormat("en-u-ca-persian-nu-latn", { year: "numeric", month: "numeric" });
+const periodParts = new Intl.DateTimeFormat("en-u-ca-persian-nu-latn", {
+	year: "numeric",
+	month: "numeric",
+});
 
 /** The current Jalali month in the form the reports API takes: 1405-08. */
 export function currentPeriod(now = new Date()): string {
@@ -113,7 +127,20 @@ export function currentPeriod(now = new Date()): string {
 	return `${pick("year")}-${pick("month").padStart(2, "0")}`;
 }
 
-export const MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+export const MONTHS = [
+	"فروردین",
+	"اردیبهشت",
+	"خرداد",
+	"تیر",
+	"مرداد",
+	"شهریور",
+	"مهر",
+	"آبان",
+	"آذر",
+	"دی",
+	"بهمن",
+	"اسفند",
+];
 
 /** The last `count` Jalali months, newest first, as the API's period and a label to show. */
 export function recentPeriods(count: number, now = new Date()): { value: string; label: string }[] {
@@ -122,6 +149,9 @@ export function recentPeriods(count: number, now = new Date()): { value: string;
 		const index = year * 12 + (month - 1) - back;
 		const y = Math.floor(index / 12);
 		const m = (index % 12) + 1;
-		return { value: `${y}-${String(m).padStart(2, "0")}`, label: `${MONTHS[m - 1]} ${formatAmount(y).replace(/[٬,]/g, "")}` };
+		return {
+			value: `${y}-${String(m).padStart(2, "0")}`,
+			label: `${MONTHS[m - 1]} ${formatAmount(y).replace(/[٬,]/g, "")}`,
+		};
 	});
 }

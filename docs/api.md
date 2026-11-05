@@ -208,6 +208,7 @@ never `0`. A currency conversion is not a transaction and is in none of them.
 | `GET …/scope-split` | `?period=` → totals for work, personal and team (always all three) |
 | `GET …/compare` | `?period=` → this period against the one before, absolute and percent, plus the biggest categories |
 | `GET …/top-categories` | `?period=&flow=expense&limit=8` → each category with its share and its change since the last period |
+| `GET …/category-monthly` | `?months=6&flow=expense&top=6` → each month split by category: the biggest `top` over the window, the rest folded into «سایر» (`is_other`); every month lists the same segments in the same order |
 | `GET …/cumulative` | `?period=` → running income, expense and net by day, beside the previous period's net on the same day number |
 | `GET …/overview-kpis` | `?period=` → balance, savings rate, average daily expense, biggest expense, runway in days |
 | `GET …/budget-vs-actual` | `?period=1405-08` → each budget's use, and how much of the month has passed |

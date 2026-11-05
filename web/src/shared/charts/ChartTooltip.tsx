@@ -8,14 +8,19 @@ type TooltipProps = {
 	payload?: readonly { payload?: unknown }[];
 	series: readonly Series[];
 	formatValue: FormatValue;
+	/** Leave out series that are zero in this row: a stack of seven parts mostly has a few. */
+	skipZero?: boolean;
 };
 
 /** The hover card: the row's title, then each series by name with its exact value. */
-export function ChartTooltip({ active, payload, series, formatValue }: TooltipProps) {
+export function ChartTooltip({ active, payload, series, formatValue, skipZero }: TooltipProps) {
 	const datum = payload?.[0]?.payload as Datum | undefined;
 	if (!active || !datum) return null;
 	const { row } = datum;
-	const present = series.filter((item) => row.values[item.key] != null);
+	const present = series.filter((item) => {
+		const value = row.values[item.key];
+		return value != null && !(skipZero && Number(value) === 0);
+	});
 	if (present.length === 0) return null;
 	return (
 		<div
