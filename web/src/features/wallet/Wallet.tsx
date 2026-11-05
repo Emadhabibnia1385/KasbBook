@@ -13,23 +13,21 @@ import {
 	PageSkeleton,
 	SectionCard,
 	SelectField,
-	StatusChip,
 	SubmitButton,
 	TextField,
 	toast,
 } from "@nyxon/nasim";
 import {
 	getBooksListConversionsQueryKey,
-	getBooksListCurrenciesQueryKey,
 	getBooksWalletQueryKey,
 	useBooksConvert,
 	useBooksListConversions,
 	useBooksListCurrencies,
-	useBooksSetCurrency,
 	useBooksWallet,
 } from "@/api/generated/books/books";
 import type { BookResponse, CurrencyOptionResponse } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { CurrencyMenu } from "@/features/currencies/CurrencyMenu";
 import { currencyName, formatDay, formatMoney, toAscii } from "@/shared/format";
 import { t } from "@/strings";
 
@@ -180,57 +178,6 @@ function Balances({ book }: { book: BookResponse }) {
 	);
 }
 
-function Currencies({ book, options }: { book: BookResponse; options: CurrencyOptionResponse[] }) {
-	const queryClient = useQueryClient();
-	const setCurrency = useBooksSetCurrency();
-	return (
-		<ul className="flex flex-col gap-2">
-			{options.map((option) => (
-				<li
-					key={option.code}
-					className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
-				>
-					<span className="flex flex-wrap items-center gap-2">
-						<span className="font-medium">{option.name}</span>
-						<span dir="ltr" className="text-sm text-muted">
-							{option.code}
-						</span>
-						{option.is_base ? <StatusChip tone="info" label={t.wallet.base} /> : null}
-						<StatusChip
-							tone={option.enabled ? "success" : "neutral"}
-							label={option.enabled ? t.wallet.enabled : t.wallet.disabled}
-						/>
-					</span>
-					<Button
-						size="sm"
-						variant="secondary"
-						isDisabled={option.is_base}
-						isPending={setCurrency.isPending && setCurrency.variables?.code === option.code}
-						onPress={async () => {
-							try {
-								await setCurrency.mutateAsync({
-									bookId: book.id,
-									code: option.code,
-									data: { enabled: !option.enabled },
-								});
-								await queryClient.invalidateQueries({
-									queryKey: getBooksListCurrenciesQueryKey(book.id),
-								});
-								await queryClient.invalidateQueries({ queryKey: getBooksWalletQueryKey(book.id) });
-								toast.success(t.wallet.switched);
-							} catch (error) {
-								toast.danger(error instanceof Error ? error.message : t.errors.unknown);
-							}
-						}}
-					>
-						{option.enabled ? t.wallet.turnOff : t.wallet.turnOn}
-					</Button>
-				</li>
-			))}
-		</ul>
-	);
-}
-
 function Conversions({ book, options }: { book: BookResponse; options: CurrencyOptionResponse[] }) {
 	const [adding, setAdding] = useState(false);
 	const { data = [], isLoading, isError, refetch } = useBooksListConversions(book.id);
@@ -284,15 +231,15 @@ function Content({ book }: { book: BookResponse }) {
 				<Balances book={book} />
 			</SectionCard>
 			<div className="grid gap-5 lg:grid-cols-2">
-				<SectionCard title={t.wallet.currencies} description={t.wallet.currenciesHint}>
+				<div className="flex flex-col gap-5">
 					{currencies.isLoading ? (
 						<PageSkeleton header={false} rows={3} />
 					) : currencies.isError ? (
 						<ErrorState onRetry={() => void currencies.refetch()} />
 					) : (
-						<Currencies book={book} options={options} />
+						<CurrencyMenu book={book} options={options} />
 					)}
-				</SectionCard>
+				</div>
 				<SectionCard title={t.wallet.conversions}>
 					<Conversions book={book} options={options} />
 				</SectionCard>

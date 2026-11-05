@@ -329,6 +329,21 @@
         "title": "ApiKeyResponse",
         "type": "object"
       },
+      "BaseCurrencyRequest": {
+        "properties": {
+          "code": {
+            "maxLength": 8,
+            "minLength": 2,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "BaseCurrencyRequest",
+        "type": "object"
+      },
       "BiggestExpense": {
         "properties": {
           "amount": {
@@ -662,6 +677,44 @@
           "transaction_count"
         ],
         "title": "CashflowPoint",
+        "type": "object"
+      },
+      "CatalogCurrencyResponse": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "popular": {
+            "title": "Popular",
+            "type": "boolean"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "symbol",
+          "kind",
+          "region",
+          "popular"
+        ],
+        "title": "CatalogCurrencyResponse",
         "type": "object"
       },
       "CategoryDelta": {
@@ -1280,8 +1333,23 @@
             "title": "Is Base",
             "type": "boolean"
           },
+          "kind": {
+            "default": "fiat",
+            "title": "Kind",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "default": "",
+            "title": "Region",
+            "type": "string"
+          },
+          "symbol": {
+            "default": "",
+            "title": "Symbol",
             "type": "string"
           }
         },
@@ -6086,6 +6154,92 @@
         "summary": "Weekday",
         "tags": [
           "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/base-currency": {
+      "put": {
+        "description": "Choose the unit the book is kept in. Refused once the book has history.",
+        "operationId": "books_set_base_currency",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaseCurrencyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Base Currency",
+        "tags": [
+          "books"
         ]
       }
     },
@@ -12052,6 +12206,76 @@
         "summary": "Wallet",
         "tags": [
           "books"
+        ]
+      }
+    },
+    "/api/v1/currencies": {
+      "get": {
+        "description": "Every currency KasbBook knows: crypto and the legal tender of every country.\n\nThe same for everyone, so it needs a sign-in but no book. Static data: a\nclient may keep it for a long time.",
+        "operationId": "currencies_catalog",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogCurrencyResponse"
+                  },
+                  "title": "Response Currencies Catalog",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Catalog",
+        "tags": [
+          "currencies"
         ]
       }
     },

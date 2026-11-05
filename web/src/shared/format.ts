@@ -12,15 +12,15 @@ function roundWhole(text: string): string {
 
 const digits = new Intl.NumberFormat("fa-IR", { useGrouping: false });
 
-/** "1234567.5000" → "۱٬۲۳۴٬۵۶۷" (up to two decimals, none if they are zeros). */
-export function formatAmount(value: string | number): string {
+/** "1234567.5000" → "۱٬۲۳۴٬۵۶۷" (up to `decimals` places, none if they are zeros). */
+export function formatAmount(value: string | number, decimals = 2): string {
 	const text = String(value).trim();
 	const negative = text.startsWith("-");
 	const [whole = "0", fraction = ""] = text.replace(/^[-+]/, "").split(".");
 	const grouped = BigInt(whole || "0")
 		.toString()
 		.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-	const cents = fraction.slice(0, 2).replace(/0+$/, "");
+	const cents = fraction.slice(0, decimals).replace(/0+$/, "");
 	const out = cents ? `${grouped}.${cents}` : grouped;
 	const persian = out
 		.replace(/\d/g, (d) => digits.format(Number(d)))
@@ -29,19 +29,51 @@ export function formatAmount(value: string | number): string {
 	return negative && out !== "0" ? `\u200E−${persian}` : persian;
 }
 
-const CURRENCY_NAMES: Record<string, string> = { IRT: "تومان", IRR: "ریال", USD: "دلار", EUR: "یورو", USDT: "تتر" };
+type CatalogEntry = { code: string; name: string; symbol: string; kind: string };
+
+// The names the panel can use before the catalog has arrived; the catalog replaces them.
+const NAMES: Record<string, CatalogEntry> = {
+	IRT: { code: "IRT", name: "تومان", symbol: "تومان", kind: "fiat" },
+	IRR: { code: "IRR", name: "ریال", symbol: "ریال", kind: "fiat" },
+	USD: { code: "USD", name: "دلار آمریکا", symbol: "$", kind: "fiat" },
+	EUR: { code: "EUR", name: "یورو", symbol: "€", kind: "fiat" },
+	USDT: { code: "USDT", name: "تتر", symbol: "USDT", kind: "crypto" },
+};
+const CACHE_KEY = "kasbbook.currencies";
+
+try {
+	const cached = localStorage.getItem(CACHE_KEY);
+	if (cached) for (const row of JSON.parse(cached) as CatalogEntry[]) NAMES[row.code] = row;
+} catch {
+	// no cache: the built-in names serve until the catalog is fetched
+}
+
+/** Remember the catalog, so a currency has its Persian name from the first paint of the next visit. */
+export function registerCurrencies(rows: readonly CatalogEntry[]) {
+	for (const row of rows) NAMES[row.code] = row;
+	try {
+		localStorage.setItem(CACHE_KEY, JSON.stringify(rows));
+	} catch {
+		// the names last for this visit only
+	}
+}
 
 export function currencyName(code: string): string {
-	return CURRENCY_NAMES[code] ?? code;
+	return NAMES[code]?.name ?? code;
 }
 
 // Toman and rial have no cents in daily use: «۹٬۸۲۳٬۰۲۱٫۸۱ تومان» is noise, and it widens every card.
-const WHOLE = new Set(["IRT", "IRR"]);
+// Everything else follows the server's four stored places: two for a currency's cents, four for a coin.
+function decimalsFor(code: string): number {
+	if (code === "IRT" || code === "IRR") return 0;
+	return NAMES[code]?.kind === "crypto" ? 4 : 2;
+}
 
 export function formatMoney(value: string | number, currency: string): string {
+	const decimals = decimalsFor(currency);
 	const text = String(value).trim();
-	const shown = WHOLE.has(currency) ? roundWhole(text) : text;
-	return `${formatAmount(shown)} ${currencyName(currency)}`;
+	const shown = decimals === 0 ? roundWhole(text) : text;
+	return `${formatAmount(shown, decimals)} ${currencyName(currency)}`;
 }
 
 /** A compact figure for a chart's axis or a tight card: ۱٫۲ میلیون. */

@@ -31,6 +31,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+	BaseCurrencyRequest,
 	BookRequest,
 	BookResponse,
 	BooksListCategoriesParams,
@@ -425,6 +426,116 @@ export function useBooksGetBook<
 	return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getBooksSetBaseCurrencyUrl = (bookId: string) => {
+	return `/api/v1/books/${bookId}/base-currency`;
+};
+
+/**
+ * Choose the unit the book is kept in. Refused once the book has history.
+ * @summary Set Base Currency
+ */
+export const booksSetBaseCurrency = async (
+	bookId: string,
+	baseCurrencyRequest: BaseCurrencyRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<BookResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<BookResponse>(getBooksSetBaseCurrencyUrl(bookId), {
+		...options,
+		method: "PUT",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(baseCurrencyRequest),
+	});
+};
+
+export const getBooksSetBaseCurrencyMutationKey = () => ["booksSetBaseCurrency"] as const;
+
+export const getBooksSetBaseCurrencyMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksSetBaseCurrency>>,
+		TError,
+		BooksSetBaseCurrencyMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksSetBaseCurrency>>,
+	TError,
+	BooksSetBaseCurrencyMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksSetBaseCurrencyMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksSetBaseCurrency>>,
+		BooksSetBaseCurrencyMutationVariables
+	> = (props) => {
+		const { bookId, data } = props ?? {};
+
+		return booksSetBaseCurrency(bookId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksSetBaseCurrencyMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksSetBaseCurrency>>
+>;
+export type BooksSetBaseCurrencyMutationBody = BaseCurrencyRequest;
+export type BooksSetBaseCurrencyMutationError = ErrorType<HTTPValidationError>;
+export type BooksSetBaseCurrencyMutationVariables = { bookId: string; data: BaseCurrencyRequest };
+
+/**
+ * @summary Set Base Currency
+ */
+export const useBooksSetBaseCurrency = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksSetBaseCurrency>>,
+			TError,
+			BooksSetBaseCurrencyMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksSetBaseCurrency>>,
+	TError,
+	BooksSetBaseCurrencyMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksSetBaseCurrencyMutationOptions(options), queryClient);
+};
 export const getBooksListCategoriesUrl = (bookId: string, params?: BooksListCategoriesParams) => {
 	const normalizedParams = new URLSearchParams();
 

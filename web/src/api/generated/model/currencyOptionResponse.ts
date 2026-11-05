@@ -19,5 +19,8 @@ export interface CurrencyOptionResponse {
 	code: string;
 	enabled: boolean;
 	is_base: boolean;
+	kind?: string;
 	name: string;
+	region?: string;
+	symbol?: string;
 }

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { tv } from "tailwind-variants";
 import { OfflineBanner, useMediaQuery } from "@nyxon/nasim";
+import { useCatalog } from "@/features/currencies/useCatalog";
 import { t } from "@/strings";
 import { DesktopSidebar } from "./DesktopSidebar";
 import { PhoneTabBar } from "./PhoneTabBar";
@@ -20,6 +21,8 @@ const shell = tv({
 // the bottom one with the daily destinations. A tablet gets whichever its width earns.
 export function AppShell({ children }: { children: ReactNode }) {
 	const wide = useMediaQuery("(min-width: 1024px)");
+	// Fetched once per visit so every amount can name its currency in Persian.
+	useCatalog();
 	const { root, skip, column, main, page } = shell();
 	return (
 		<div className={root()}>

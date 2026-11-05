@@ -9,6 +9,7 @@ import type { BookResponse } from "@/api/generated/model";
 import { currencyName, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 import { Categories } from "./Categories";
+import { CurrencyPicker } from "@/features/currencies/CurrencyPicker";
 import { selectBook, useActiveBook } from "./useActiveBook";
 
 const TYPES = [
@@ -36,10 +37,13 @@ function Wallet({ book }: { book: BookResponse }) {
 	);
 }
 
-export function Books() {
+export function Books({ presetCurrency }: { presetCurrency?: string | undefined }) {
 	const queryClient = useQueryClient();
 	const { books, book: active, isLoading } = useActiveBook();
-	const [adding, setAdding] = useState(false);
+	// Arriving from a refused base-currency change opens the form with that unit already chosen.
+	const [adding, setAdding] = useState(Boolean(presetCurrency));
+	const [currency, setCurrency] = useState(presetCurrency ?? "IRT");
+	const [pickingCurrency, setPickingCurrency] = useState(false);
 	const create = useBooksCreateBook();
 	const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { name: "", type: "business" } });
 	if (isLoading) return <PageSkeleton />;
@@ -79,7 +83,7 @@ export function Books() {
 					className="flex flex-col gap-4"
 					onSubmit={async (values) => {
 						try {
-							const made = await create.mutateAsync({ data: { name: values.name, type: values.type } });
+							const made = await create.mutateAsync({ data: { name: values.name, type: values.type, currency } });
 							await queryClient.invalidateQueries({ queryKey: getBooksListBooksQueryKey() });
 							selectBook(made.id);
 							toast.success(t.books.created);
@@ -92,9 +96,25 @@ export function Books() {
 				>
 					<TextField name="name" label={t.books.name} isRequired />
 					<SelectField name="type" label={t.books.type} options={TYPES} />
+					<div className="flex flex-col gap-1">
+						<span className="text-sm font-medium">{t.currencies.createUnit}</span>
+						<Button variant="outline" className="justify-between" onPress={() => setPickingCurrency(true)}>
+							<span>{currencyName(currency)}</span>
+							<span dir="ltr" className="text-sm text-muted">
+								{currency}
+							</span>
+						</Button>
+					</div>
 					<SubmitButton>{t.common.save}</SubmitButton>
 				</FormRoot>
 			</Modal>
+			<CurrencyPicker
+				isOpen={pickingCurrency}
+				onOpenChange={setPickingCurrency}
+				title={t.currencies.pickUnit}
+				current={currency}
+				onPick={setCurrency}
+			/>
 		</div>
 	);
 }
