@@ -23,6 +23,7 @@ from .routers import (
     analytics,
     auth,
     books,
+    currencies,
     health,
     identities,
     invitations,
@@ -162,6 +163,7 @@ def create_app(
     app.include_router(auth.router, prefix=api)
     app.include_router(identities.router, prefix=api)
     app.include_router(invitations.router, prefix=api)
+    app.include_router(currencies.router, prefix=api)
     app.include_router(books.router, prefix=api)
     app.include_router(reports.router, prefix=api)
     app.include_router(analytics.router, prefix=api)

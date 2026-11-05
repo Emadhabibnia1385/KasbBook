@@ -245,6 +245,23 @@ class CurrencyOptionResponse(Model):
     name: str
     enabled: bool
     is_base: bool
+    # From the catalog. Optional so a client written before them still parses.
+    kind: str = "fiat"
+    symbol: str = ""
+    region: str = ""
+
+
+class CatalogCurrencyResponse(Model):
+    code: str
+    name: str
+    symbol: str
+    kind: str
+    region: str
+    popular: bool
+
+
+class BaseCurrencyRequest(Model):
+    code: str = Field(min_length=2, max_length=8)
 
 
 class CurrencyToggleRequest(Model):

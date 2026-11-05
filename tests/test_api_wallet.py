@@ -54,7 +54,7 @@ async def test_currencies_start_at_the_base_one_and_can_be_ticked(api, db):
 
 async def test_an_unsupported_currency_is_refused(api, db):
     headers, book = await workspace(api)
-    reply = await api.put(f"/api/v1/books/{book['id']}/currencies/DOGE",
+    reply = await api.put(f"/api/v1/books/{book['id']}/currencies/ZZZ",
                           headers=headers, json={"enabled": True})
     assert reply.status_code == 422
 

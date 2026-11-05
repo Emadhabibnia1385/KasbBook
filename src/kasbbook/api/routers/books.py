@@ -24,6 +24,7 @@ from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
+    BaseCurrencyRequest,
     BookRequest,
     ConversionRequest,
     ConversionResponse,
@@ -121,17 +122,19 @@ async def set_cost_policy(
 
 
 # ------------------------------------------------------ wallet & currencies
+def _option_response(o) -> CurrencyOptionResponse:
+    return CurrencyOptionResponse(code=o.code, name=o.name, enabled=o.enabled,
+                                  is_base=o.is_base, kind=o.kind, symbol=o.symbol,
+                                  region=o.region)
+
+
 @router.get("/{book_id}/currencies", response_model=List[CurrencyOptionResponse])
 async def list_currencies(
     book_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> List[CurrencyOptionResponse]:
     """Every currency this book could hold, and whether it is ticked."""
-    options = await ExchangeService(session).options(user.id, book_id)
-    return [
-        CurrencyOptionResponse(code=o.code, name=o.name, enabled=o.enabled,
-                               is_base=o.is_base)
-        for o in options
-    ]
+    options = await ExchangeService(session).catalog_options(user.id, book_id)
+    return [_option_response(o) for o in options]
 
 
 @router.put("/{book_id}/currencies/{code}", response_model=List[CurrencyOptionResponse])
@@ -141,11 +144,19 @@ async def set_currency(
 ) -> List[CurrencyOptionResponse]:
     exchange = ExchangeService(session)
     await exchange.set_enabled(user.id, book_id, code, body.enabled)
-    return [
-        CurrencyOptionResponse(code=o.code, name=o.name, enabled=o.enabled,
-                               is_base=o.is_base)
-        for o in await exchange.options(user.id, book_id)
-    ]
+    return [_option_response(o) for o in await exchange.catalog_options(user.id, book_id)]
+
+
+@router.put("/{book_id}/base-currency", response_model=BookResponse)
+async def set_base_currency(
+    book_id: uuid.UUID, body: BaseCurrencyRequest, user: CurrentUser, session: SessionDep
+) -> BookResponse:
+    """Choose the unit the book is kept in. Refused once the book has history."""
+    await ExchangeService(session).set_base(user.id, book_id, body.code)
+    book = await BookService(session).get_book(book_id)
+    return BookResponse(id=book.id, name=book.name, type=book.type.value,
+                        currency=book.base_currency, cost_policy=book.cost_policy.value,
+                        created_at=book.created_at)
 
 
 @router.get("/{book_id}/wallet", response_model=List[CurrencyBalanceResponse])

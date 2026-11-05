@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.security import utcnow
+from ..exchange.catalog import BY_CODE
 from ..identity.models import AuditEvent
 from ..ledger.models import JournalEntry, JournalLine
 from ..treasury.models import TreasuryAllocation
@@ -33,6 +34,9 @@ class BookService:
         base_currency: str = "IRT",
         cost_policy: CostPolicy = CostPolicy.BEFORE_SPLIT,
     ) -> Book:
+        # Checked here, not in a route, so the bot and the API refuse the same codes.
+        if base_currency.upper() not in BY_CODE:
+            raise ValidationError(f"ارز {base_currency} پشتیبانی نمی‌شود.")
         book = Book(
             name=name.strip(),
             type=book_type,

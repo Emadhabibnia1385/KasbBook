@@ -18,13 +18,24 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
-from ...shared.errors import ValidationError
+from ...shared.errors import PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
-from ..books.models import Permission
+from ..books.models import Permission, Role
 from ..books.service import BookService
+from ..budgets.models import Budget
+from ..debts.models import Debt
 from ..ledger.models import Flow, Transaction
-from ..payroll.models import Payment, Payslip
-from .models import CURRENCY_NAMES, OFFERED, BookCurrency, CurrencyConversion
+from ..loans.models import Loan
+from ..recurring.models import RecurringRule
+from ..treasury.models import TreasuryFund
+from ..payroll.models import FinancialPeriod, Payment, Payslip
+from .catalog import BY_CODE
+from .models import BOT_MENU, CURRENCY_NAMES, OFFERED, BookCurrency, CurrencyConversion
+
+# Everything that records an amount in the book's base currency. A book with a row
+# in any of these has history that a different base would re-label.
+_HISTORY = (Transaction, CurrencyConversion, Debt, Loan, Budget, RecurringRule, FinancialPeriod, TreasuryFund)
+
 
 @dataclass(frozen=True)
 class CurrencyBalance:
@@ -42,6 +53,10 @@ class CurrencyOption:
     code: str
     enabled: bool
     is_base: bool
+    # Filled from the catalog; defaults keep every existing construction valid.
+    kind: str = "fiat"
+    symbol: str = ""
+    region: str = ""
 
     @property
     def name(self) -> str:
@@ -97,11 +112,79 @@ class ExchangeService:
         await self.books.require(book_id, actor_user_id, Permission.VIEW_REPORTS)
         book = await self.books.get_book(book_id)
         live = set(await self.allowed(book_id))
-        codes = [book.base_currency] + [c for c in OFFERED if c != book.base_currency]
-        return [
-            CurrencyOption(code=c, enabled=c in live, is_base=c == book.base_currency)
-            for c in codes
+        # The chat's short menu, plus anything already ticked so nothing a book
+        # holds can vanish from it.
+        codes = [book.base_currency] + [
+            c for c in OFFERED
+            if c != book.base_currency and (c in BOT_MENU or c in live)
         ]
+        return [self._option(c, c in live, book.base_currency) for c in codes]
+
+    async def catalog_options(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID
+    ) -> List[CurrencyOption]:
+        """The whole catalog for the web's picker, with what is ticked."""
+        await self.books.require(book_id, actor_user_id, Permission.VIEW_REPORTS)
+        book = await self.books.get_book(book_id)
+        live = set(await self.allowed(book_id))
+        codes = [book.base_currency] + [c for c in OFFERED if c != book.base_currency]
+        return [self._option(c, c in live, book.base_currency) for c in codes]
+
+    @staticmethod
+    def _option(code: str, enabled: bool, base: str) -> CurrencyOption:
+        known = BY_CODE.get(code)
+        return CurrencyOption(
+            code=code, enabled=enabled, is_base=code == base,
+            kind=known.kind if known else "fiat",
+            symbol=known.symbol if known else code,
+            region=known.region if known else "",
+        )
+
+    async def set_base(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, code: str
+    ) -> None:
+        """Change the unit this book is kept in — only while the book is empty.
+
+        Every transaction stores its `converted_amount` in the base currency and
+        the journal is written in it, so re-labelling the base of a book that has
+        history would not convert anything: it would silently make every figure
+        mean something else. Rescaling the history needs a rate and a decision
+        about which rate, which is a different feature. Until then an empty book
+        may choose, and a book with history is told how to proceed.
+        """
+        member = await self.books.require(book_id, actor_user_id, Permission.VIEW_REPORTS)
+        if member.role is not Role.OWNER:
+            raise PermissionDenied("only the owner may change a book's main currency")
+        book = await self.books.get_book(book_id)
+        code = code.upper()
+        if code not in BY_CODE:
+            raise ValidationError(f"ارز {code} پشتیبانی نمی‌شود.")
+        if code == book.base_currency:
+            return
+        for model in _HISTORY:
+            used = await self.session.scalar(
+                select(model.id).where(model.book_id == book_id).limit(1)
+            )
+            if used is not None:
+                raise ValidationError(
+                    "این دفتر سابقه دارد و همهٔ مبلغ‌هایش به "
+                    f"{CURRENCY_NAMES.get(book.base_currency, book.base_currency)} ثبت شده؛ "
+                    "با عوض‌کردن واحد اصلی اعداد قدیمی معنی دیگری پیدا می‌کنند. "
+                    "برای واحد دیگر یک دفتر تازه بساز."
+                )
+        # The old base becomes an ordinary currency again only if somebody ticks it.
+        book.base_currency = code
+        # A row for the new base would be redundant: the base is never a row.
+        row = (
+            await self.session.execute(
+                select(BookCurrency).where(
+                    BookCurrency.book_id == book_id, BookCurrency.code == code
+                )
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            await self.session.delete(row)
+        await self.session.flush()
 
     async def set_enabled(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID, code: str, enabled: bool
@@ -113,7 +196,7 @@ class ExchangeService:
 
         if code == book.base_currency:
             raise ValidationError("ارز پایهٔ دفتر همیشه فعال است.")
-        if code not in OFFERED:
+        if code not in BY_CODE:
             raise ValidationError(f"ارز {code} پشتیبانی نمی‌شود.")
 
         if not enabled:

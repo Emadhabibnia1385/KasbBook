@@ -37,17 +37,17 @@ from ...shared.database import Base, Timestamped, UUIDPrimaryKey
 from ...shared.money import Money, ZERO
 
 
-# What the bot offers to tick, and what each is called in Persian. These live
-# on the model rather than the service so screens can name a currency without
-# importing anything that talks to a database.
-CURRENCY_NAMES = {
-    "IRT": "تومان",
-    "IRR": "ریال",
-    "USDT": "تتر",
-    "TON": "تون",
-    "TRX": "ترون",
-}
-OFFERED = ("USDT", "TON", "TRX")
+# Names and the list of what a book may hold come from the catalog. They stay
+# importable from here because screens name a currency without importing
+# anything that talks to a database, and the bot has always read them here.
+from .catalog import BY_CODE, CATALOG
+
+CURRENCY_NAMES = {c.code: c.name for c in CATALOG}
+# Every currency a book may be allowed to hold.
+OFFERED = tuple(c.code for c in CATALOG)
+# What the bot's wallet screen offers to tick. The web shows the whole catalog;
+# a chat message with a hundred and seventy buttons is not a menu.
+BOT_MENU = ("USDT", "TON", "TRX")
 
 
 class BookCurrency(UUIDPrimaryKey, Timestamped, Base):
