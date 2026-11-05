@@ -19,3 +19,5 @@ export { default as TelegramIcon } from "~icons/solar/plain-bold";
 export { default as WalletIcon } from "~icons/solar/wallet-linear";
 export { default as RepeatIcon } from "~icons/solar/repeat-linear";
 export { default as SearchIcon } from "~icons/solar/magnifer-linear";
+export { default as CheckIcon } from "~icons/solar/check-circle-bold";
+export { default as ChevronDownIcon } from "~icons/solar/alt-arrow-down-linear";

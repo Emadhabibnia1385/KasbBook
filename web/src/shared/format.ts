@@ -1,6 +1,15 @@
 // Numbers, money and dates as a Persian reader expects them; screens never format by hand.
 // Money arrives as a decimal string and stays a string until it is grouped, so no rial is lost to a float.
 
+/** "1234.5000" → "1235", with half rounded away from zero, on the decimal string so no float is involved. */
+function roundWhole(text: string): string {
+	const negative = text.startsWith("-");
+	const [whole = "0", fraction = ""] = text.replace(/^[-+]/, "").split(".");
+	const up = (fraction[0] ?? "0") >= "5";
+	const rounded = (BigInt(whole || "0") + (up ? 1n : 0n)).toString();
+	return negative && rounded !== "0" ? `-${rounded}` : rounded;
+}
+
 const digits = new Intl.NumberFormat("fa-IR", { useGrouping: false });
 
 /** "1234567.5000" → "۱٬۲۳۴٬۵۶۷" (up to two decimals, none if they are zeros). */
@@ -26,8 +35,13 @@ export function currencyName(code: string): string {
 	return CURRENCY_NAMES[code] ?? code;
 }
 
+// Toman and rial have no cents in daily use: «۹٬۸۲۳٬۰۲۱٫۸۱ تومان» is noise, and it widens every card.
+const WHOLE = new Set(["IRT", "IRR"]);
+
 export function formatMoney(value: string | number, currency: string): string {
-	return `${formatAmount(value)} ${currencyName(currency)}`;
+	const text = String(value).trim();
+	const shown = WHOLE.has(currency) ? roundWhole(text) : text;
+	return `${formatAmount(shown)} ${currencyName(currency)}`;
 }
 
 /** A compact figure for a chart's axis or a tight card: ۱٫۲ میلیون. */
