@@ -83,7 +83,7 @@ export function Donut({
 				})),
 			}}
 		>
-			<div className="relative mx-auto h-44 w-44">
+			<div className="relative mx-auto size-36 sm:size-44">
 				<ResponsiveContainer width="100%" height="100%">
 					<PieChart accessibilityLayer={false}>
 						<Pie

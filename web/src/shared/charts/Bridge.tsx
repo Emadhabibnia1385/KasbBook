@@ -1,3 +1,4 @@
+import { useIsNarrow } from "@nyxon/nasim";
 import {
 	Bar,
 	CartesianGrid,
@@ -40,6 +41,7 @@ const FILL = { income: color.income, expense: color.expense, total: color.net } 
 
 /** A net bridge: income, then each cost taking a step down, then what is left. Each bar floats where the running total was. */
 export function Bridge({ title, hideTitle, summary, steps, formatValue, emptyText }: BridgeProps) {
+	const narrow = useIsNarrow("sm");
 	const reduced = useReducedMotion();
 	const amounts = steps.map((step) => toNumber(step.amount) ?? 0);
 	// What the running total stood at before each step; a `total` bar always stands on zero.
@@ -91,7 +93,7 @@ export function Bridge({ title, hideTitle, summary, steps, formatValue, emptyTex
 			emptyText={emptyText}
 			table={tableOf(rows, series, formatValue, t.analytics.top.category)}
 		>
-			<div style={{ height: 260 }}>
+			<div style={{ height: narrow ? 180 : 260 }}>
 				<ResponsiveContainer width="100%" height="100%">
 					<ComposedChart
 						data={data}

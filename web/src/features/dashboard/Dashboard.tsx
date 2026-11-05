@@ -1,3 +1,4 @@
+import { Collapsible, useIsNarrow } from "@nyxon/nasim";
 import { Link } from "@tanstack/react-router";
 import {
 	EmptyState,
@@ -57,6 +58,18 @@ function Recent({ book }: { book: BookResponse }) {
 	);
 }
 
+// On a phone the secondary charts fold under one heading, so the screen is the figures, the year's
+// shape and the latest entries; a desktop shows everything as before.
+function MoreCharts({ children }: { children: React.ReactNode }) {
+	const narrow = useIsNarrow("md");
+	if (!narrow) return <>{children}</>;
+	return (
+		<Collapsible title={t.dashboard.moreCharts}>
+			<div className="flex flex-col gap-5 pt-3">{children}</div>
+		</Collapsible>
+	);
+}
+
 export function Dashboard() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton stats={4} />;
@@ -83,11 +96,13 @@ export function Dashboard() {
 				<CumulativePanel book={book} period={period} title={a.cumulativeTitle} />
 				<ExpenseDonutPanel book={book} period={period} title={a.categoryDonutTitle} />
 			</div>
-			<BudgetGauges book={book} period={period} />
-			<div className="grid gap-5 lg:grid-cols-2">
-				<WeekdayPanel book={book} period={period} title={a.weekdayTitle} />
-				<ScopeDonutPanel book={book} period={period} title={a.scopeTitle} />
-			</div>
+			<MoreCharts>
+				<BudgetGauges book={book} period={period} />
+				<div className="grid gap-5 lg:grid-cols-2">
+					<WeekdayPanel book={book} period={period} title={a.weekdayTitle} />
+					<ScopeDonutPanel book={book} period={period} title={a.scopeTitle} />
+				</div>
+			</MoreCharts>
 			<div className="grid gap-5 lg:grid-cols-2">
 				<TopCategories book={book} period={period} flow="expense" title={a.topTitle} />
 				<Recent book={book} />

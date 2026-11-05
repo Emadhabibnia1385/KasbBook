@@ -1,1 +1,0 @@
-import{a as e}from"./FocusScope-Civ0XdoF.js";import{Mt as t,kt as n}from"./strings-DNGbYR3T.js";var r=t(n(),1);function i(t={}){let{isReadOnly:n}=t,[i,a]=e(t.isSelected,t.defaultSelected||!1,t.onChange),[o]=(0,r.useState)(i);function s(e){n||a(e)}function c(){n||a(!i)}return{isSelected:i,defaultSelected:t.defaultSelected??o,setSelected:s,toggle:c}}export{i as t};

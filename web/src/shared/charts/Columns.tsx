@@ -1,3 +1,4 @@
+import { useIsNarrow } from "@nyxon/nasim";
 import type { ReactNode } from "react";
 import {
 	Bar,
@@ -47,10 +48,12 @@ export function GroupedColumns({
 	lines = [],
 	formatValue,
 	rowHeader,
-	height = 260,
+	height: fullHeight = 260,
 	note,
 	emptyText,
 }: ColumnsProps) {
+	// A phone has the width for the shape of a chart, not for its full height: a shorter plot keeps a dashboard to fewer screens.
+	const height = useIsNarrow("sm") ? Math.round(fullHeight * 0.68) : fullHeight;
 	const reduced = useReducedMotion();
 	const all = [...bars, ...lines];
 	const legend: LegendItem[] = [

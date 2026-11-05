@@ -1,3 +1,4 @@
+import { useIsNarrow } from "@nyxon/nasim";
 import type { ReactNode } from "react";
 import {
 	Area,
@@ -42,10 +43,11 @@ export function LineCompare({
 	series,
 	formatValue,
 	rowHeader,
-	height = 260,
+	height: fullHeight = 260,
 	note,
 	emptyText,
 }: LineCompareProps) {
+	const height = useIsNarrow("sm") ? Math.round(fullHeight * 0.68) : fullHeight;
 	const reduced = useReducedMotion();
 	const legend: LegendItem[] = series.map((item) => ({ ...item, kind: "line" as const }));
 	return (

@@ -14,6 +14,19 @@ const queryClient = new QueryClient({
 // The browser offers its install prompt once, and may do it before the install button is on screen.
 watchInstallPrompt();
 
+// A tab left open across a deploy asks for a chunk that the new build renamed. One reload fetches the
+// current page; the flag stops a genuinely missing file from reloading forever.
+window.addEventListener("vite:preloadError", (event) => {
+	event.preventDefault();
+	try {
+		if (sessionStorage.getItem("kasbbook.reloaded")) return;
+		sessionStorage.setItem("kasbbook.reloaded", "1");
+	} catch {
+		return;
+	}
+	location.reload();
+});
+
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root");
 

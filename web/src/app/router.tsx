@@ -6,7 +6,8 @@ import { PageSkeleton } from "./shell/PageSkeleton";
 export const router = createRouter({
 	routeTree,
 	defaultPreload: "intent",
-	defaultViewTransition: true,
+	// No view transitions: when the tab is in the background the browser aborts one with an
+	// InvalidStateError, and the navigation it wrapped never finishes: a blank page.
 	scrollRestoration: true,
 	defaultNotFoundComponent: NotFound,
 	// A slow route chunk shows the page's skeleton after a beat instead of a blank area.

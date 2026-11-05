@@ -1,4 +1,4 @@
-import { StatCard } from "@nyxon/nasim";
+import { StatCard, useIsNarrow } from "@nyxon/nasim";
 import type { ReactNode } from "react";
 import {
 	useAnalyticsCashflow,
@@ -13,7 +13,7 @@ import { t } from "@/strings";
 
 // A phone's two-column grid is about 160px a card: a seven-digit amount at the tile's usual size does not fit.
 function Figure({ children }: { children: ReactNode }) {
-	return <span className="text-xl sm:text-2xl">{children}</span>;
+	return <span className="text-lg sm:text-2xl">{children}</span>;
 }
 
 type ChangeCardProps = {
@@ -27,6 +27,12 @@ type ChangeCardProps = {
 };
 
 function ChangeCard({ label, value, previous, chip, spark, hint }: ChangeCardProps) {
+	// A phone shows the figure and its change; the earlier figure, the year of shape and the
+	// explanation are what make four cards a screen tall, and they are one tap away in the report.
+	const compact = useIsNarrow("sm");
+	if (compact) {
+		return <StatCard label={label} value={<Figure>{value}</Figure>} footer={chip ?? undefined} />;
+	}
 	return (
 		<StatCard
 			label={label}
@@ -138,6 +144,8 @@ export function OverviewRow({ book, period }: { book: BookResponse; period: stri
 	const { data } = useAnalyticsOverviewKpis(book.id, { period });
 	const k = t.analytics.kpi;
 	const biggest = data?.biggest_expense;
+	const compact = useIsNarrow("sm");
+	const hint = (text?: string) => (compact ? undefined : text);
 	return (
 		<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
 			<StatCard
@@ -147,7 +155,7 @@ export function OverviewRow({ book, period }: { book: BookResponse; period: stri
 						{data ? formatMoney(data.total_balance ?? data.base_balance, data.currency) : "…"}
 					</Figure>
 				}
-				hint={data?.holds_other_currencies ? k.otherCurrencies : k.balanceHint}
+				hint={hint(data?.holds_other_currencies ? k.otherCurrencies : k.balanceHint)}
 			/>
 			<StatCard
 				label={k.avgDaily}
@@ -158,7 +166,7 @@ export function OverviewRow({ book, period }: { book: BookResponse; period: stri
 							: "…"}
 					</Figure>
 				}
-				hint={k.avgDailyHint}
+				hint={hint(k.avgDailyHint)}
 			/>
 			<StatCard
 				label={k.runway}
@@ -169,7 +177,7 @@ export function OverviewRow({ book, period }: { book: BookResponse; period: stri
 							: `${formatAmount(data.runway_days)} ${k.runwayUnit}`
 						: "…"
 				}
-				hint={data?.runway_days == null && data ? k.noRunway : k.runwayHint}
+				hint={hint(data?.runway_days == null && data ? k.noRunway : k.runwayHint)}
 			/>
 			<StatCard
 				label={k.biggest}
@@ -178,7 +186,7 @@ export function OverviewRow({ book, period }: { book: BookResponse; period: stri
 						{data ? (biggest ? formatMoney(biggest.amount, data.currency) : "—") : "…"}
 					</Figure>
 				}
-				hint={biggest ? biggest.category : data ? k.noBiggest : undefined}
+				hint={biggest ? biggest.category : data ? hint(k.noBiggest) : undefined}
 			/>
 		</div>
 	);
