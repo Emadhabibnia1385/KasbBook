@@ -16,7 +16,10 @@
  */
 
 export interface ProfileRequest {
+	digest_enabled?: boolean | null;
+	digest_hour?: number | null;
 	display_name?: string | null;
 	locale?: string | null;
+	reminder_days?: number | null;
 	timezone?: string | null;
 }

@@ -105,7 +105,7 @@ that is theft detection working, not a bug. See [security.md](./security.md).
 
 | | |
 |---|---|
-| `PATCH /auth/me` | display name, timezone, locale |
+| `PATCH /auth/me` | display name, timezone, locale, and the digest: `digest_enabled`, `digest_hour` (0-23), `reminder_days` (0-60) |
 | `PUT /auth/me/contact` | the email or phone this account is reached and recovered by |
 | `PUT /auth/me/password` | set or change it — **ends every session, including yours** |
 
@@ -191,6 +191,7 @@ by email or phone.
 | `GET /books/{id}/reports/summary` | `?period=1403-05` → income, expense, net, count |
 | `GET /books/{id}/reports/by-category` | `?flow=expense&period=` → totals and shares |
 | `GET /books/{id}/reports/export.csv` | the period as a file, Jalali dates included; text cells starting `= + - @` get a leading `'` |
+| `GET /books/{id}/reports/search` | `?q=&page=&per_page=` → matching transactions (category or description, two characters at least) and the total over every match |
 | `GET /books/{id}/reports/day` | `?date=2026-03-19` → the daily list's split: business, personal, installments, savings |
 
 ## Budgets, debts, loans
@@ -206,6 +207,16 @@ by email or phone.
 
 A loan is described by what one instalment costs and how many there are,
 because that is how a loan is described to a person: "twelve of 4,000,000".
+
+## Recurring rules
+
+| | |
+|---|---|
+| `GET`/`POST /books/{id}/recurring` | rules, soonest first; `POST` takes `flow`, `category`, `amount`, `period` (`daily`, `weekly`, `monthly`), `starts_on` |
+| `POST /books/{id}/recurring/{rule}/toggle` | pause or resume |
+| `DELETE /books/{id}/recurring/{rule}` | what the rule already booked stays |
+
+Rules are booked by the reminder loop, not by these routes.
 
 ## Payroll and treasury
 

@@ -10,7 +10,10 @@ import {
 	ListIcon,
 	MoreIcon,
 	PlanIcon,
+	RepeatIcon,
+	SearchIcon,
 	TeamIcon,
+	WalletIcon,
 } from "@/shared/icons";
 import { t } from "@/strings";
 
@@ -31,5 +34,8 @@ export const SIDE_NAV: NavItem[] = [
 	...TAB_NAV.slice(0, 4),
 	{ to: "/team", label: t.nav.team, icon: TeamIcon },
 	{ to: "/books", label: t.nav.books, icon: BookIcon },
+	{ to: "/wallet", label: t.nav3.wallet, icon: WalletIcon },
+	{ to: "/recurring", label: t.nav3.recurring, icon: RepeatIcon },
+	{ to: "/search", label: t.nav3.search, icon: SearchIcon },
 	{ to: "/account", label: t.nav.account, icon: AccountIcon },
 ];

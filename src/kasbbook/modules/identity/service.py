@@ -48,6 +48,11 @@ MIN_PASSWORD_LENGTH = 8
 ANONYMISED_NAME = "حساب حذف‌شده"
 
 
+# Notification preferences; the bot clamps to the same ceiling.
+MAX_DIGEST_HOUR = 23
+MAX_REMINDER_DAYS = 60
+
+
 @dataclass(frozen=True)
 class DeletionPreview:
     """What closing an account would cost, before it is agreed to."""
@@ -217,6 +222,9 @@ class IdentityService:
         display_name: Optional[str] = None,
         timezone: Optional[str] = None,
         locale: Optional[str] = None,
+        digest_enabled: Optional[bool] = None,
+        digest_hour: Optional[int] = None,
+        reminder_days: Optional[int] = None,
     ) -> "User":
         user = await self.get_user(user_id)
 
@@ -237,6 +245,22 @@ class IdentityService:
 
         if locale is not None:
             user.locale = locale.strip()[:8] or "fa"
+
+        if digest_enabled is not None:
+            user.digest_enabled = digest_enabled
+
+        # The hour is a wall-clock hour in the user's own zone. 24 would be
+        # accepted by an integer column and never fire: the loop compares it
+        # against a local hour that tops out at 23.
+        if digest_hour is not None:
+            if not 0 <= digest_hour <= MAX_DIGEST_HOUR:
+                raise ValidationError("ساعت باید بین 0 تا 23 باشد")
+            user.digest_hour = digest_hour
+
+        if reminder_days is not None:
+            if not 0 <= reminder_days <= MAX_REMINDER_DAYS:
+                raise ValidationError("تعداد روز باید بین 0 تا 60 باشد")
+            user.reminder_days = reminder_days
 
         await self.session.flush()
         return user

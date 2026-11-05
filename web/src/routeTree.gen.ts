@@ -16,9 +16,12 @@ import { Route as AppAccountRouteImport } from './routes/_app.account'
 import { Route as AppBooksRouteImport } from './routes/_app.books'
 import { Route as AppMoreRouteImport } from './routes/_app.more'
 import { Route as AppPlanningRouteImport } from './routes/_app.planning'
+import { Route as AppRecurringRouteImport } from './routes/_app.recurring'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
+import { Route as AppSearchRouteImport } from './routes/_app.search'
 import { Route as AppTeamRouteImport } from './routes/_app.team'
 import { Route as AppTransactionsRouteImport } from './routes/_app.transactions'
+import { Route as AppWalletRouteImport } from './routes/_app.wallet'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -54,9 +57,19 @@ const AppPlanningRoute = AppPlanningRouteImport.update({
   path: '/planning',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRecurringRoute = AppRecurringRouteImport.update({
+  id: '/recurring',
+  path: '/recurring',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSearchRoute = AppSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => AppRoute,
 } as any)
 const AppTeamRoute = AppTeamRouteImport.update({
@@ -69,6 +82,11 @@ const AppTransactionsRoute = AppTransactionsRouteImport.update({
   path: '/transactions',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWalletRoute = AppWalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -77,9 +95,12 @@ export interface FileRoutesByFullPath {
   '/books': typeof AppBooksRoute
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
+  '/recurring': typeof AppRecurringRoute
   '/reports': typeof AppReportsRoute
+  '/search': typeof AppSearchRoute
   '/team': typeof AppTeamRoute
   '/transactions': typeof AppTransactionsRoute
+  '/wallet': typeof AppWalletRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -87,9 +108,12 @@ export interface FileRoutesByTo {
   '/books': typeof AppBooksRoute
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
+  '/recurring': typeof AppRecurringRoute
   '/reports': typeof AppReportsRoute
+  '/search': typeof AppSearchRoute
   '/team': typeof AppTeamRoute
   '/transactions': typeof AppTransactionsRoute
+  '/wallet': typeof AppWalletRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -100,9 +124,12 @@ export interface FileRoutesById {
   '/_app/books': typeof AppBooksRoute
   '/_app/more': typeof AppMoreRoute
   '/_app/planning': typeof AppPlanningRoute
+  '/_app/recurring': typeof AppRecurringRoute
   '/_app/reports': typeof AppReportsRoute
+  '/_app/search': typeof AppSearchRoute
   '/_app/team': typeof AppTeamRoute
   '/_app/transactions': typeof AppTransactionsRoute
+  '/_app/wallet': typeof AppWalletRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -114,9 +141,12 @@ export interface FileRouteTypes {
     | '/books'
     | '/more'
     | '/planning'
+    | '/recurring'
     | '/reports'
+    | '/search'
     | '/team'
     | '/transactions'
+    | '/wallet'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -124,9 +154,12 @@ export interface FileRouteTypes {
     | '/books'
     | '/more'
     | '/planning'
+    | '/recurring'
     | '/reports'
+    | '/search'
     | '/team'
     | '/transactions'
+    | '/wallet'
     | '/'
   id:
     | '__root__'
@@ -136,9 +169,12 @@ export interface FileRouteTypes {
     | '/_app/books'
     | '/_app/more'
     | '/_app/planning'
+    | '/_app/recurring'
     | '/_app/reports'
+    | '/_app/search'
     | '/_app/team'
     | '/_app/transactions'
+    | '/_app/wallet'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -198,11 +234,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPlanningRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/recurring': {
+      id: '/_app/recurring'
+      path: '/recurring'
+      fullPath: '/recurring'
+      preLoaderRoute: typeof AppRecurringRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/reports': {
       id: '/_app/reports'
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/search': {
+      id: '/_app/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof AppSearchRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/team': {
@@ -219,6 +269,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/wallet': {
+      id: '/_app/wallet'
+      path: '/wallet'
+      fullPath: '/wallet'
+      preLoaderRoute: typeof AppWalletRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -227,9 +284,12 @@ interface AppRouteChildren {
   AppBooksRoute: typeof AppBooksRoute
   AppMoreRoute: typeof AppMoreRoute
   AppPlanningRoute: typeof AppPlanningRoute
+  AppRecurringRoute: typeof AppRecurringRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppSearchRoute: typeof AppSearchRoute
   AppTeamRoute: typeof AppTeamRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
+  AppWalletRoute: typeof AppWalletRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -238,9 +298,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppBooksRoute: AppBooksRoute,
   AppMoreRoute: AppMoreRoute,
   AppPlanningRoute: AppPlanningRoute,
+  AppRecurringRoute: AppRecurringRoute,
   AppReportsRoute: AppReportsRoute,
+  AppSearchRoute: AppSearchRoute,
   AppTeamRoute: AppTeamRoute,
   AppTransactionsRoute: AppTransactionsRoute,
+  AppWalletRoute: AppWalletRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

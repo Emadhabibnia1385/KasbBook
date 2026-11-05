@@ -38,8 +38,10 @@ import type {
 	ReportsDayParams,
 	ReportsExportCsvParams,
 	ReportsMonthlyParams,
+	ReportsSearchParams,
 	ReportsSummaryParams,
 	SummaryResponse,
+	TransactionSearchPage,
 } from "../model";
 
 import { apiFetch } from "../../transport";
@@ -789,6 +791,153 @@ export function useReportsMonthly<
 	queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 	const queryOptions = useReportsMonthlyQueryOptions(bookId, params, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getReportsSearchUrl = (bookId: string, params?: ReportsSearchParams) => {
+	const normalizedParams = new URLSearchParams();
+
+	Object.entries(params || {}).forEach(([key, value]) => {
+		if (value !== undefined) {
+			normalizedParams.append(key, value === null ? "null" : String(value));
+		}
+	});
+
+	const stringifiedParams = normalizedParams.toString();
+
+	return stringifiedParams.length > 0
+		? `/api/v1/books/${bookId}/reports/search?${stringifiedParams}`
+		: `/api/v1/books/${bookId}/reports/search`;
+};
+
+/**
+ * The bot's search, as a page. A query under two characters matches nothing.
+ * @summary Search
+ */
+export const reportsSearch = async (
+	bookId: string,
+	params?: ReportsSearchParams,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<TransactionSearchPage> => {
+	return apiFetch<TransactionSearchPage>(getReportsSearchUrl(bookId, params), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getReportsSearchQueryKey = (bookId: string, params?: ReportsSearchParams) => {
+	return [`/api/v1/books/${bookId}/reports/search`, ...(params ? [params] : [])] as const;
+};
+
+export const useReportsSearchQueryOptions = <
+	TData = Awaited<ReturnType<typeof reportsSearch>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: ReportsSearchParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof reportsSearch>>, TError, TData>>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getReportsSearchQueryKey(bookId, params);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof reportsSearch>>> = ({ signal }) =>
+		reportsSearch(bookId, params, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled: bookId !== null && bookId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof reportsSearch>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ReportsSearchQueryResult = NonNullable<Awaited<ReturnType<typeof reportsSearch>>>;
+export type ReportsSearchQueryError = ErrorType<HTTPValidationError>;
+
+export function useReportsSearch<
+	TData = Awaited<ReturnType<typeof reportsSearch>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params: undefined | ReportsSearchParams,
+	options: {
+		query: Partial<UseQueryOptions<Awaited<ReturnType<typeof reportsSearch>>, TError, TData>> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof reportsSearch>>,
+					TError,
+					Awaited<ReturnType<typeof reportsSearch>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useReportsSearch<
+	TData = Awaited<ReturnType<typeof reportsSearch>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: ReportsSearchParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof reportsSearch>>, TError, TData>> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof reportsSearch>>,
+					TError,
+					Awaited<ReturnType<typeof reportsSearch>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useReportsSearch<
+	TData = Awaited<ReturnType<typeof reportsSearch>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: ReportsSearchParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof reportsSearch>>, TError, TData>>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Search
+ */
+
+export function useReportsSearch<
+	TData = Awaited<ReturnType<typeof reportsSearch>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: ReportsSearchParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof reportsSearch>>, TError, TData>>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useReportsSearchQueryOptions(bookId, params, options);
 
 	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
 		queryKey: DataTag<QueryKey, TData, TError>;

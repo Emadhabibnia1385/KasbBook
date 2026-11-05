@@ -155,6 +155,8 @@ async def update_profile(
     updated = await IdentityService(session).update_profile(
         user.id, display_name=body.display_name,
         timezone=body.timezone, locale=body.locale,
+        digest_enabled=body.digest_enabled, digest_hour=body.digest_hour,
+        reminder_days=body.reminder_days,
     )
     return UserResponse.model_validate(updated)
 
