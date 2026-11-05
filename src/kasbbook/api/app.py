@@ -20,6 +20,7 @@ from ..shared.settings import Settings
 from . import errors, web_static
 from .ratelimit import MemoryRateLimiter, RateLimiter
 from .routers import (
+    analytics,
     auth,
     books,
     health,
@@ -162,6 +163,7 @@ def create_app(
     app.include_router(invitations.router, prefix=api)
     app.include_router(books.router, prefix=api)
     app.include_router(reports.router, prefix=api)
+    app.include_router(analytics.router, prefix=api)
     app.include_router(planning.router, prefix=api)
     app.include_router(payroll.router, prefix=api)
     app.include_router(weblogin.router, prefix=api)
