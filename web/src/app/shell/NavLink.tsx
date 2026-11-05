@@ -7,20 +7,41 @@ const navLink = tv({
 	variants: {
 		layout: {
 			tab: "min-h-14 flex-1 flex-col justify-center gap-0.5 px-1 py-1.5 text-xs font-medium",
+			// The raised middle tab: its circle rises above the bar, so the label sits under it.
+			center:
+				"min-h-14 flex-1 flex-col justify-end gap-0.5 px-1 pb-1.5 text-xs font-semibold text-foreground",
 			side: "min-h-11 w-full gap-3 px-3 text-sm font-medium data-[status=active]:bg-accent-soft",
 		},
 	},
+});
+
+// The middle tab's circle: lifted out of the bar, ringed in the page colour so it reads as cut into it.
+const raised = tv({
+	base: "-mt-7 grid size-14 place-items-center rounded-full bg-accent text-accent-foreground shadow-lg ring-4 ring-background transition-transform",
+	variants: { active: { true: "scale-110 shadow-accent/40", false: "" } },
 });
 
 // The pill behind the active tab's icon.
 const pill =
 	"grid h-8 w-14 place-items-center rounded-full transition-colors group-data-[status=active]:bg-accent-soft";
 
-export function NavLink({ item, layout }: { item: NavItem; layout: "tab" | "side" }) {
+export function NavLink({ item, layout }: { item: NavItem; layout: "tab" | "side" | "center" }) {
 	return (
 		<Link to={item.to} activeOptions={{ exact: item.to === "/" }} className={navLink({ layout })}>
 			{({ isActive }) => {
 				const Icon = (isActive && item.activeIcon) || item.icon;
+				if (layout === "center") {
+					return (
+						<>
+							<span className={raised({ active: isActive })}>
+								<Icon aria-hidden className="size-7" />
+							</span>
+							<span className={isActive ? "text-accent-soft-foreground" : "text-muted"}>
+								{item.label}
+							</span>
+						</>
+					);
+				}
 				return (
 					<>
 						{layout === "tab" ? (
