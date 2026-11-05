@@ -1,4 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Team } from "@/features/team/Team";
+import { TeamLayout } from "@/features/payroll/TeamLayout";
 
-export const Route = createFileRoute("/_app/team")({ component: Team });
+export const Route = createFileRoute("/_app/team")({ component: TeamLayout });

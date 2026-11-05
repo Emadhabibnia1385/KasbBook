@@ -19,6 +19,11 @@ import { Route as AppPlanningRouteImport } from './routes/_app.planning'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
 import { Route as AppTeamRouteImport } from './routes/_app.team'
 import { Route as AppTransactionsRouteImport } from './routes/_app.transactions'
+import { Route as AppTeamIndexRouteImport } from './routes/_app.team.index'
+import { Route as AppTeamFundsRouteImport } from './routes/_app.team.funds'
+import { Route as AppTeamSharesRouteImport } from './routes/_app.team.shares'
+import { Route as AppTeamPeriodsIndexRouteImport } from './routes/_app.team.periods.index'
+import { Route as AppTeamPeriodsPeriodIdRouteImport } from './routes/_app.team.periods.$periodId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -69,6 +74,31 @@ const AppTransactionsRoute = AppTransactionsRouteImport.update({
   path: '/transactions',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTeamIndexRoute = AppTeamIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppTeamRoute,
+} as any)
+const AppTeamFundsRoute = AppTeamFundsRouteImport.update({
+  id: '/funds',
+  path: '/funds',
+  getParentRoute: () => AppTeamRoute,
+} as any)
+const AppTeamSharesRoute = AppTeamSharesRouteImport.update({
+  id: '/shares',
+  path: '/shares',
+  getParentRoute: () => AppTeamRoute,
+} as any)
+const AppTeamPeriodsIndexRoute = AppTeamPeriodsIndexRouteImport.update({
+  id: '/periods/',
+  path: '/periods/',
+  getParentRoute: () => AppTeamRoute,
+} as any)
+const AppTeamPeriodsPeriodIdRoute = AppTeamPeriodsPeriodIdRouteImport.update({
+  id: '/periods/$periodId',
+  path: '/periods/$periodId',
+  getParentRoute: () => AppTeamRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -78,8 +108,13 @@ export interface FileRoutesByFullPath {
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
   '/reports': typeof AppReportsRoute
-  '/team': typeof AppTeamRoute
+  '/team': typeof AppTeamRouteWithChildren
   '/transactions': typeof AppTransactionsRoute
+  '/team/funds': typeof AppTeamFundsRoute
+  '/team/shares': typeof AppTeamSharesRoute
+  '/team/': typeof AppTeamIndexRoute
+  '/team/periods/$periodId': typeof AppTeamPeriodsPeriodIdRoute
+  '/team/periods/': typeof AppTeamPeriodsIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -88,9 +123,13 @@ export interface FileRoutesByTo {
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
   '/reports': typeof AppReportsRoute
-  '/team': typeof AppTeamRoute
   '/transactions': typeof AppTransactionsRoute
   '/': typeof AppIndexRoute
+  '/team/funds': typeof AppTeamFundsRoute
+  '/team/shares': typeof AppTeamSharesRoute
+  '/team': typeof AppTeamIndexRoute
+  '/team/periods/$periodId': typeof AppTeamPeriodsPeriodIdRoute
+  '/team/periods': typeof AppTeamPeriodsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -101,9 +140,14 @@ export interface FileRoutesById {
   '/_app/more': typeof AppMoreRoute
   '/_app/planning': typeof AppPlanningRoute
   '/_app/reports': typeof AppReportsRoute
-  '/_app/team': typeof AppTeamRoute
+  '/_app/team': typeof AppTeamRouteWithChildren
   '/_app/transactions': typeof AppTransactionsRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/team/funds': typeof AppTeamFundsRoute
+  '/_app/team/shares': typeof AppTeamSharesRoute
+  '/_app/team/': typeof AppTeamIndexRoute
+  '/_app/team/periods/$periodId': typeof AppTeamPeriodsPeriodIdRoute
+  '/_app/team/periods/': typeof AppTeamPeriodsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,6 +161,11 @@ export interface FileRouteTypes {
     | '/reports'
     | '/team'
     | '/transactions'
+    | '/team/funds'
+    | '/team/shares'
+    | '/team/'
+    | '/team/periods/$periodId'
+    | '/team/periods/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -125,9 +174,13 @@ export interface FileRouteTypes {
     | '/more'
     | '/planning'
     | '/reports'
-    | '/team'
     | '/transactions'
     | '/'
+    | '/team/funds'
+    | '/team/shares'
+    | '/team'
+    | '/team/periods/$periodId'
+    | '/team/periods'
   id:
     | '__root__'
     | '/_app'
@@ -140,6 +193,11 @@ export interface FileRouteTypes {
     | '/_app/team'
     | '/_app/transactions'
     | '/_app/'
+    | '/_app/team/funds'
+    | '/_app/team/shares'
+    | '/_app/team/'
+    | '/_app/team/periods/$periodId'
+    | '/_app/team/periods/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -219,8 +277,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/team/': {
+      id: '/_app/team/'
+      path: '/'
+      fullPath: '/team/'
+      preLoaderRoute: typeof AppTeamIndexRouteImport
+      parentRoute: typeof AppTeamRoute
+    }
+    '/_app/team/funds': {
+      id: '/_app/team/funds'
+      path: '/funds'
+      fullPath: '/team/funds'
+      preLoaderRoute: typeof AppTeamFundsRouteImport
+      parentRoute: typeof AppTeamRoute
+    }
+    '/_app/team/shares': {
+      id: '/_app/team/shares'
+      path: '/shares'
+      fullPath: '/team/shares'
+      preLoaderRoute: typeof AppTeamSharesRouteImport
+      parentRoute: typeof AppTeamRoute
+    }
+    '/_app/team/periods/': {
+      id: '/_app/team/periods/'
+      path: '/periods'
+      fullPath: '/team/periods/'
+      preLoaderRoute: typeof AppTeamPeriodsIndexRouteImport
+      parentRoute: typeof AppTeamRoute
+    }
+    '/_app/team/periods/$periodId': {
+      id: '/_app/team/periods/$periodId'
+      path: '/periods/$periodId'
+      fullPath: '/team/periods/$periodId'
+      preLoaderRoute: typeof AppTeamPeriodsPeriodIdRouteImport
+      parentRoute: typeof AppTeamRoute
+    }
   }
 }
+
+interface AppTeamRouteChildren {
+  AppTeamFundsRoute: typeof AppTeamFundsRoute
+  AppTeamSharesRoute: typeof AppTeamSharesRoute
+  AppTeamIndexRoute: typeof AppTeamIndexRoute
+  AppTeamPeriodsPeriodIdRoute: typeof AppTeamPeriodsPeriodIdRoute
+  AppTeamPeriodsIndexRoute: typeof AppTeamPeriodsIndexRoute
+}
+
+const AppTeamRouteChildren: AppTeamRouteChildren = {
+  AppTeamFundsRoute: AppTeamFundsRoute,
+  AppTeamSharesRoute: AppTeamSharesRoute,
+  AppTeamIndexRoute: AppTeamIndexRoute,
+  AppTeamPeriodsPeriodIdRoute: AppTeamPeriodsPeriodIdRoute,
+  AppTeamPeriodsIndexRoute: AppTeamPeriodsIndexRoute,
+}
+
+const AppTeamRouteWithChildren =
+  AppTeamRoute._addFileChildren(AppTeamRouteChildren)
 
 interface AppRouteChildren {
   AppAccountRoute: typeof AppAccountRoute
@@ -228,7 +340,7 @@ interface AppRouteChildren {
   AppMoreRoute: typeof AppMoreRoute
   AppPlanningRoute: typeof AppPlanningRoute
   AppReportsRoute: typeof AppReportsRoute
-  AppTeamRoute: typeof AppTeamRoute
+  AppTeamRoute: typeof AppTeamRouteWithChildren
   AppTransactionsRoute: typeof AppTransactionsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -239,7 +351,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppMoreRoute: AppMoreRoute,
   AppPlanningRoute: AppPlanningRoute,
   AppReportsRoute: AppReportsRoute,
-  AppTeamRoute: AppTeamRoute,
+  AppTeamRoute: AppTeamRouteWithChildren,
   AppTransactionsRoute: AppTransactionsRoute,
   AppIndexRoute: AppIndexRoute,
 }
