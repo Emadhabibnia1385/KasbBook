@@ -21,6 +21,8 @@ export const parity1 = {
 		filteredEmpty: "بازه را عوض کن یا فیلتر را بردار.",
 	},
 	categories: {
+		filterLabel: "نمایش دسته‌ها",
+		noneInFilter: "در این بخش دسته‌ای نیست.",
 		title: "دسته‌ها",
 		description: "هنگام ثبت تراکنش همین دسته‌ها پیشنهاد می‌شوند.",
 		add: "دستهٔ جدید",
