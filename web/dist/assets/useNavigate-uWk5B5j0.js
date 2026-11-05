@@ -1,1 +1,0 @@
-import{i as e}from"./matchContext-NjudlW8v.js";import{Dt as t,kt as n}from"./strings-DPobDfMS.js";var r=n(t(),1);function i(t){let n=e();return r.useCallback(e=>n.navigate({...e,from:e.from??t?.from}),[t?.from,n])}export{i as t};

@@ -329,6 +329,42 @@
         "title": "ApiKeyResponse",
         "type": "object"
       },
+      "BiggestExpense": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "on": {
+            "format": "date",
+            "title": "On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "amount",
+          "on"
+        ],
+        "title": "BiggestExpense",
+        "type": "object"
+      },
       "BookRequest": {
         "properties": {
           "cost_policy": {
@@ -411,6 +447,83 @@
         "title": "BookResponse",
         "type": "object"
       },
+      "BudgetActualItem": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limit": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Limit",
+            "type": "string"
+          },
+          "over": {
+            "title": "Over",
+            "type": "boolean"
+          },
+          "percent_used": {
+            "title": "Percent Used",
+            "type": "integer"
+          },
+          "remaining": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Remaining",
+            "type": "string"
+          },
+          "spent": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Spent",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "kind",
+          "limit",
+          "spent",
+          "remaining",
+          "percent_used",
+          "over"
+        ],
+        "title": "BudgetActualItem",
+        "type": "object"
+      },
+      "BudgetActualResponse": {
+        "properties": {
+          "elapsed_percent": {
+            "title": "Elapsed Percent",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetActualItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "label",
+          "elapsed_percent",
+          "items"
+        ],
+        "title": "BudgetActualResponse",
+        "type": "object"
+      },
       "BudgetRequest": {
         "properties": {
           "amount": {
@@ -490,6 +603,113 @@
           "percent_used"
         ],
         "title": "BudgetResponse",
+        "type": "object"
+      },
+      "CashflowPoint": {
+        "properties": {
+          "cumulative_net": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cumulative Net",
+            "type": "string"
+          },
+          "expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense",
+            "type": "string"
+          },
+          "income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "net": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "savings_rate_percent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings Rate Percent"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "label",
+          "income",
+          "expense",
+          "net",
+          "cumulative_net",
+          "transaction_count"
+        ],
+        "title": "CashflowPoint",
+        "type": "object"
+      },
+      "CategoryDelta": {
+        "properties": {
+          "absolute": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Absolute",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "current": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Current",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "previous": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Previous",
+            "type": "string"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "current",
+          "previous",
+          "absolute",
+          "transaction_count"
+        ],
+        "title": "CategoryDelta",
         "type": "object"
       },
       "CategoryLine": {
@@ -649,6 +869,70 @@
           "effective_to"
         ],
         "title": "CloseRuleRequest",
+        "type": "object"
+      },
+      "CompareResponse": {
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/Figures"
+          },
+          "expense": {
+            "$ref": "#/components/schemas/Delta"
+          },
+          "expense_categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryDelta"
+            },
+            "title": "Expense Categories",
+            "type": "array"
+          },
+          "income": {
+            "$ref": "#/components/schemas/Delta"
+          },
+          "income_categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryDelta"
+            },
+            "title": "Income Categories",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "net": {
+            "$ref": "#/components/schemas/Delta"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/Figures"
+          },
+          "previous_label": {
+            "title": "Previous Label",
+            "type": "string"
+          },
+          "previous_period": {
+            "title": "Previous Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "label",
+          "previous_period",
+          "previous_label",
+          "current",
+          "previous",
+          "income",
+          "expense",
+          "net",
+          "expense_categories",
+          "income_categories"
+        ],
+        "title": "CompareResponse",
         "type": "object"
       },
       "ContactRequest": {
@@ -842,6 +1126,115 @@
           "cost_policy"
         ],
         "title": "CostPolicyRequest",
+        "type": "object"
+      },
+      "CumulativePoint": {
+        "properties": {
+          "day_index": {
+            "title": "Day Index",
+            "type": "integer"
+          },
+          "expense": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expense"
+          },
+          "income": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Income"
+          },
+          "net": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "previous_net": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Net"
+          }
+        },
+        "required": [
+          "day_index"
+        ],
+        "title": "CumulativePoint",
+        "type": "object"
+      },
+      "CumulativeResponse": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CumulativePoint"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "previous_label": {
+            "title": "Previous Label",
+            "type": "string"
+          },
+          "previous_period": {
+            "title": "Previous Period",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "label",
+          "previous_period",
+          "previous_label",
+          "days"
+        ],
+        "title": "CumulativeResponse",
         "type": "object"
       },
       "CurrencyBalanceResponse": {
@@ -1169,6 +1562,32 @@
         "title": "DeletionPreviewResponse",
         "type": "object"
       },
+      "Delta": {
+        "properties": {
+          "absolute": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Absolute",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          }
+        },
+        "required": [
+          "absolute"
+        ],
+        "title": "Delta",
+        "type": "object"
+      },
       "DistributionResponse": {
         "properties": {
           "cost_policy": {
@@ -1222,6 +1641,37 @@
           "cost_policy"
         ],
         "title": "DistributionResponse",
+        "type": "object"
+      },
+      "Figures": {
+        "properties": {
+          "expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense",
+            "type": "string"
+          },
+          "income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income",
+            "type": "string"
+          },
+          "net": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net",
+            "type": "string"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "income",
+          "expense",
+          "net",
+          "transaction_count"
+        ],
+        "title": "Figures",
         "type": "object"
       },
       "FundRequest": {
@@ -1623,6 +2073,114 @@
           "transaction_count"
         ],
         "title": "MonthlyPoint",
+        "type": "object"
+      },
+      "OverviewResponse": {
+        "properties": {
+          "average_daily_expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Average Daily Expense",
+            "type": "string"
+          },
+          "base_balance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Base Balance",
+            "type": "string"
+          },
+          "biggest_expense": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BiggestExpense"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "days_counted": {
+            "title": "Days Counted",
+            "type": "integer"
+          },
+          "expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense",
+            "type": "string"
+          },
+          "holds_other_currencies": {
+            "title": "Holds Other Currencies",
+            "type": "boolean"
+          },
+          "income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "net": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "runway_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway Days"
+          },
+          "savings_rate_percent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings Rate Percent"
+          },
+          "total_balance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Balance"
+          }
+        },
+        "required": [
+          "period",
+          "label",
+          "currency",
+          "base_balance",
+          "holds_other_currencies",
+          "income",
+          "expense",
+          "net",
+          "average_daily_expense",
+          "days_counted"
+        ],
+        "title": "OverviewResponse",
         "type": "object"
       },
       "PasswordRequest": {
@@ -2492,6 +3050,42 @@
         "title": "RegisterRequest",
         "type": "object"
       },
+      "ScopePoint": {
+        "properties": {
+          "expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense",
+            "type": "string"
+          },
+          "income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income",
+            "type": "string"
+          },
+          "net": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Net",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "income",
+          "expense",
+          "net",
+          "transaction_count"
+        ],
+        "title": "ScopePoint",
+        "type": "object"
+      },
       "SessionResponse": {
         "properties": {
           "created_at": {
@@ -2768,6 +3362,60 @@
           "expires_in"
         ],
         "title": "TokenResponse",
+        "type": "object"
+      },
+      "TopCategory": {
+        "properties": {
+          "absolute": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Absolute",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "current": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Current",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "previous": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Previous",
+            "type": "string"
+          },
+          "share_percent": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Share Percent",
+            "type": "string"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "current",
+          "previous",
+          "absolute",
+          "transaction_count",
+          "share_percent"
+        ],
+        "title": "TopCategory",
         "type": "object"
       },
       "TransactionActivityResponse": {
@@ -3377,6 +4025,41 @@
           "init_data"
         ],
         "title": "WebAppRequest",
+        "type": "object"
+      },
+      "WeekdayPoint": {
+        "properties": {
+          "expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense",
+            "type": "string"
+          },
+          "income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "label",
+          "income",
+          "expense",
+          "transaction_count"
+        ],
+        "title": "WeekdayPoint",
         "type": "object"
       }
     }
@@ -4619,6 +5302,790 @@
         "summary": "Get Book",
         "tags": [
           "books"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/budget-vs-actual": {
+      "get": {
+        "description": "Each budget's ceiling against what the month has spent, and how much of the month is gone.",
+        "operationId": "analytics_budget_vs_actual",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "a month such as 1405-08; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "a month such as 1405-08; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetActualResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Budget Vs Actual",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/cashflow": {
+      "get": {
+        "description": "Income, expense, net, savings rate and a running net for each of the last N months.",
+        "operationId": "analytics_cashflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "months",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 24,
+              "minimum": 1,
+              "title": "Months",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CashflowPoint"
+                  },
+                  "title": "Response Analytics Cashflow",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cashflow",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/compare": {
+      "get": {
+        "description": "This period against the one before it, overall and for the biggest categories.",
+        "operationId": "analytics_compare",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, or week; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, or week; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/cumulative": {
+      "get": {
+        "description": "Running income, expense and net by day, with last period's net aligned by day number.",
+        "operationId": "analytics_cumulative",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, or week; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, or week; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CumulativeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cumulative",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/overview-kpis": {
+      "get": {
+        "description": "Balance, savings rate, average daily spending, biggest expense and runway.",
+        "operationId": "analytics_overview_kpis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, or week; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, or week; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Overview Kpis",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/scope-split": {
+      "get": {
+        "description": "Totals per scope (work, personal, team); all three are always listed.",
+        "operationId": "analytics_scope_split",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, or week; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, or week; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScopePoint"
+                  },
+                  "title": "Response Analytics Scope Split",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scope Split",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/top-categories": {
+      "get": {
+        "description": "The biggest categories this period, each with its change since the last.",
+        "operationId": "analytics_top_categories",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, or week; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, or week; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "query",
+            "name": "flow",
+            "required": false,
+            "schema": {
+              "default": "expense",
+              "title": "Flow",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopCategory"
+                  },
+                  "title": "Response Analytics Top Categories",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Top Categories",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/weekday": {
+      "get": {
+        "description": "Income and expense by day of the week, Saturday first.",
+        "operationId": "analytics_weekday",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, or week; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, or week; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WeekdayPoint"
+                  },
+                  "title": "Response Analytics Weekday",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Weekday",
+        "tags": [
+          "analytics"
         ]
       }
     },

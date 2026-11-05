@@ -194,6 +194,24 @@ by email or phone.
 | `GET /books/{id}/reports/search` | `?q=&page=&per_page=` → matching transactions (category or description, two characters at least) and the total over every match |
 | `GET /books/{id}/reports/day` | `?date=2026-03-19` → the daily list's split: business, personal, installments, savings |
 
+### Analytics (the web panel's charts)
+
+All under `/books/{id}/analytics/`, read-only, gated by the same `view_reports` permission. A
+`period` is `1405-08`, `1405` or `week`; left out it means the current month. Money and percentages
+are strings; a figure that does not exist (a percent of zero, a day that has not happened) is `null`,
+never `0`. A currency conversion is not a transaction and is in none of them.
+
+| | |
+|---|---|
+| `GET …/cashflow` | `?months=12` (≤ 24) → income, expense, net, savings rate and a running net per Jalali month |
+| `GET …/weekday` | `?period=` → income and expense per weekday, Saturday first |
+| `GET …/scope-split` | `?period=` → totals for work, personal and team (always all three) |
+| `GET …/compare` | `?period=` → this period against the one before, absolute and percent, plus the biggest categories |
+| `GET …/top-categories` | `?period=&flow=expense&limit=8` → each category with its share and its change since the last period |
+| `GET …/cumulative` | `?period=` → running income, expense and net by day, beside the previous period's net on the same day number |
+| `GET …/overview-kpis` | `?period=` → balance, savings rate, average daily expense, biggest expense, runway in days |
+| `GET …/budget-vs-actual` | `?period=1405-08` → each budget's use, and how much of the month has passed |
+
 ## Budgets, debts, loans
 
 | | |

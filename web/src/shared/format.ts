@@ -67,7 +67,7 @@ export function currentPeriod(now = new Date()): string {
 	return `${pick("year")}-${pick("month").padStart(2, "0")}`;
 }
 
-const MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+export const MONTHS = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
 
 /** The last `count` Jalali months, newest first, as the API's period and a label to show. */
 export function recentPeriods(count: number, now = new Date()): { value: string; label: string }[] {
