@@ -44,6 +44,16 @@ class ValidationError(KasbBookError):
     status_code = 422
 
 
+class ServiceUnavailable(KasbBookError):
+    """Something we depend on is down and there is nothing to answer with.
+
+    503 rather than 500: the fault is not in our code, and a client that sees
+    it knows asking again later is the right response.
+    """
+
+    status_code = 503
+
+
 class BalanceError(KasbBookError):
     """A journal entry whose debits and credits do not agree."""
 

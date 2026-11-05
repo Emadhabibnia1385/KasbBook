@@ -683,3 +683,18 @@ class TreasuryRuleResponse(MoneyModel):
     effective_from: date
     effective_to: Optional[date] = None
     is_active: bool
+
+
+# ----------------------------------------------------------------- market
+class MarketRateResponse(Model):
+    pair: str
+    base: str
+    quote: str
+    # A string, not MoneyModel's `str(Decimal)`: that switches to scientific
+    # notation for a very small price (`4.5E-7`), which no client should have
+    # to parse. The route writes it positionally.
+    value: str
+    source: str
+    fetched_at: datetime
+    age_seconds: int
+    stale: bool

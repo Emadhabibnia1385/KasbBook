@@ -262,6 +262,9 @@ Telegram is what this returns.
 | `DELETE /books/{id}/payslips/{slip}/payments/{pay}` | take a payment back while the period is open |
 | `GET`/`POST`/`DELETE /books/{id}/funds` | treasury funds |
 | `GET`/`POST`/`DELETE /books/{id}/funds/{f}/rules` | what feeds them |
+| `POST /books/{id}/funds/{f}/toggle` | switch a fund off or back on; an off fund takes nothing from periods calculated afterwards, its rules untouched |
+| `POST /books/{id}/funds/{f}/rules/{r}/toggle` | switch a rule off or back on, dates untouched; reversible, unlike `…/close` |
+| `POST /books/{id}/funds/{f}/rules/{r}/close` | end a rule on a date: periods up to it still use it, later ones do not |
 
 `calculate` returns **422**, not an empty list, when no member has a share. A
 run that produces nothing because the question was never answered is not an
@@ -358,3 +361,19 @@ email or SMS delivery is implied. `POST /api/v1/identities/account-login/complet
 accepts the identity, challenge and code. Invalid proof returns `success: false`
 so failed attempts are committed. Successful switching invalidates both
 accounts' existing access/refresh sessions; authenticate again afterward.
+
+## Market prices
+
+| Endpoint | |
+|---|---|
+| `GET /market/rates` | live prices, each with `value` (a string), `source`, `fetched_at`, `age_seconds` and `stale` |
+
+`?pairs=USDT/IRT,TON/USDT` picks pairs (at most 20); without it you get the
+handful a shop owner watches. A pair the market does not publish is **left out**,
+never guessed or inverted. The provider is SwapWallet's public price list,
+which needs no key; the API keeps its answer for about a minute, so polling
+once a minute costs the provider one request however many people are watching.
+
+If the provider is unreachable the last good prices come back with
+`stale: true` and their real `age_seconds`. With nothing remembered at all the
+answer is **503** and a Persian sentence.

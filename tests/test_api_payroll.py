@@ -474,6 +474,142 @@ async def test_a_fund_that_has_taken_money_cannot_be_deleted(api, session):
     assert response.status_code == 422
 
 
+async def _fund_with_rule(api, headers, book, kind="emergency"):
+    fund = (await api.post(f"/api/v1/books/{book['id']}/funds", headers=headers,
+                           json={"name": "ذخیره", "kind": kind})).json()
+    rule = (await api.post(f"/api/v1/books/{book['id']}/funds/{fund['id']}/rules",
+                           headers=headers,
+                           json={"basis": "net_percent", "value": "25",
+                                 "effective_from": "2026-01-01"})).json()
+    return fund, rule
+
+
+async def _treasury_total(api, headers, book):
+    # One period, opened the first time: a second over the same days is refused.
+    periods = (await api.get(f"/api/v1/books/{book['id']}/periods", headers=headers)).json()
+    period = periods[0] if periods else (await api.post(
+        f"/api/v1/books/{book['id']}/periods", headers=headers,
+        json={"label": "مرداد", "starts_on": "2026-08-01", "ends_on": "2026-08-31"},
+    )).json()
+    body = (await api.get(
+        f"/api/v1/books/{book['id']}/periods/{period['id']}/distribution", headers=headers
+    )).json()
+    return body["treasury_total"]
+
+
+async def test_a_fund_can_be_switched_off_and_on_and_the_payroll_follows(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    fund, _ = await _fund_with_rule(api, headers, book)
+    path = f"/api/v1/books/{book['id']}/funds/{fund['id']}/toggle"
+
+    off = await api.post(path, headers=headers)
+    assert off.status_code == 200
+    assert off.json()["is_active"] is False
+    assert off.json()["balance"] == "0.0000"
+    assert await _treasury_total(api, headers, book) == "0.0000"
+
+    # Switching it back on restores the rule it still has, untouched.
+    on = await api.post(path, headers=headers)
+    assert on.json()["is_active"] is True
+    assert await _treasury_total(api, headers, book) == "20000000.0000"
+
+    listed = (await api.get(f"/api/v1/books/{book['id']}/funds", headers=headers)).json()
+    assert [f["is_active"] for f in listed] == [True]
+
+
+async def test_a_rule_can_be_switched_off_and_on_without_touching_its_dates(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    fund, rule = await _fund_with_rule(api, headers, book)
+    path = f"/api/v1/books/{book['id']}/funds/{fund['id']}/rules/{rule['id']}/toggle"
+
+    off = (await api.post(path, headers=headers)).json()
+    assert off["is_active"] is False
+    # Not a close: no end date appears, so turning it on again is a full undo.
+    assert off["effective_to"] is None
+    assert off["effective_from"] == "2026-01-01"
+    assert await _treasury_total(api, headers, book) == "0.0000"
+
+    on = (await api.post(path, headers=headers)).json()
+    assert on["is_active"] is True
+    assert await _treasury_total(api, headers, book) == "20000000.0000"
+
+
+async def test_closing_a_rule_is_not_the_same_as_switching_it_off(api, session):
+    """The panel words the two differently, so the API must keep them different."""
+    headers, book, _, _ = await workspace(api, session)
+    fund, rule = await _fund_with_rule(api, headers, book)
+    base = f"/api/v1/books/{book['id']}/funds/{fund['id']}/rules/{rule['id']}"
+
+    closed = (await api.post(f"{base}/close", headers=headers,
+                             json={"effective_to": "2026-06-30"})).json()
+    # Closed and still "on": it just ended, and toggling does not reopen it.
+    assert closed["is_active"] is True
+    assert closed["effective_to"] == "2026-06-30"
+    toggled = (await api.post(f"{base}/toggle", headers=headers)).json()
+    assert toggled["effective_to"] == "2026-06-30"
+
+
+async def test_a_member_without_payroll_rights_cannot_switch_a_fund_or_rule(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    fund, rule = await _fund_with_rule(api, headers, book)
+    signed_in = (await api.post("/api/v1/auth/login", json={
+        "identifier": "sara@example.com", "password": "a-good-password",
+    })).json()
+    theirs = {"Authorization": f"Bearer {signed_in['access_token']}"}
+    base = f"/api/v1/books/{book['id']}/funds/{fund['id']}"
+
+    assert (await api.post(f"{base}/toggle", headers=theirs)).status_code == 403
+    assert (await api.post(f"{base}/rules/{rule['id']}/toggle",
+                           headers=theirs)).status_code == 403
+    # Nothing moved.
+    listed = (await api.get(f"/api/v1/books/{book['id']}/funds", headers=headers)).json()
+    assert listed[0]["is_active"] is True
+
+
+async def test_a_rule_under_another_fund_is_not_found_and_stays_as_it_was(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    fund, rule = await _fund_with_rule(api, headers, book)
+    other = (await api.post(f"/api/v1/books/{book['id']}/funds", headers=headers,
+                            json={"name": "مالیات", "kind": "tax"})).json()
+
+    response = await api.post(
+        f"/api/v1/books/{book['id']}/funds/{other['id']}/rules/{rule['id']}/toggle",
+        headers=headers)
+    assert response.status_code == 404
+    rules = (await api.get(f"/api/v1/books/{book['id']}/funds/{fund['id']}/rules",
+                           headers=headers)).json()
+    assert rules[0]["is_active"] is True
+
+
+async def test_an_unknown_fund_or_rule_is_not_found(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    fund, _ = await _fund_with_rule(api, headers, book)
+    nothing = "00000000-0000-0000-0000-000000000000"
+
+    assert (await api.post(f"/api/v1/books/{book['id']}/funds/{nothing}/toggle",
+                           headers=headers)).status_code == 404
+    assert (await api.post(
+        f"/api/v1/books/{book['id']}/funds/{fund['id']}/rules/{nothing}/toggle",
+        headers=headers)).status_code == 404
+
+
+async def test_a_stranger_cannot_switch_another_teams_fund_or_rule(api, session):
+    headers, book, _, _ = await workspace(api, session)
+    fund, rule = await _fund_with_rule(api, headers, book)
+    stranger = (await api.post("/api/v1/auth/register", json={
+        "display_name": "غریبه", "email": "nobody@example.com",
+        "password": "a-good-password",
+    })).json()
+    theirs = {"Authorization": f"Bearer {stranger['access_token']}"}
+    base = f"/api/v1/books/{book['id']}/funds/{fund['id']}"
+
+    assert (await api.post(f"{base}/toggle", headers=theirs)).status_code == 404
+    assert (await api.post(f"{base}/rules/{rule['id']}/toggle",
+                           headers=theirs)).status_code == 404
+    listed = (await api.get(f"/api/v1/books/{book['id']}/funds", headers=headers)).json()
+    assert listed[0]["is_active"] is True
+
+
 # ------------------------------------------------------------- isolation
 async def test_a_stranger_cannot_read_another_teams_payroll(api, session):
     headers, book, _, _ = await workspace(api, session)

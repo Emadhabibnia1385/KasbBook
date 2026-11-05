@@ -15,6 +15,8 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..rates.board import RateSource
+from ..rates.swapwallet import SwapWalletRates
 from ..shared.database import Database
 from ..shared.settings import Settings
 from . import errors, web_static
@@ -27,6 +29,7 @@ from .routers import (
     health,
     identities,
     invitations,
+    market,
     payroll,
     planning,
     recurring,
@@ -74,6 +77,7 @@ def create_app(
     settings: Optional[Settings] = None,
     database: Optional[Database] = None,
     limiter: Optional[RateLimiter] = None,
+    rates: Optional[RateSource] = None,
 ) -> FastAPI:
     resolved = settings or Settings.from_env()
 
@@ -98,6 +102,11 @@ def create_app(
         app.state.settings = resolved
         app.state.database = database or Database(resolved.database_url)
         app.state.limiter = limiter or await build_limiter(resolved)
+        # The bot's construction exactly (apps/bot/runner.py): the public
+        # endpoint, no key. One instance per process so its minute of cache is
+        # shared by every request, which is what keeps a polling panel from
+        # becoming a polling provider.
+        app.state.rates = rates or SwapWalletRates()
 
         # Empty unless this process is meant to receive updates, and an empty
         # map means every webhook path answers 404 — so a misconfigured deploy
@@ -165,6 +174,7 @@ def create_app(
     app.include_router(invitations.router, prefix=api)
     app.include_router(currencies.router, prefix=api)
     app.include_router(books.router, prefix=api)
+    app.include_router(market.router, prefix=api)
     app.include_router(reports.router, prefix=api)
     app.include_router(analytics.router, prefix=api)
     app.include_router(planning.router, prefix=api)

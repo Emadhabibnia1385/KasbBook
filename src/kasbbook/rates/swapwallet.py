@@ -30,8 +30,17 @@ log = logging.getLogger(__name__)
 
 URL = "https://swapwallet.app/api/v1/market/prices"
 
+# After a failed fetch, wait this long before trying again. Without it every
+# caller during an outage pays the full request timeout in turn, and a panel
+# polling once a minute per open tab would hammer a service that is already
+# down. Short, because the bot would rather retry soon than keep guessing.
+RETRY_AFTER_FAILURE = 15
+
 
 class SwapWalletRates:
+    # What the panel shows beside a price, and what `/market/rates` reports.
+    name = "swapwallet"
+
     def __init__(
         self,
         url: str = URL,
@@ -45,6 +54,20 @@ class SwapWalletRates:
         self._client = client
         self._cache: Dict[str, Decimal] = {}
         self._fetched_at = None
+        self._failed_at = None
+
+    @property
+    def ttl_seconds(self) -> int:
+        return self._ttl
+
+    @property
+    def fetched_at(self):
+        """When the prices in the cache were obtained; None before the first success.
+
+        Public so a caller can tell a price from this minute from the last good
+        one kept through an outage: `prices()` returns both the same way.
+        """
+        return self._fetched_at
 
     async def prices(self) -> Dict[str, Decimal]:
         """Every pair the market publishes, cached briefly.
@@ -57,6 +80,9 @@ class SwapWalletRates:
         if self._fetched_at is not None:
             if (now - self._fetched_at).total_seconds() < self._ttl:
                 return self._cache
+        if self._failed_at is not None:
+            if (now - self._failed_at).total_seconds() < RETRY_AFTER_FAILURE:
+                return self._cache
 
         try:
             if self._client is not None:
@@ -68,11 +94,13 @@ class SwapWalletRates:
             body = response.json()
         except Exception as exc:  # noqa: BLE001 - any failure means "no quote"
             log.warning("swapwallet prices unavailable: %s", exc.__class__.__name__)
+            self._failed_at = now
             return self._cache
 
         raw = body.get("result") if isinstance(body, dict) else None
         if not isinstance(raw, dict):
             log.warning("swapwallet prices had no result object")
+            self._failed_at = now
             return self._cache
 
         parsed: Dict[str, Decimal] = {}
@@ -87,6 +115,9 @@ class SwapWalletRates:
         if parsed:
             self._cache = parsed
             self._fetched_at = now
+            self._failed_at = None
+        else:
+            self._failed_at = now
         return self._cache
 
     async def quote(self, code: str, base: str) -> Optional[Decimal]:

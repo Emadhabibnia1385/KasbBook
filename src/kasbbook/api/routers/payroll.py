@@ -453,6 +453,25 @@ async def create_fund(
                         is_active=fund.is_active, balance=ZERO)
 
 
+@router.post("/funds/{fund_id}/toggle", response_model=FundResponse)
+async def toggle_fund(
+    book_id: uuid.UUID, fund_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> FundResponse:
+    """Switch a fund off or back on.
+
+    Flips whatever it is now, as the bot's button does; the answer says which
+    it became. An off fund takes nothing from any period calculated after this
+    and keeps its rules exactly as they were, so switching it on again restores
+    it. Periods that are paid or locked keep what they already took.
+    """
+    treasury = TreasuryService(session)
+    fund = await treasury.toggle_fund(book_id, user.id, fund_id)
+    return FundResponse(
+        id=fund.id, name=fund.name, kind=fund.kind.value, is_active=fund.is_active,
+        balance=await treasury.balance(book_id, user.id, fund.id),
+    )
+
+
 @router.delete("/funds/{fund_id}", status_code=204)
 async def delete_fund(
     book_id: uuid.UUID, fund_id: uuid.UUID, user: CurrentUser, session: SessionDep
@@ -494,6 +513,27 @@ async def close_rule(
     rule = await TreasuryService(session).close_rule(
         book_id, user.id, rule_id, body.effective_to
     )
+    return _rule(rule)
+
+
+@router.post("/funds/{fund_id}/rules/{rule_id}/toggle",
+             response_model=TreasuryRuleResponse)
+async def toggle_rule(
+    book_id: uuid.UUID, fund_id: uuid.UUID, rule_id: uuid.UUID,
+    user: CurrentUser, session: SessionDep,
+) -> TreasuryRuleResponse:
+    """Switch a rule off or back on, without touching its dates.
+
+    This is not `close`. Off, the rule applies to no period calculated from now
+    on, whatever its dates say, and on again it is exactly what it was. `close`
+    ends the rule on a date: periods up to that date still use it, later ones
+    do not, and nothing here can undo it.
+    """
+    rule = await TreasuryService(session).toggle_rule(book_id, user.id, rule_id)
+    # The rule must sit under the fund in the path, as the other routes check
+    # their parents; raising rolls the flip back.
+    if rule.fund_id != fund_id:
+        raise NotFound("rule")
     return _rule(rule)
 
 

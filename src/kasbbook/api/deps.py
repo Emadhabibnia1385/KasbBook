@@ -17,6 +17,7 @@ from ..modules.identity.models import User
 from ..shared.database import Database
 from ..shared.errors import PermissionDenied
 from ..shared.settings import Settings
+from ..rates.board import RateSource
 from .ratelimit import RateLimiter
 
 
@@ -30,6 +31,10 @@ def get_database(request: Request) -> Database:
 
 def get_limiter(request: Request) -> RateLimiter:
     return request.app.state.limiter
+
+
+def get_rates(request: Request) -> RateSource:
+    return request.app.state.rates
 
 
 async def get_session(request: Request):
@@ -52,6 +57,7 @@ async def get_session(request: Request):
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 LimiterDep = Annotated[RateLimiter, Depends(get_limiter)]
+RatesDep = Annotated[RateSource, Depends(get_rates)]
 
 
 def get_auth(session: SessionDep, settings: SettingsDep) -> AuthService:
