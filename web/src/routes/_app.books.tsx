@@ -1,14 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { EmptyState, PageHeader } from "@nyxon/nasim";
-import { t } from "@/strings";
+import { Books } from "@/features/books/Books";
 
-export const Route = createFileRoute("/_app/books")({ component: Page });
-
-function Page() {
-	return (
-		<div className="flex flex-col gap-5">
-			<PageHeader title={t.nav.books} />
-			<EmptyState title={t.soon.title} description={t.soon.body} />
-		</div>
-	);
-}
+export const Route = createFileRoute("/_app/books")({ component: Books });
