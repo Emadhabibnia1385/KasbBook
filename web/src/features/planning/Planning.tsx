@@ -1,6 +1,19 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button, ConfirmDialog, EmptyState, ErrorState, Modal, PageHeader, PageSkeleton, ProgressBar, SectionCard, StatusChip, Tabs, toast } from "@nyxon/nasim";
+import {
+	Button,
+	ConfirmDialog,
+	EmptyState,
+	ErrorState,
+	Modal,
+	PageHeader,
+	PageSkeleton,
+	ProgressBar,
+	SectionCard,
+	StatusChip,
+	Tabs,
+	toast,
+} from "@nyxon/nasim";
 import {
 	getPlanningListBudgetsQueryKey,
 	getPlanningListDebtsQueryKey,
@@ -13,7 +26,12 @@ import {
 	usePlanningListLoans,
 	usePlanningPayInstallment,
 } from "@/api/generated/planning/planning";
-import type { BookResponse, BudgetResponse, DebtResponse, LoanResponse } from "@/api/generated/model";
+import type {
+	BookResponse,
+	BudgetResponse,
+	DebtResponse,
+	LoanResponse,
+} from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
@@ -30,7 +48,15 @@ function Bar({ label, percent }: { label: string; percent: number }) {
 	);
 }
 
-function Row({ title, aside, children }: { title: string; aside?: React.ReactNode; children?: React.ReactNode }) {
+function Row({
+	title,
+	aside,
+	children,
+}: {
+	title: string;
+	aside?: React.ReactNode;
+	children?: React.ReactNode;
+}) {
 	return (
 		<li className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-4">
 			<div className="flex items-center justify-between gap-3">
@@ -73,10 +99,26 @@ function Budgets({ book }: { book: BookResponse }) {
 			) : (
 				<ul className="grid gap-3 md:grid-cols-2">
 					{data.map((budget) => (
-						<Row key={budget.id} title={budget.label} aside={<StatusChip tone={budget.percent_used >= 100 ? "danger" : budget.percent_used >= 80 ? "warning" : "success"} label={`${formatAmount(budget.percent_used)}٪`} />}>
+						<Row
+							key={budget.id}
+							title={budget.label}
+							aside={
+								<StatusChip
+									tone={
+										budget.percent_used >= 100
+											? "danger"
+											: budget.percent_used >= 80
+												? "warning"
+												: "success"
+									}
+									label={`${formatAmount(budget.percent_used)}٪`}
+								/>
+							}
+						>
 							<Bar label={budget.label} percent={budget.percent_used} />
 							<p className="text-sm text-muted">
-								{t.planning.spent} {formatMoney(budget.spent, book.currency)} · {t.planning.remaining} {formatMoney(budget.remaining, book.currency)}
+								{t.planning.spent} {formatMoney(budget.spent, book.currency)} ·{" "}
+								{t.planning.remaining} {formatMoney(budget.remaining, book.currency)}
 							</p>
 							<Actions>
 								<Button size="sm" variant="ghost" onPress={() => setRemoving(budget)}>
@@ -101,7 +143,9 @@ function Budgets({ book }: { book: BookResponse }) {
 					if (!removing) return;
 					try {
 						await remove.mutateAsync({ bookId: book.id, budgetId: removing.id });
-						await queryClient.invalidateQueries({ queryKey: getPlanningListBudgetsQueryKey(book.id) });
+						await queryClient.invalidateQueries({
+							queryKey: getPlanningListBudgetsQueryKey(book.id),
+						});
 						toast.success(t.planningForms.deleted);
 					} catch (error) {
 						reportFailure(error);
@@ -133,10 +177,25 @@ function Debts({ book }: { book: BookResponse }) {
 						<Row
 							key={debt.id}
 							title={debt.person}
-							aside={<StatusChip tone={debt.is_settled ? "success" : "warning"} label={debt.is_settled ? t.planning.settled : debt.direction === "owed_to_me" || debt.direction === "receivable" ? t.planning.toReceive : t.planning.toPay} />}
+							aside={
+								<StatusChip
+									tone={debt.is_settled ? "success" : "warning"}
+									label={
+										debt.is_settled
+											? t.planning.settled
+											: debt.direction === "owed_to_me" || debt.direction === "receivable"
+												? t.planning.toReceive
+												: t.planning.toPay
+									}
+								/>
+							}
 						>
 							<p className="text-lg font-semibold">{formatMoney(debt.amount, book.currency)}</p>
-							{debt.due_on ? <p className="text-sm text-muted">{t.planning.due} {formatFullDate(debt.due_on)}</p> : null}
+							{debt.due_on ? (
+								<p className="text-sm text-muted">
+									{t.planning.due} {formatFullDate(debt.due_on)}
+								</p>
+							) : null}
 							{debt.note ? <p className="text-sm text-muted">{debt.note}</p> : null}
 							<Actions>
 								{debt.is_settled ? null : (
@@ -155,8 +214,20 @@ function Debts({ book }: { book: BookResponse }) {
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.planningForms.addDebt} size="sm">
 				<DebtForm book={book} onDone={() => setAdding(false)} />
 			</Modal>
-			<Modal isOpen={settling !== null} onOpenChange={(open) => !open && setSettling(null)} title={settling ? `${t.planningForms.settleTitle} ${settling.person}` : t.planning.settle} size="sm">
-				{settling ? <SettleForm key={settling.id} book={book} debt={settling} onDone={() => setSettling(null)} /> : null}
+			<Modal
+				isOpen={settling !== null}
+				onOpenChange={(open) => !open && setSettling(null)}
+				title={settling ? `${t.planningForms.settleTitle} ${settling.person}` : t.planning.settle}
+				size="sm"
+			>
+				{settling ? (
+					<SettleForm
+						key={settling.id}
+						book={book}
+						debt={settling}
+						onDone={() => setSettling(null)}
+					/>
+				) : null}
 			</Modal>
 			<ConfirmDialog
 				isOpen={removing !== null}
@@ -169,7 +240,9 @@ function Debts({ book }: { book: BookResponse }) {
 					if (!removing) return;
 					try {
 						await remove.mutateAsync({ bookId: book.id, debtId: removing.id });
-						await queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) });
+						await queryClient.invalidateQueries({
+							queryKey: getPlanningListDebtsQueryKey(book.id),
+						});
 						toast.success(t.planningForms.deleted);
 					} catch (error) {
 						reportFailure(error);
@@ -201,12 +274,25 @@ function Loans({ book }: { book: BookResponse }) {
 					{data.map((loan) => {
 						const finished = loan.paid_count >= loan.installment_count;
 						return (
-							<Row key={loan.id} title={loan.title} aside={<span className="text-sm text-muted">{formatAmount(loan.paid_count)} / {formatAmount(loan.installment_count)}</span>}>
+							<Row
+								key={loan.id}
+								title={loan.title}
+								aside={
+									<span className="text-sm text-muted">
+										{formatAmount(loan.paid_count)} / {formatAmount(loan.installment_count)}
+									</span>
+								}
+							>
 								<Bar label={loan.title} percent={loan.percent_paid} />
 								<p className="text-sm text-muted">
-									{t.planning.installment} {formatMoney(loan.installment_amount, book.currency)} · {t.planning.remaining} {formatMoney(loan.remaining, book.currency)}
+									{t.planning.installment} {formatMoney(loan.installment_amount, book.currency)} ·{" "}
+									{t.planning.remaining} {formatMoney(loan.remaining, book.currency)}
 								</p>
-								{loan.next_due_on ? <p className="text-sm text-muted">{t.planning.next} {formatFullDate(loan.next_due_on)}</p> : null}
+								{loan.next_due_on ? (
+									<p className="text-sm text-muted">
+										{t.planning.next} {formatFullDate(loan.next_due_on)}
+									</p>
+								) : null}
 								<Actions>
 									{finished ? (
 										<StatusChip tone="success" label={t.planningForms.allPaid} />
@@ -231,14 +317,25 @@ function Loans({ book }: { book: BookResponse }) {
 				isOpen={paying !== null}
 				onOpenChange={(open) => !open && setPaying(null)}
 				title={t.planningForms.payTitle}
-				description={paying ? `${t.planningForms.payBody} (${formatMoney(paying.installment_amount, book.currency)})` : undefined}
+				description={
+					paying
+						? `${t.planningForms.payBody} (${formatMoney(paying.installment_amount, book.currency)})`
+						: undefined
+				}
 				confirmLabel={t.planningForms.payConfirm}
 				onConfirm={async () => {
 					if (!paying) return;
 					try {
 						// Sending the count we saw makes a double tap or a retry a refusal, not a second payment.
-						await pay.mutateAsync({ bookId: book.id, loanId: paying.id, params: { expected_paid_count: paying.paid_count } });
-						await Promise.all([queryClient.invalidateQueries({ queryKey: getPlanningListLoansQueryKey(book.id) }), refreshMoney(queryClient, book.id)]);
+						await pay.mutateAsync({
+							bookId: book.id,
+							loanId: paying.id,
+							params: { expected_paid_count: paying.paid_count },
+						});
+						await Promise.all([
+							queryClient.invalidateQueries({ queryKey: getPlanningListLoansQueryKey(book.id) }),
+							refreshMoney(queryClient, book.id),
+						]);
 						toast.success(t.planningForms.paid);
 					} catch (error) {
 						reportFailure(error);
@@ -257,7 +354,9 @@ function Loans({ book }: { book: BookResponse }) {
 					if (!removing) return;
 					try {
 						await remove.mutateAsync({ bookId: book.id, loanId: removing.id });
-						await queryClient.invalidateQueries({ queryKey: getPlanningListLoansQueryKey(book.id) });
+						await queryClient.invalidateQueries({
+							queryKey: getPlanningListLoansQueryKey(book.id),
+						});
 						toast.success(t.planningForms.deleted);
 					} catch (error) {
 						reportFailure(error);
@@ -273,7 +372,8 @@ export function Planning() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
-	if (!book) return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book)
+		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader title={t.nav.planning} description={book.name} />

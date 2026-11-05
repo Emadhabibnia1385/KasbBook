@@ -1,4 +1,4 @@
-import { RatesCard } from "@/features/market/RatesCard";
+import { CountryRates, RatesCard } from "@/features/market/RatesCard";
 import { Collapsible, useIsNarrow } from "@nyxon/nasim";
 import { Link } from "@tanstack/react-router";
 import {
@@ -110,6 +110,7 @@ export function Dashboard() {
 				<TopCategories book={book} period={period} flow="expense" title={a.topTitle} />
 				<Recent book={book} />
 				<RatesCard />
+				<CountryRates />
 			</div>
 		</div>
 	);

@@ -5,7 +5,15 @@ import { t } from "@/strings";
 const MAX_CHIPS = 12;
 
 /** The book's own categories for one flow, as buttons that fill a category field with a tap. */
-export function CategoryChips({ bookId, flow, onPick }: { bookId: string; flow: "income" | "expense"; onPick: (name: string) => void }) {
+export function CategoryChips({
+	bookId,
+	flow,
+	onPick,
+}: {
+	bookId: string;
+	flow: "income" | "expense";
+	onPick: (name: string) => void;
+}) {
 	const { data = [] } = useBooksListCategories(bookId, { flow });
 	if (data.length === 0) return null;
 	return (

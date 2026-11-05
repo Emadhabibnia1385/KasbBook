@@ -21,3 +21,5 @@ export { default as RepeatIcon } from "~icons/solar/repeat-linear";
 export { default as SearchIcon } from "~icons/solar/magnifer-linear";
 export { default as CheckIcon } from "~icons/solar/check-circle-bold";
 export { default as ChevronDownIcon } from "~icons/solar/alt-arrow-down-linear";
+export { default as EditIcon } from "~icons/solar/pen-linear";
+export { default as TrashIcon } from "~icons/solar/trash-bin-trash-linear";

@@ -711,3 +711,15 @@ class MarketRateResponse(Model):
     fetched_at: datetime
     age_seconds: int
     stale: bool
+
+
+class QuoteResponse(Model):
+    """One unit of `code` in `base`. `exact` false means an estimate and must be shown as one."""
+
+    code: str
+    base: str
+    value: str
+    exact: bool
+    source: str
+    fetched_at: Optional[datetime] = None
+    age_seconds: int = 0

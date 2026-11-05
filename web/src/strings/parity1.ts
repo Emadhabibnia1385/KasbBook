@@ -30,6 +30,8 @@ export const parity1 = {
 		filteredEmpty: "بازه را عوض کن یا فیلتر را بردار.",
 	},
 	categories: {
+		addExpense: "افزودن دستهٔ هزینه",
+		addIncome: "افزودن دستهٔ درآمد",
 		filterLabel: "نمایش دسته‌ها",
 		noneInFilter: "در این بخش دسته‌ای نیست.",
 		title: "دسته‌ها",

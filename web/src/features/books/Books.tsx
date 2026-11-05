@@ -3,8 +3,25 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Button, EmptyState, FormRoot, Modal, PageHeader, PageSkeleton, SectionCard, SelectField, StatusChip, SubmitButton, TextField, toast } from "@nyxon/nasim";
-import { getBooksListBooksQueryKey, useBooksCreateBook, useBooksWallet } from "@/api/generated/books/books";
+import {
+	Button,
+	EmptyState,
+	FormRoot,
+	Modal,
+	PageHeader,
+	PageSkeleton,
+	SectionCard,
+	SelectField,
+	StatusChip,
+	SubmitButton,
+	TextField,
+	toast,
+} from "@nyxon/nasim";
+import {
+	getBooksListBooksQueryKey,
+	useBooksCreateBook,
+	useBooksWallet,
+} from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
 import { currencyName, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
@@ -45,11 +62,17 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 	const [currency, setCurrency] = useState(presetCurrency ?? "IRT");
 	const [pickingCurrency, setPickingCurrency] = useState(false);
 	const create = useBooksCreateBook();
-	const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { name: "", type: "business" } });
+	const form = useForm<Values>({
+		resolver: zodResolver(schema),
+		defaultValues: { name: "", type: "business" },
+	});
 	if (isLoading) return <PageSkeleton />;
 	return (
 		<div className="flex flex-col gap-5">
-			<PageHeader title={t.nav.books} actions={<Button onPress={() => setAdding(true)}>{t.books.add}</Button>} />
+			<PageHeader
+				title={t.nav.books}
+				actions={<Button onPress={() => setAdding(true)}>{t.books.add}</Button>}
+			/>
 			{books.length === 0 ? (
 				<EmptyState title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />
 			) : (
@@ -69,7 +92,8 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 							}
 						>
 							<p className="text-sm text-muted">
-								{TYPES.find((type) => type.value === book.type)?.label ?? book.type} · {currencyName(book.currency)}
+								{TYPES.find((type) => type.value === book.type)?.label ?? book.type} ·{" "}
+								{currencyName(book.currency)}
 							</p>
 							<Wallet book={book} />
 						</SectionCard>
@@ -83,7 +107,9 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 					className="flex flex-col gap-4"
 					onSubmit={async (values) => {
 						try {
-							const made = await create.mutateAsync({ data: { name: values.name, type: values.type, currency } });
+							const made = await create.mutateAsync({
+								data: { name: values.name, type: values.type, currency },
+							});
 							await queryClient.invalidateQueries({ queryKey: getBooksListBooksQueryKey() });
 							selectBook(made.id);
 							toast.success(t.books.created);
@@ -98,7 +124,11 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 					<SelectField name="type" label={t.books.type} options={TYPES} />
 					<div className="flex flex-col gap-1">
 						<span className="text-sm font-medium">{t.currencies.createUnit}</span>
-						<Button variant="outline" className="justify-between" onPress={() => setPickingCurrency(true)}>
+						<Button
+							variant="outline"
+							className="justify-between"
+							onPress={() => setPickingCurrency(true)}
+						>
 							<span>{currencyName(currency)}</span>
 							<span dir="ltr" className="text-sm text-muted">
 								{currency}

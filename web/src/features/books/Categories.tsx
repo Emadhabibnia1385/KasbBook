@@ -11,9 +11,7 @@ import {
 	FormRoot,
 	Modal,
 	PageSkeleton,
-	RadioGroupField,
 	SectionCard,
-	StatusChip,
 	SubmitButton,
 	TextField,
 	toast,
@@ -27,22 +25,32 @@ import {
 } from "@/api/generated/books/books";
 import type { BookResponse, CategoryResponse } from "@/api/generated/model";
 import { formatAmount } from "@/shared/format";
+import { EditIcon, TrashIcon } from "@/shared/icons";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
 const nameRule = z.string().trim().min(1, { error: t.categories.needName }).max(80);
 
-const createSchema = z.object({ name: nameRule, flow: z.enum(["income", "expense"]) });
+const createSchema = z.object({ name: nameRule });
 type CreateValues = z.input<typeof createSchema>;
 const renameSchema = z.object({ name: nameRule });
 type RenameValues = z.input<typeof renameSchema>;
 
-function CreateForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
+// The kind is chosen by which button opened the form, so it is not asked again.
+function CreateForm({
+	book,
+	flow,
+	onDone,
+}: {
+	book: BookResponse;
+	flow: "income" | "expense";
+	onDone: () => void;
+}) {
 	const queryClient = useQueryClient();
 	const create = useBooksCreateCategory();
 	const form = useForm<CreateValues>({
 		resolver: zodResolver(createSchema),
-		defaultValues: { name: "", flow: "expense" },
+		defaultValues: { name: "" },
 	});
 	return (
 		<FormRoot
@@ -52,7 +60,7 @@ function CreateForm({ book, onDone }: { book: BookResponse; onDone: () => void }
 				try {
 					await create.mutateAsync({
 						bookId: book.id,
-						data: { name: values.name.trim(), flow: values.flow },
+						data: { name: values.name.trim(), flow },
 					});
 					await queryClient.invalidateQueries({
 						queryKey: getBooksListCategoriesQueryKey(book.id),
@@ -64,14 +72,6 @@ function CreateForm({ book, onDone }: { book: BookResponse; onDone: () => void }
 				}
 			}}
 		>
-			<RadioGroupField
-				name="flow"
-				label={t.categories.flow}
-				options={[
-					{ value: "expense", label: t.common.expense },
-					{ value: "income", label: t.common.income },
-				]}
-			/>
 			<TextField name="name" label={t.categories.name} isRequired />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
@@ -128,7 +128,7 @@ export function Categories({ book }: { book: BookResponse }) {
 	const queryClient = useQueryClient();
 	const { data = [], isLoading } = useBooksListCategories(book.id);
 	const remove = useBooksDeleteCategory();
-	const [adding, setAdding] = useState(false);
+	const [adding, setAdding] = useState<"income" | "expense" | null>(null);
 	// «همه» is the default: the person sees every category first and narrows only if they want to.
 	const [shown, setShown] = useState<"all" | "income" | "expense">("all");
 	const [renaming, setRenaming] = useState<CategoryResponse | null>(null);
@@ -141,9 +141,14 @@ export function Categories({ book }: { book: BookResponse }) {
 			title={t.categories.title}
 			description={t.categories.description}
 			actions={
-				<Button size="sm" onPress={() => setAdding(true)}>
-					{t.categories.add}
-				</Button>
+				<span className="flex flex-wrap gap-2">
+					<Button size="sm" onPress={() => setAdding("expense")}>
+						{t.categories.addExpense}
+					</Button>
+					<Button size="sm" variant="secondary" onPress={() => setAdding("income")}>
+						{t.categories.addIncome}
+					</Button>
+				</span>
 			}
 		>
 			{isLoading ? (
@@ -168,36 +173,50 @@ export function Categories({ book }: { book: BookResponse }) {
 					{visible.length === 0 ? (
 						<p className="text-sm text-muted">{t.categories.noneInFilter}</p>
 					) : null}
-					<ul className="flex flex-col">
+					<ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
 						{visible.map((category) => (
 							<li
 								key={category.id}
-								className="flex flex-wrap items-center justify-between gap-2 border-b border-separator py-2 last:border-b-0"
+								className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-surface py-1.5 ps-3 pe-1.5"
 							>
-								<span className="flex min-w-0 items-center gap-2">
-									<span className="min-w-0 break-words font-medium">{category.name}</span>
-									{category.flow ? (
-										<StatusChip
-											tone={category.flow === "income" ? "success" : "neutral"}
-											label={category.flow === "income" ? t.common.income : t.common.expense}
-										/>
-									) : null}
+								<span
+									aria-hidden
+									className={`size-2 shrink-0 rounded-full ${category.flow === "income" ? "bg-success" : "bg-muted"}`}
+								/>
+								<span className="min-w-0 flex-1 truncate font-medium">{category.name}</span>
+								<span className="sr-only">
+									{category.flow === "income" ? t.common.income : t.common.expense}
 								</span>
-								<span className="flex gap-1">
-									<Button size="sm" variant="ghost" onPress={() => setRenaming(category)}>
-										{t.categories.rename}
-									</Button>
-									<Button size="sm" variant="ghost" onPress={() => setRemoving(category)}>
-										{t.common.delete}
-									</Button>
-								</span>
+								<Button
+									isIconOnly
+									size="sm"
+									variant="ghost"
+									aria-label={`${t.categories.rename}: ${category.name}`}
+									onPress={() => setRenaming(category)}
+								>
+									<EditIcon aria-hidden />
+								</Button>
+								<Button
+									isIconOnly
+									size="sm"
+									variant="ghost"
+									aria-label={`${t.common.delete}: ${category.name}`}
+									onPress={() => setRemoving(category)}
+								>
+									<TrashIcon aria-hidden />
+								</Button>
 							</li>
 						))}
 					</ul>
 				</div>
 			)}
-			<Modal isOpen={adding} onOpenChange={setAdding} title={t.categories.add} size="sm">
-				<CreateForm book={book} onDone={() => setAdding(false)} />
+			<Modal
+				isOpen={adding !== null}
+				onOpenChange={(open) => !open && setAdding(null)}
+				title={adding === "income" ? t.categories.addIncome : t.categories.addExpense}
+				size="sm"
+			>
+				{adding ? <CreateForm book={book} flow={adding} onDone={() => setAdding(null)} /> : null}
 			</Modal>
 			<Modal
 				isOpen={renaming !== null}

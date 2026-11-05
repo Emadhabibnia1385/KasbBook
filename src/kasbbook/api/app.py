@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..rates.board import RateSource
+from ..rates.fiat import OpenErRates
 from ..rates.swapwallet import SwapWalletRates
 from ..shared.database import Database
 from ..shared.settings import Settings
@@ -78,6 +79,7 @@ def create_app(
     database: Optional[Database] = None,
     limiter: Optional[RateLimiter] = None,
     rates: Optional[RateSource] = None,
+    fiat: Optional[object] = None,
 ) -> FastAPI:
     resolved = settings or Settings.from_env()
 
@@ -107,6 +109,7 @@ def create_app(
         # shared by every request, which is what keeps a polling panel from
         # becoming a polling provider.
         app.state.rates = rates or SwapWalletRates()
+        app.state.fiat = fiat or OpenErRates()
 
         # Empty unless this process is meant to receive updates, and an empty
         # map means every webhook path answers 404 — so a misconfigured deploy

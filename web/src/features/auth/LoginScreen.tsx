@@ -26,7 +26,11 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 					<p className="text-sm text-muted">{t.login.lead}</p>
 				</div>
 
-				{state.phase === "failed" ? <Notice tone="danger" role="alert">{state.message}</Notice> : null}
+				{state.phase === "failed" ? (
+					<Notice tone="danger" role="alert">
+						{state.message}
+					</Notice>
+				) : null}
 
 				{link ? (
 					<div className="flex w-full flex-col items-center gap-4 rounded-2xl border border-border bg-surface p-5">
@@ -41,7 +45,11 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 						</Button>
 						{qr ? (
 							<figure className="flex flex-col items-center gap-2">
-								<div aria-hidden className="size-40 rounded-xl bg-white p-2 [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: qr }} />
+								<div
+									aria-hidden
+									className="size-40 rounded-xl bg-white p-2 [&>svg]:size-full"
+									dangerouslySetInnerHTML={{ __html: qr }}
+								/>
 								<figcaption className="text-xs text-muted">{t.login.scan}</figcaption>
 							</figure>
 						) : null}
@@ -50,7 +58,12 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 						</Button>
 					</div>
 				) : (
-					<Button size="lg" className="w-full" isPending={state.phase === "starting"} onPress={() => void start()}>
+					<Button
+						size="lg"
+						className="w-full"
+						isPending={state.phase === "starting"}
+						onPress={() => void start()}
+					>
 						<TelegramIcon aria-hidden />
 						{state.phase === "starting" ? t.login.opening : t.login.button}
 					</Button>

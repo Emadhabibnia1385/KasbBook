@@ -17,7 +17,13 @@ import { CurrencyPicker } from "./CurrencyPicker";
 
 // The book's currencies in two parts: the main unit everything is kept in, and the short list of
 // others it may also hold. The catalog is long, so it lives behind a picker instead of on the page.
-export function CurrencyMenu({ book, options }: { book: BookResponse; options: CurrencyOptionResponse[] }) {
+export function CurrencyMenu({
+	book,
+	options,
+}: {
+	book: BookResponse;
+	options: CurrencyOptionResponse[];
+}) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const setCurrency = useBooksSetCurrency();
@@ -57,7 +63,9 @@ export function CurrencyMenu({ book, options }: { book: BookResponse; options: C
 	const enabled = options.filter((option) => option.enabled && !option.is_base);
 	// What cannot be picked to add: already ticked, or the base itself.
 	const taken = Object.fromEntries(
-		options.filter((option) => option.enabled).map((option) => [option.code, option.is_base ? t.currencies.baseReason : t.wallet.enabled]),
+		options
+			.filter((option) => option.enabled)
+			.map((option) => [option.code, option.is_base ? t.currencies.baseReason : t.wallet.enabled]),
 	);
 
 	return (
@@ -70,7 +78,11 @@ export function CurrencyMenu({ book, options }: { book: BookResponse; options: C
 							{book.currency}
 						</span>
 					</span>
-					<Button variant="secondary" isPending={setBase.isPending} onPress={() => setPicking("base")}>
+					<Button
+						variant="secondary"
+						isPending={setBase.isPending}
+						onPress={() => setPicking("base")}
+					>
 						{t.currencies.changeBase}
 					</Button>
 				</div>
@@ -103,7 +115,10 @@ export function CurrencyMenu({ book, options }: { book: BookResponse; options: C
 				) : (
 					<ul className="flex flex-col gap-2">
 						{enabled.map((option) => (
-							<li key={option.code} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+							<li
+								key={option.code}
+								className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
+							>
 								<span className="flex min-w-0 flex-wrap items-center gap-2">
 									<span className="font-medium">{option.name}</span>
 									<span dir="ltr" className="text-sm text-muted">

@@ -2,7 +2,8 @@ import { tv } from "tailwind-variants";
 import { EmptyState, ErrorState, Pager, TableSkeleton } from "@nyxon/nasim";
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
 import { DownIcon, UpIcon } from "@/shared/icons";
-import { formatDay, formatMoney } from "@/shared/format";
+import { formatDay } from "@/shared/format";
+import { Amount } from "./Amount";
 import { t } from "@/strings";
 
 const row = tv({
@@ -70,14 +71,7 @@ export function CompactRows({
 										{item.description ? ` · ${item.description}` : ""}
 									</span>
 								</span>
-								<span
-									dir="ltr"
-									className={`shrink-0 text-sm font-semibold ${income ? "text-success" : ""}`}
-								>
-									<span className="sr-only">{income ? t.common.income : t.common.expense}</span>
-									{income ? "+" : "−"}
-									{formatMoney(item.converted_amount, book.currency)}
-								</span>
+								<Amount row={item} book={book} />
 							</button>
 						</li>
 					);

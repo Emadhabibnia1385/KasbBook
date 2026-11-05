@@ -37,5 +37,11 @@ export function useActiveBook() {
 	const books = query.data ?? [];
 	// A saved id for a book that is gone (left, deleted) falls back to the first one.
 	const book = books.find((candidate) => candidate.id === saved) ?? books[0];
-	return { books, book, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
+	return {
+		books,
+		book,
+		isLoading: query.isLoading,
+		isError: query.isError,
+		refetch: query.refetch,
+	};
 }

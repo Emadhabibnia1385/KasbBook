@@ -18,6 +18,7 @@ export const txFilterStrings = {
 		onlyIncome: "فقط درآمدها",
 		categories: "دسته‌ها",
 		clear: "پاک کردن فیلترها",
+		picked: "انتخاب",
 		matches: "تراکنش",
 		incomeSum: "جمع درآمد",
 		expenseSum: "جمع هزینه",
@@ -39,5 +40,19 @@ export const txFilterStrings = {
 		someUnsent: "تراکنش ثبت شد، ولی بعضی فایل‌ها ارسال نشد؛ با «ویرایش» دوباره اضافه‌شان کن.",
 		clip: "پیوست",
 		detailTitle: "جزئیات تراکنش",
+	},
+	fx: {
+		currency: "ارز پرداخت",
+		rate: "نرخ تبدیل",
+		equivalent: "معادل در دفتر",
+		needRate: "نرخ را به عدد و بیشتر از صفر بنویس",
+		estimateFrom: "تخمین از",
+		estimateWarning: "این تخمین است، نه قیمت بازار آزاد؛ نرخ واقعی معامله را جایگزین کن.",
+		recorded: "نرخ ثبت‌شده",
+		estimateShort: "تخمینی",
+		today: "امروز معادل",
+		countries: "ارزهای کشورها",
+		countriesNote:
+			"تخمینی: قیمت دلار به تومان از قیمت تتر می‌آید و نرخ بین ارزها به‌صورت روزانه از exchangerate-api.",
 	},
 };

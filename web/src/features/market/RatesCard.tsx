@@ -9,7 +9,9 @@ import {
 import type { MarketRateResponse } from "@/api/generated/model";
 import { formatAmount } from "@/shared/format";
 import { t } from "@/strings";
+import { currencyName } from "@/shared/format";
 import { ageText } from "./format";
+import { sourceName, useQuotes } from "./useQuotes";
 import { useRates } from "./useRates";
 
 const asset = (code: string) =>
@@ -66,6 +68,45 @@ export function RatesCard() {
 					) : null}
 				</div>
 			)}
+		</SectionCard>
+	);
+}
+
+const COUNTRY_CODES = ["USD", "EUR", "GBP", "AED", "TRY", "CNY", "JPY", "CAD", "AUD", "CHF"];
+
+/** National currencies in toman. No feed publishes these, so they are estimates and are labelled as such. */
+export function CountryRates() {
+	const quotes = useQuotes(COUNTRY_CODES, "IRT");
+	const rows = quotes.data ?? [];
+	if (rows.length === 0) return null;
+	const oldest = Math.max(...rows.map((row) => row.age_seconds ?? 0));
+	return (
+		<SectionCard
+			title={t.fx.countries}
+			actions={<StatusChip tone="warning" label={t.fx.estimateShort} />}
+		>
+			<ul className="flex flex-col">
+				{rows.map((row) => (
+					<li
+						key={row.code}
+						className="flex items-center justify-between gap-3 border-b border-separator py-2 last:border-b-0"
+					>
+						<span className="font-medium">
+							{currencyName(row.code)}{" "}
+							<span dir="ltr" className="text-xs text-muted">
+								{row.code}
+							</span>
+						</span>
+						<span dir="ltr" className="text-sm font-semibold tabular-nums">
+							{formatAmount(row.value, 0)} {t.money.toman}
+						</span>
+					</li>
+				))}
+			</ul>
+			<p className="mt-2 text-xs text-muted">
+				{t.fx.countriesNote} {t.market.sourceLabel}: {sourceName(rows[0]?.source ?? "")} ·{" "}
+				{ageText(oldest)}
+			</p>
 		</SectionCard>
 	);
 }

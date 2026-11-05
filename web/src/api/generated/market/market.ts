@@ -27,7 +27,13 @@ import type {
 	UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HTTPValidationError, MarketRateResponse, MarketRatesParams } from "../model";
+import type {
+	HTTPValidationError,
+	MarketQuotesParams,
+	MarketRateResponse,
+	MarketRatesParams,
+	QuoteResponse,
+} from "../model";
 
 import { apiFetch } from "../../transport";
 import type { ErrorType } from "../../transport";
@@ -49,6 +55,146 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
 	}
 	return result;
 };
+
+export const getMarketQuotesUrl = (params: MarketQuotesParams) => {
+	const normalizedParams = new URLSearchParams();
+
+	Object.entries(params || {}).forEach(([key, value]) => {
+		if (value !== undefined) {
+			normalizedParams.append(key, value === null ? "null" : String(value));
+		}
+	});
+
+	const stringifiedParams = normalizedParams.toString();
+
+	return stringifiedParams.length > 0
+		? `/api/v1/market/quotes?${stringifiedParams}`
+		: `/api/v1/market/quotes`;
+};
+
+/**
+ * What one unit of each code is worth in `base`, across crypto, the toman and national currencies.
+ *
+ * `exact` is false for an estimate: a national currency in toman is priced through the
+ * dollar-pegged USDT, because no feed publishes the dollar in toman. A code nothing can price is
+ * left out rather than guessed. With no price from either feed the answer is 503.
+ * @summary Quotes
+ */
+export const marketQuotes = async (
+	params: MarketQuotesParams,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<QuoteResponse[]> => {
+	return apiFetch<QuoteResponse[]>(getMarketQuotesUrl(params), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getMarketQuotesQueryKey = (params?: MarketQuotesParams) => {
+	return [`/api/v1/market/quotes`, ...(params ? [params] : [])] as const;
+};
+
+export const useMarketQuotesQueryOptions = <
+	TData = Awaited<ReturnType<typeof marketQuotes>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	params: MarketQuotesParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof marketQuotes>>, TError, TData>>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getMarketQuotesQueryKey(params);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof marketQuotes>>> = ({ signal }) =>
+		marketQuotes(params, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({ queryKey, queryFn, ...queryOptions });
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof marketQuotes>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type MarketQuotesQueryResult = NonNullable<Awaited<ReturnType<typeof marketQuotes>>>;
+export type MarketQuotesQueryError = ErrorType<HTTPValidationError>;
+
+export function useMarketQuotes<
+	TData = Awaited<ReturnType<typeof marketQuotes>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	params: MarketQuotesParams,
+	options: {
+		query: Partial<UseQueryOptions<Awaited<ReturnType<typeof marketQuotes>>, TError, TData>> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof marketQuotes>>,
+					TError,
+					Awaited<ReturnType<typeof marketQuotes>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useMarketQuotes<
+	TData = Awaited<ReturnType<typeof marketQuotes>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	params: MarketQuotesParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof marketQuotes>>, TError, TData>> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof marketQuotes>>,
+					TError,
+					Awaited<ReturnType<typeof marketQuotes>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useMarketQuotes<
+	TData = Awaited<ReturnType<typeof marketQuotes>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	params: MarketQuotesParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof marketQuotes>>, TError, TData>>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Quotes
+ */
+
+export function useMarketQuotes<
+	TData = Awaited<ReturnType<typeof marketQuotes>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	params: MarketQuotesParams,
+	options?: {
+		query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof marketQuotes>>, TError, TData>>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useMarketQuotesQueryOptions(params, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getMarketRatesUrl = (params?: MarketRatesParams) => {
 	const normalizedParams = new URLSearchParams();

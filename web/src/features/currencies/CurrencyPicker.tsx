@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { tv } from "tailwind-variants";
-import { BottomSheet, EmptyState, ErrorState, FilterChips, Modal, PageSkeleton, SearchBox, useMediaQuery } from "@nyxon/nasim";
+import {
+	BottomSheet,
+	EmptyState,
+	ErrorState,
+	FilterChips,
+	Modal,
+	PageSkeleton,
+	SearchBox,
+	useMediaQuery,
+} from "@nyxon/nasim";
 import type { CatalogCurrencyResponse } from "@/api/generated/model";
 import { CheckIcon } from "@/shared/icons";
 import { toAscii } from "@/shared/format";
@@ -15,11 +24,14 @@ const row = tv({
 type Kind = "all" | "crypto" | "fiat";
 
 // Persian and Latin letters, any case, any digits: «دلار», «usd», «۱» all find what they mean.
-const normal = (text: string) => toAscii(text).toLowerCase().replace(/[يى]/g, "ی").replace(/ك/g, "ک");
+const normal = (text: string) =>
+	toAscii(text).toLowerCase().replace(/[يى]/g, "ی").replace(/ك/g, "ک");
 
 function matches(currency: CatalogCurrencyResponse, query: string): boolean {
 	if (!query) return true;
-	const haystack = normal(`${currency.name} ${currency.code} ${currency.symbol} ${currency.region}`);
+	const haystack = normal(
+		`${currency.name} ${currency.code} ${currency.symbol} ${currency.region}`,
+	);
 	return query.split(/\s+/).every((word) => haystack.includes(word));
 }
 
@@ -52,12 +64,19 @@ export function CurrencyPicker({
 		const needle = normal(query.trim());
 		const picked = all.filter((c) => (kind === "all" || c.kind === kind) && matches(c, needle));
 		// Without a search the common ones come first; a search is already narrow.
-		return needle ? picked : [...picked.filter((c) => c.popular), ...picked.filter((c) => !c.popular)];
+		return needle
+			? picked
+			: [...picked.filter((c) => c.popular), ...picked.filter((c) => !c.popular)];
 	}, [catalog.data, query, kind]);
 
 	const body = (
 		<div className="flex flex-col gap-3">
-			<SearchBox label={t.currencies.search} placeholder={t.currencies.searchHint} value={query} onChange={setQuery} />
+			<SearchBox
+				label={t.currencies.search}
+				placeholder={t.currencies.searchHint}
+				value={query}
+				onChange={setQuery}
+			/>
 			<FilterChips
 				label={t.currencies.kind}
 				value={kind}
@@ -75,7 +94,10 @@ export function CurrencyPicker({
 			) : rows.length === 0 ? (
 				<EmptyState title={t.currencies.none} />
 			) : (
-				<ul className="flex max-h-[55dvh] flex-col gap-1 overflow-y-auto overscroll-contain" aria-label={title}>
+				<ul
+					className="flex max-h-[55dvh] flex-col gap-1 overflow-y-auto overscroll-contain"
+					aria-label={title}
+				>
 					{rows.map((currency) => {
 						const why = disabled[currency.code];
 						return (
@@ -97,7 +119,9 @@ export function CurrencyPicker({
 										<span className="truncate font-medium">{currency.name}</span>
 										<span className="truncate text-xs text-muted">{why ?? currency.region}</span>
 									</span>
-									{currency.code === current ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
+									{currency.code === current ? (
+										<CheckIcon aria-hidden className="size-5 shrink-0" />
+									) : null}
 								</button>
 							</li>
 						);

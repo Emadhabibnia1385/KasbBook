@@ -1,7 +1,9 @@
 import { BottomSheet, Button, KeyValueList, Modal, useIsNarrow } from "@nyxon/nasim";
 import { useBooksListAttachments } from "@/api/generated/books/books";
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
-import { formatFullDate, formatMoney } from "@/shared/format";
+import { useQuotes } from "@/features/market/useQuotes";
+import { multiply } from "@/features/payroll/decimal";
+import { currencyName, formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 import { AttachmentItem } from "./AttachmentsField";
 
@@ -10,6 +12,13 @@ function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
 		query: { enabled: (row.attachment_count ?? 0) > 0 },
 	});
 	const income = row.flow === "income";
+	const foreign = row.original_currency !== book.currency;
+	// What it was worth when recorded is on the row; what it is worth now is asked of the market.
+	const now = useQuotes([row.original_currency], book.currency, foreign).data?.[0];
+	const recordedRate =
+		foreign && Number(row.original_amount) > 0
+			? Number(row.converted_amount) / Number(row.original_amount)
+			: null;
 	return (
 		<div className="flex flex-col gap-4">
 			<KeyValueList
@@ -23,11 +32,33 @@ function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
 							</span>
 						),
 					},
-					row.original_currency !== book.currency
+					foreign
 						? {
 								label: t.txExtra.original,
 								value: (
 									<span dir="ltr">{formatMoney(row.original_amount, row.original_currency)}</span>
+								),
+							}
+						: null,
+					recordedRate !== null
+						? {
+								label: t.fx.recorded,
+								value: (
+									<span dir="ltr">
+										1 {currencyName(row.original_currency)} ={" "}
+										{formatAmount(recordedRate.toFixed(4), 4)} {currencyName(book.currency)}
+									</span>
+								),
+							}
+						: null,
+					foreign && now
+						? {
+								label: t.fx.today,
+								value: (
+									<span dir="ltr">
+										{formatMoney(multiply(row.original_amount, now.value), book.currency)}
+										{now.exact ? "" : ` (${t.fx.estimateShort})`}
+									</span>
 								),
 							}
 						: null,

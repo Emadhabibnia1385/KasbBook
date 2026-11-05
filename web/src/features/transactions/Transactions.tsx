@@ -1,6 +1,10 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ageText } from "@/features/market/format";
+import { sourceName, useQuotes } from "@/features/market/useQuotes";
+import { multiply } from "@/features/payroll/decimal";
+import { Amount } from "./Amount";
 import { AttachmentsField } from "./AttachmentsField";
 import { CompactRows } from "./CompactRows";
 import { FilterBar } from "./FilterBar";
@@ -18,12 +22,14 @@ import {
 	useIsNarrow,
 	PageHeader,
 	RadioGroupField,
+	SelectField,
 	SubmitButton,
 	TextField,
 	toast,
 } from "@nyxon/nasim";
 import {
 	booksAddAttachment,
+	useBooksListCurrencies,
 	useBooksDeleteTransaction,
 	useBooksEditTransaction,
 	useBooksListTransactions,
@@ -52,6 +58,10 @@ const schema = z.object({
 	amount: amountRule,
 	category: z.string().trim().min(1, { error: t.transactions.needCategory }).max(80),
 	description: z.string().max(300),
+	// The money it was paid in; the book's own currency unless chosen otherwise. A rate is only
+	// asked for, and checked, when it is another one.
+	currency: z.string(),
+	rate: z.string().transform(toAscii),
 });
 type Values = z.input<typeof schema>;
 
@@ -150,9 +160,41 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 	const record = useBooksRecordTransaction();
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
-		defaultValues: { flow: "expense", amount: "", category: "", description: "" },
+		defaultValues: {
+			flow: "expense",
+			amount: "",
+			category: "",
+			description: "",
+			currency: book.currency,
+			rate: "",
+		},
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
+	const currency = useWatch({ control: form.control, name: "currency" });
+	const amountTyped = useWatch({ control: form.control, name: "amount" });
+	const rateTyped = useWatch({ control: form.control, name: "rate" });
+	const foreign = currency !== book.currency;
+	const options = (useBooksListCurrencies(book.id).data ?? [])
+		.filter((option) => option.enabled)
+		.map((option) => ({ value: option.code, label: `${option.name} (${option.code})` }));
+	// The market's price for this currency in the book's own; offered once per currency, never over a typed rate.
+	const market = useQuotes([currency], book.currency, foreign);
+	const quote = foreign ? market.data?.[0] : undefined;
+	const filledFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (!foreign) {
+			filledFor.current = null;
+			return;
+		}
+		if (quote && filledFor.current !== currency && !form.getValues("rate")) {
+			form.setValue("rate", quote.value, { shouldDirty: true });
+			filledFor.current = currency;
+		}
+	}, [foreign, quote, currency, form]);
+	const rateOk = /^\d+(\.\d+)?$/.test(toAscii(rateTyped)) && Number(toAscii(rateTyped)) > 0;
+	const amountOk = /^\d+(\.\d{1,4})?$/.test(toAscii(amountTyped));
+	const equivalent =
+		foreign && rateOk && amountOk ? multiply(toAscii(amountTyped), toAscii(rateTyped)) : null;
 	// Files chosen before the transaction exists wait here and are sent once it does.
 	const [files, setFiles] = useState<File[]>([]);
 	return (
@@ -161,6 +203,11 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 			className="flex flex-col gap-4"
 			onSubmit={async (raw) => {
 				const values = schema.parse(raw);
+				const other = values.currency !== book.currency;
+				if (other && !(/^\d+(\.\d+)?$/.test(values.rate) && Number(values.rate) > 0)) {
+					form.setError("rate", { message: t.fx.needRate });
+					return;
+				}
 				try {
 					// Scope follows the book's kind on the server; the panel records what the person typed.
 					const made = await record.mutateAsync({
@@ -172,6 +219,8 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 							category: values.category,
 							amount: values.amount,
 							description: values.description || null,
+							currency: other ? values.currency : null,
+							conversion_rate: other ? values.rate : null,
 						},
 					});
 					let unsent = 0;
@@ -203,13 +252,42 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 					{ value: "income", label: t.common.income },
 				]}
 			/>
+			{options.length > 1 ? (
+				<SelectField name="currency" label={t.fx.currency} options={options} />
+			) : null}
 			<TextField
 				name="amount"
-				label={t.transactions.amount}
+				label={
+					foreign ? `${t.transactions.amount} (${currencyName(currency)})` : t.transactions.amount
+				}
 				inputMode="decimal"
 				dir="ltr"
 				isRequired
 			/>
+			{foreign ? (
+				<>
+					<TextField
+						name="rate"
+						label={`${t.fx.rate} (${currencyName(currency)} → ${currencyName(book.currency)})`}
+						description={
+							quote
+								? `${quote.exact ? t.rateNote.source : t.fx.estimateFrom} ${sourceName(quote.source)}، ${ageText(quote.age_seconds ?? 0)}. ${quote.exact ? t.rateNote.editable : t.fx.estimateWarning}`
+								: market.isLoading
+									? t.rateNote.loading
+									: t.rateNote.missing
+						}
+						inputMode="decimal"
+						dir="ltr"
+						isRequired
+					/>
+					{equivalent ? (
+						<p className="text-sm text-muted" aria-live="polite">
+							{t.fx.equivalent}:{" "}
+							<b className="text-foreground">{formatMoney(equivalent, book.currency)}</b>
+						</p>
+					) : null}
+				</>
+			) : null}
 			<TextField name="category" label={t.transactions.category} isRequired />
 			<CategoryChips
 				bookId={book.id}
@@ -350,18 +428,7 @@ function List({ book }: { book: BookResponse }) {
 							header: t.transactions.amount,
 							align: "end",
 							className: "w-36",
-							cell: (row) => (
-								<span
-									dir="ltr"
-									className={`whitespace-nowrap ${row.flow === "income" ? "text-success" : ""}`}
-								>
-									<span className="sr-only">
-										{row.flow === "income" ? t.common.income : t.common.expense}{" "}
-									</span>
-									{row.flow === "income" ? "+" : "−"}
-									{formatMoney(row.converted_amount, book.currency)}
-								</span>
-							),
+							cell: (row) => <Amount row={row} book={book} />,
 						},
 						{
 							id: "date",

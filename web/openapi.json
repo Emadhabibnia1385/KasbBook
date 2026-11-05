@@ -3107,6 +3107,57 @@
         "title": "ProfileRequest",
         "type": "object"
       },
+      "QuoteResponse": {
+        "description": "One unit of `code` in `base`. `exact` false means an estimate and must be shown as one.",
+        "properties": {
+          "age_seconds": {
+            "default": 0,
+            "title": "Age Seconds",
+            "type": "integer"
+          },
+          "base": {
+            "title": "Base",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "exact": {
+            "title": "Exact",
+            "type": "boolean"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "base",
+          "value",
+          "exact",
+          "source"
+        ],
+        "title": "QuoteResponse",
+        "type": "object"
+      },
       "RecurringRequest": {
         "properties": {
           "amount": {
@@ -13780,6 +13831,99 @@
         "summary": "Respond",
         "tags": [
           "invitations"
+        ]
+      }
+    },
+    "/api/v1/market/quotes": {
+      "get": {
+        "description": "What one unit of each code is worth in `base`, across crypto, the toman and national currencies.\n\n`exact` is false for an estimate: a national currency in toman is priced through the\ndollar-pegged USDT, because no feed publishes the dollar in toman. A code nothing can price is\nleft out rather than guessed. With no price from either feed the answer is 503.",
+        "operationId": "market_quotes",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "base",
+            "required": false,
+            "schema": {
+              "default": "IRT",
+              "maxLength": 8,
+              "minLength": 2,
+              "title": "Base",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated currency codes, at most 30; e.g. USD,EUR,TON",
+            "in": "query",
+            "name": "codes",
+            "required": true,
+            "schema": {
+              "description": "Comma-separated currency codes, at most 30; e.g. USD,EUR,TON",
+              "title": "Codes",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuoteResponse"
+                  },
+                  "title": "Response Market Quotes",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quotes",
+        "tags": [
+          "market"
         ]
       }
     },
