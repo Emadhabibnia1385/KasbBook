@@ -16,3 +16,6 @@ export { default as PlusIcon } from "~icons/solar/add-circle-bold";
 export { default as UpIcon } from "~icons/solar/arrow-up-linear";
 export { default as DownIcon } from "~icons/solar/arrow-down-linear";
 export { default as TelegramIcon } from "~icons/solar/plain-bold";
+export { default as WalletIcon } from "~icons/solar/wallet-linear";
+export { default as RepeatIcon } from "~icons/solar/repeat-linear";
+export { default as SearchIcon } from "~icons/solar/magnifer-linear";

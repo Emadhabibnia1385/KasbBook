@@ -5,5 +5,6 @@ export * from "./identities/identities";
 export * from "./invitations/invitations";
 export * from "./payroll/payroll";
 export * from "./planning/planning";
+export * from "./recurring/recurring";
 export * from "./reports/reports";
 export * from "./webhooks/webhooks";

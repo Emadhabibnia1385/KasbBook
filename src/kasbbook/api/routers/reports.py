@@ -19,7 +19,16 @@ from ...shared import jalali
 from ...shared.errors import ValidationError
 from ...shared.money import ZERO, quantize
 from ..deps import CurrentUser, SessionDep
-from ..schemas import CategoryLine, DailyPoint, DayResponse, MonthlyPoint, SummaryResponse
+from ...modules.ledger.service import LedgerService
+from ..schemas import (
+    CategoryLine,
+    DailyPoint,
+    DayResponse,
+    MonthlyPoint,
+    SummaryResponse,
+    TransactionSearchPage,
+)
+from .books import _transaction
 
 router = APIRouter(prefix="/books/{book_id}/reports", tags=["reports"])
 
@@ -67,6 +76,27 @@ async def summary(
     return SummaryResponse(
         income=totals.income, expense=totals.expense, net=totals.net,
         transaction_count=totals.count,
+    )
+
+
+@router.get("/search", response_model=TransactionSearchPage)
+async def search(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    q: str = Query(default="", max_length=100, description="two characters at least"),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+) -> TransactionSearchPage:
+    """The bot's search, as a page. A query under two characters matches nothing."""
+    rows, total, total_amount = await reports.ReportService(session).search(
+        book_id, user.id, q, page=page - 1, per_page=per_page
+    )
+    activities = await LedgerService(session).activities(user.id, rows)
+    return TransactionSearchPage(
+        items=[_transaction(row, activities[row.id]) for row in rows],
+        # An empty search returns the bare ZERO, so the wire shape is fixed here.
+        total=total, total_amount=quantize(total_amount), page=page, per_page=per_page,
     )
 
 

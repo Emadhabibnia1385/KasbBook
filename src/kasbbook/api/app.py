@@ -27,6 +27,7 @@ from .routers import (
     invitations,
     payroll,
     planning,
+    recurring,
     reports,
     webhooks,
     weblogin,
@@ -164,6 +165,7 @@ def create_app(
     app.include_router(reports.router, prefix=api)
     app.include_router(planning.router, prefix=api)
     app.include_router(payroll.router, prefix=api)
+    app.include_router(recurring.router, prefix=api)
     app.include_router(weblogin.router, prefix=api)
     app.include_router(webhooks.router, prefix=api)
     # Last, so it only ever answers what nothing above claimed.

@@ -1,5 +1,8 @@
+import { parity3 } from "./parity3";
+
 // Every word a person reads, in one place: screens import `t`, never a literal.
 export const t = {
+	...parity3,
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",
 	nav: {

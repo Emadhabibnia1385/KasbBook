@@ -1,14 +1,29 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button, ConfirmDialog, KeyValueList, PageHeader, PageSkeleton, SectionCard, ThemeToggle } from "@nyxon/nasim";
+import {
+	Button,
+	ConfirmDialog,
+	KeyValueList,
+	PageHeader,
+	PageSkeleton,
+	SectionCard,
+	ThemeToggle,
+} from "@nyxon/nasim";
 import { authLogoutEverywhere, useAuthMe, useAuthSessions } from "@/api/generated/auth/auth";
 import { useIdentitiesListIdentities } from "@/api/generated/identities/identities";
 import { clearSession } from "@/api/session";
 import { InstallButton } from "@/features/pwa/InstallButton";
+import { DigestForm } from "./DigestForm";
 import { formatFullDate } from "@/shared/format";
 import { t } from "@/strings";
 
-const PROVIDERS: Record<string, string> = { telegram: "تلگرام", bale: "بله", rubika: "روبیکا", eitaa: "ایتا", web: "وب" };
+const PROVIDERS: Record<string, string> = {
+	telegram: "تلگرام",
+	bale: "بله",
+	rubika: "روبیکا",
+	eitaa: "ایتا",
+	web: "وب",
+};
 
 export function Account() {
 	const queryClient = useQueryClient();
@@ -31,13 +46,28 @@ export function Account() {
 						]}
 					/>
 				</SectionCard>
+				{user ? (
+					<SectionCard title={t.digest.title}>
+						<DigestForm
+							key={`${user.digest_enabled}-${user.digest_hour}-${user.reminder_days}`}
+							user={user}
+						/>
+					</SectionCard>
+				) : null}
 				<SectionCard title={t.account.messengers}>
 					<ul className="flex flex-col gap-2">
 						{(identities.data ?? []).map((identity) => (
-							<li key={identity.id} className="flex items-center justify-between rounded-xl border border-border p-3">
-								<span className="font-medium">{PROVIDERS[identity.provider] ?? identity.provider}</span>
+							<li
+								key={identity.id}
+								className="flex items-center justify-between rounded-xl border border-border p-3"
+							>
+								<span className="font-medium">
+									{PROVIDERS[identity.provider] ?? identity.provider}
+								</span>
 								<span dir="ltr" className="text-sm text-muted">
-									{identity.external_username ? `@${identity.external_username}` : identity.external_id}
+									{identity.external_username
+										? `@${identity.external_username}`
+										: identity.external_id}
 								</span>
 							</li>
 						))}
@@ -46,7 +76,10 @@ export function Account() {
 				<SectionCard title={t.account.sessions}>
 					<ul className="flex flex-col gap-2">
 						{(sessions.data ?? []).map((session) => (
-							<li key={session.id} className="flex flex-col gap-1 rounded-xl border border-border p-3 text-sm">
+							<li
+								key={session.id}
+								className="flex flex-col gap-1 rounded-xl border border-border p-3 text-sm"
+							>
 								<span className="truncate" dir="ltr">
 									{session.user_agent ?? "—"}
 								</span>
