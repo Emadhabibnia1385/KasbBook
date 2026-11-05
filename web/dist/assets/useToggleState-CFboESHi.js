@@ -1,0 +1,1 @@
+import{a as e}from"./FocusScope-B96WV8wy.js";import{St as t,Tt as n}from"./useHover-ByWw_PNp.js";var r=n(t(),1);function i(t={}){let{isReadOnly:n}=t,[i,a]=e(t.isSelected,t.defaultSelected||!1,t.onChange),[o]=(0,r.useState)(i);function s(e){n||a(e)}function c(){n||a(!i)}return{isSelected:i,defaultSelected:t.defaultSelected??o,setSelected:s,toggle:c}}export{i as t};

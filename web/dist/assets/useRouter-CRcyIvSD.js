@@ -1,1 +1,0 @@
-import{Mt as e,kt as t}from"./strings-UURT3zlX.js";var n=e(t(),1),r=n.createContext(null);function i(e){return n.useContext(r)}export{r as n,i as t};

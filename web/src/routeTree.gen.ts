@@ -18,7 +18,6 @@ import { Route as AppMoreRouteImport } from './routes/_app.more'
 import { Route as AppPlanningRouteImport } from './routes/_app.planning'
 import { Route as AppRecurringRouteImport } from './routes/_app.recurring'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
-import { Route as AppSearchRouteImport } from './routes/_app.search'
 import { Route as AppTeamRouteImport } from './routes/_app.team'
 import { Route as AppTransactionsRouteImport } from './routes/_app.transactions'
 import { Route as AppWalletRouteImport } from './routes/_app.wallet'
@@ -72,11 +71,6 @@ const AppReportsRoute = AppReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSearchRoute = AppSearchRouteImport.update({
-  id: '/search',
-  path: '/search',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppTeamRoute = AppTeamRouteImport.update({
   id: '/team',
   path: '/team',
@@ -127,7 +121,6 @@ export interface FileRoutesByFullPath {
   '/planning': typeof AppPlanningRoute
   '/recurring': typeof AppRecurringRoute
   '/reports': typeof AppReportsRoute
-  '/search': typeof AppSearchRoute
   '/team': typeof AppTeamRouteWithChildren
   '/transactions': typeof AppTransactionsRoute
   '/wallet': typeof AppWalletRoute
@@ -145,7 +138,6 @@ export interface FileRoutesByTo {
   '/planning': typeof AppPlanningRoute
   '/recurring': typeof AppRecurringRoute
   '/reports': typeof AppReportsRoute
-  '/search': typeof AppSearchRoute
   '/transactions': typeof AppTransactionsRoute
   '/wallet': typeof AppWalletRoute
   '/': typeof AppIndexRoute
@@ -165,7 +157,6 @@ export interface FileRoutesById {
   '/_app/planning': typeof AppPlanningRoute
   '/_app/recurring': typeof AppRecurringRoute
   '/_app/reports': typeof AppReportsRoute
-  '/_app/search': typeof AppSearchRoute
   '/_app/team': typeof AppTeamRouteWithChildren
   '/_app/transactions': typeof AppTransactionsRoute
   '/_app/wallet': typeof AppWalletRoute
@@ -187,7 +178,6 @@ export interface FileRouteTypes {
     | '/planning'
     | '/recurring'
     | '/reports'
-    | '/search'
     | '/team'
     | '/transactions'
     | '/wallet'
@@ -205,7 +195,6 @@ export interface FileRouteTypes {
     | '/planning'
     | '/recurring'
     | '/reports'
-    | '/search'
     | '/transactions'
     | '/wallet'
     | '/'
@@ -224,7 +213,6 @@ export interface FileRouteTypes {
     | '/_app/planning'
     | '/_app/recurring'
     | '/_app/reports'
-    | '/_app/search'
     | '/_app/team'
     | '/_app/transactions'
     | '/_app/wallet'
@@ -304,13 +292,6 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AppReportsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/search': {
-      id: '/_app/search'
-      path: '/search'
-      fullPath: '/search'
-      preLoaderRoute: typeof AppSearchRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/team': {
@@ -398,7 +379,6 @@ interface AppRouteChildren {
   AppPlanningRoute: typeof AppPlanningRoute
   AppRecurringRoute: typeof AppRecurringRoute
   AppReportsRoute: typeof AppReportsRoute
-  AppSearchRoute: typeof AppSearchRoute
   AppTeamRoute: typeof AppTeamRouteWithChildren
   AppTransactionsRoute: typeof AppTransactionsRoute
   AppWalletRoute: typeof AppWalletRoute
@@ -412,7 +392,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppPlanningRoute: AppPlanningRoute,
   AppRecurringRoute: AppRecurringRoute,
   AppReportsRoute: AppReportsRoute,
-  AppSearchRoute: AppSearchRoute,
   AppTeamRoute: AppTeamRouteWithChildren,
   AppTransactionsRoute: AppTransactionsRoute,
   AppWalletRoute: AppWalletRoute,

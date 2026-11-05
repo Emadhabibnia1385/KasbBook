@@ -1,0 +1,1 @@
+import{St as e,Tt as t}from"./useHover-ByWw_PNp.js";var n=t(e(),1),r=n.createContext(null);function i(e){return n.useContext(r)}export{r as n,i as t};

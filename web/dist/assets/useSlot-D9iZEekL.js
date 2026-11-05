@@ -1,0 +1,1 @@
+import{$ as e,St as t,Tt as n,tt as r}from"./useHover-ByWw_PNp.js";var i=n(t(),1);function a(e=!0){let[t,n]=(0,i.useState)(e),a=(0,i.useRef)(!1),o=(0,i.useCallback)(e=>{a.current=!0,n(!!e)},[]);return r(()=>{a.current||n(!1)},[]),[o,t]}function o(t=!0){let n=e(),[r,i]=a(t);return{id:i?n:void 0,ref:r}}export{o as t};

@@ -27,4 +27,16 @@ export type BooksListTransactionsParams = {
 	 * @maximum 200
 	 */
 	per_page?: number;
+	/**
+	 * income and/or expense; repeat for both
+	 */
+	flow?: string[] | null;
+	/**
+	 * repeat for several categories
+	 */
+	category?: string[] | null;
+	/**
+	 * words in the category or the note
+	 */
+	q?: string | null;
 };

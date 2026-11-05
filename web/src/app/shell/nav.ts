@@ -11,7 +11,6 @@ import {
 	MoreIcon,
 	PlanIcon,
 	RepeatIcon,
-	SearchIcon,
 	TeamIcon,
 	WalletIcon,
 } from "@/shared/icons";
@@ -36,6 +35,5 @@ export const SIDE_NAV: NavItem[] = [
 	{ to: "/books", label: t.nav.books, icon: BookIcon },
 	{ to: "/wallet", label: t.nav3.wallet, icon: WalletIcon },
 	{ to: "/recurring", label: t.nav3.recurring, icon: RepeatIcon },
-	{ to: "/search", label: t.nav3.search, icon: SearchIcon },
 	{ to: "/account", label: t.nav.account, icon: AccountIcon },
 ];

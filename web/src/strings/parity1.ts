@@ -16,6 +16,7 @@ export const parity1 = {
 		badDay: "این ماه فقط این‌قدر روز دارد:",
 	},
 	txExtra: {
+		original: "مبلغ اصلی",
 		edit: "ویرایش تراکنش",
 		editSaved: "تغییرات ذخیره شد",
 		foreignCurrency: "مبلغ به ارز اصلی تراکنش ثبت می‌شود:",

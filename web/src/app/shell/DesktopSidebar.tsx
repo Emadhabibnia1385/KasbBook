@@ -38,15 +38,23 @@ export function DesktopSidebar() {
 				</ul>
 			</nav>
 			<div className={slots.account()}>
-				<InstallButton />
-				<div className="flex items-center justify-between gap-2">
-					{me ? <p className="truncate text-sm font-medium">{me.display_name}</p> : <span />}
-					<ThemeToggle lightLabel={t.theme.light} darkLabel={t.theme.dark} />
+				<div className="flex justify-center">
+					<InstallButton />
 				</div>
-				<Button variant="ghost" className="justify-start" onPress={() => void signOut(queryClient)}>
-					<LogoutIcon aria-hidden />
-					{t.common.logout}
-				</Button>
+				<div className="flex items-center justify-between gap-2">
+					<ThemeToggle lightLabel={t.theme.light} darkLabel={t.theme.dark} />
+					<p className="min-w-0 flex-1 truncate text-center text-sm font-medium">
+						{me?.display_name ?? ""}
+					</p>
+					<Button
+						isIconOnly
+						variant="ghost"
+						aria-label={t.common.logout}
+						onPress={() => void signOut(queryClient)}
+					>
+						<LogoutIcon aria-hidden />
+					</Button>
+				</div>
 			</div>
 		</aside>
 	);

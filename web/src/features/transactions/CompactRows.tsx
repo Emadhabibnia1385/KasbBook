@@ -1,17 +1,8 @@
-import { useState } from "react";
 import { tv } from "tailwind-variants";
-import {
-	BottomSheet,
-	Button,
-	EmptyState,
-	ErrorState,
-	KeyValueList,
-	Pager,
-	TableSkeleton,
-} from "@nyxon/nasim";
+import { EmptyState, ErrorState, Pager, TableSkeleton } from "@nyxon/nasim";
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
 import { DownIcon, UpIcon } from "@/shared/icons";
-import { formatDay, formatFullDate, formatMoney } from "@/shared/format";
+import { formatDay, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 
 const row = tv({
@@ -40,8 +31,7 @@ export function CompactRows({
 	page,
 	pageCount,
 	onPageChange,
-	onEdit,
-	onRemove,
+	onOpen,
 }: {
 	book: BookResponse;
 	rows: readonly TransactionResponse[] | undefined;
@@ -52,10 +42,8 @@ export function CompactRows({
 	page: number;
 	pageCount: number;
 	onPageChange: (page: number) => void;
-	onEdit: (row: TransactionResponse) => void;
-	onRemove: (row: TransactionResponse) => void;
+	onOpen: (row: TransactionResponse) => void;
 }) {
-	const [open, setOpen] = useState<TransactionResponse | null>(null);
 	if (status === "loading") return <TableSkeleton />;
 	if (status === "error") return <ErrorState onRetry={onRetry} />;
 	if (!rows?.length) return <EmptyState title={emptyTitle} description={empty} />;
@@ -71,7 +59,7 @@ export function CompactRows({
 					const Arrow = income ? UpIcon : DownIcon;
 					return (
 						<li key={item.id} className="border-b border-separator last:border-b-0">
-							<button type="button" className={slots.button()} onClick={() => setOpen(item)}>
+							<button type="button" className={slots.button()} onClick={() => onOpen(item)}>
 								<span className={slots.badge()}>
 									<Arrow aria-hidden className="size-5" />
 								</span>
@@ -82,7 +70,10 @@ export function CompactRows({
 										{item.description ? ` · ${item.description}` : ""}
 									</span>
 								</span>
-								<span dir="ltr" className={`shrink-0 text-sm font-semibold ${income ? "text-success" : ""}`}>
+								<span
+									dir="ltr"
+									className={`shrink-0 text-sm font-semibold ${income ? "text-success" : ""}`}
+								>
 									<span className="sr-only">{income ? t.common.income : t.common.expense}</span>
 									{income ? "+" : "−"}
 									{formatMoney(item.converted_amount, book.currency)}
@@ -100,51 +91,6 @@ export function CompactRows({
 					onNext={() => onPageChange(page + 1)}
 				/>
 			) : null}
-			<BottomSheet
-				isOpen={open !== null}
-				onOpenChange={(value) => !value && setOpen(null)}
-				title={open?.category ?? ""}
-				footer={
-					open ? (
-						<>
-							<Button
-								variant="danger-soft"
-								onPress={() => {
-									onRemove(open);
-									setOpen(null);
-								}}
-							>
-								{t.common.delete}
-							</Button>
-							<Button
-								onPress={() => {
-									onEdit(open);
-									setOpen(null);
-								}}
-							>
-								{t.common.edit}
-							</Button>
-						</>
-					) : null
-				}
-			>
-				{open ? (
-					<KeyValueList
-						items={[
-							{
-								label: t.transactions.amount,
-								value: `${open.flow === "income" ? "+" : "−"}${formatMoney(open.converted_amount, book.currency)}`,
-							},
-							{
-								label: t.transactions.kind,
-								value: open.flow === "income" ? t.common.income : t.common.expense,
-							},
-							{ label: t.transactions.date, value: formatFullDate(open.occurred_on) },
-							open.description ? { label: t.transactions.note, value: open.description } : null,
-						]}
-					/>
-				) : null}
-			</BottomSheet>
 		</div>
 	);
 }

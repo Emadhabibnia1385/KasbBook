@@ -14,7 +14,7 @@ export function InstallButton() {
 		<>
 			<Button
 				variant="secondary"
-				className="justify-start"
+				className="justify-center"
 				onPress={() => (state === "prompt" ? void promptInstall() : setHelp(true))}
 			>
 				<InstallIcon aria-hidden />

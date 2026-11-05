@@ -21,4 +21,8 @@ export interface TransactionPage {
 	page: number;
 	per_page: number;
 	total: number;
+	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
+	total_expense?: string;
+	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
+	total_income?: string;
 }

@@ -1,1 +1,0 @@
-import{B as e,Mt as t,kt as n}from"./strings-UURT3zlX.js";var r=t(n(),1);function i(t,n){let i=(0,r.useRef)(!0),a=(0,r.useRef)(null),o=e(t);(0,r.useEffect)(()=>(i.current=!0,()=>{i.current=!1}),[]),(0,r.useEffect)(()=>{let e=a.current;i.current?i.current=!1:(!e||n.some((t,n)=>!Object.is(t,e[n])))&&o(),a.current=n},n)}export{i as t};

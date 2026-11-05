@@ -2,6 +2,7 @@ import { analyticsStrings } from "./analytics";
 import { currencyStrings } from "./currencies";
 import { marketStrings } from "./market";
 import { parity3 } from "./parity3";
+import { txFilterStrings } from "./txFilter";
 
 // Every word a person reads, in one place: screens import `t`, never a literal.
 import { parity1 } from "./parity1";
@@ -11,6 +12,7 @@ export const t = {
 	...parity1,
 	...parity2,
 	...parity3,
+	...txFilterStrings,
 	...marketStrings,
 	...currencyStrings,
 	...analyticsStrings,
@@ -53,8 +55,7 @@ export const t = {
 		button: "ورود با تلگرام",
 		opening: "در حال باز کردن تلگرام…",
 		waitingTitle: "منتظر تأیید در تلگرام",
-		waiting:
-			"ربات کسب‌بوک را باز کن و «تأیید ورود» را بزن. بعد از تأیید، این صفحه خودش باز می‌شود.",
+		waiting: "ربات کسب‌بوک را باز کن و «تأیید ورود» را بزن. بعد از تأیید، این صفحه خودش باز می‌شود.",
 		openAgain: "باز کردن دوباره تلگرام",
 		scan: "یا با گوشی این کد را اسکن کن",
 		cancel: "انصراف",
@@ -90,7 +91,13 @@ export const t = {
 		noBookTitle: "هنوز دفتری نداری",
 		noBook: "اولین دفترت را بساز تا هزینه و درآمد را ثبت کنی. از ربات هم می‌شود.",
 	},
-	book: { switcher: "دفتر فعال", personal: "شخصی", business: "کسب‌وکار", team: "تیمی", organization: "سازمان" },
+	book: {
+		switcher: "دفتر فعال",
+		personal: "شخصی",
+		business: "کسب‌وکار",
+		team: "تیمی",
+		organization: "سازمان",
+	},
 	shell: { sidebar: "نوار کناری", account: "حساب" },
 	theme: { light: "روشن", dark: "تیره" },
 	transactions: {
@@ -146,7 +153,8 @@ export const t = {
 		since: "از",
 		appearance: "ظاهر و نصب",
 		logoutEverywhere: "خروج از همهٔ دستگاه‌ها",
-		logoutEverywhereBody: "همهٔ دستگاه‌ها، از جمله همین یکی، خارج می‌شوند و باید دوباره با تلگرام وارد شوی.",
+		logoutEverywhereBody:
+			"همهٔ دستگاه‌ها، از جمله همین یکی، خارج می‌شوند و باید دوباره با تلگرام وارد شوی.",
 	},
 	books: {
 		add: "دفتر جدید",
@@ -170,7 +178,10 @@ export const t = {
 		needRole: "نقش را انتخاب کن",
 		roles: { owner: "مالک", admin: "مدیر", accountant: "حسابدار", member: "عضو", viewer: "ناظر" },
 	},
-	soon: { title: "این بخش در حال ساخت است", body: "به‌زودی همین‌جا در دسترس می‌شود. تا آن موقع می‌توانی از ربات استفاده کنی." },
+	soon: {
+		title: "این بخش در حال ساخت است",
+		body: "به‌زودی همین‌جا در دسترس می‌شود. تا آن موقع می‌توانی از ربات استفاده کنی.",
+	},
 	install: {
 		iosTitle: "نصب روی آیفون و آیپد",
 		iosSteps: [

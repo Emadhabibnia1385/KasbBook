@@ -18,6 +18,7 @@ import type { TransactionActivityResponse } from "./transactionActivityResponse"
 
 export interface TransactionResponse {
 	activity: TransactionActivityResponse;
+	attachment_count?: number;
 	category: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	converted_amount: string;

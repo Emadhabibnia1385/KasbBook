@@ -1,13 +1,16 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { AttachmentsField } from "./AttachmentsField";
 import { CompactRows } from "./CompactRows";
+import { FilterBar } from "./FilterBar";
+import { type Filters, NO_FILTERS, rangeDates } from "./filters";
+import { TransactionDetail } from "./TransactionDetail";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
 	ConfirmDialog,
-	Collapsible,
 	DataTable,
 	EmptyState,
 	FormRoot,
@@ -15,12 +18,12 @@ import {
 	useIsNarrow,
 	PageHeader,
 	RadioGroupField,
-	StatusChip,
 	SubmitButton,
 	TextField,
 	toast,
 } from "@nyxon/nasim";
 import {
+	booksAddAttachment,
 	useBooksDeleteTransaction,
 	useBooksEditTransaction,
 	useBooksListTransactions,
@@ -31,7 +34,7 @@ import { CategoryChips } from "@/features/books/CategoryChips";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
-import { currencyName, formatDay, formatMoney, toAscii } from "@/shared/format";
+import { currencyName, formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -136,6 +139,7 @@ function EditForm({
 			/>
 			<DayField name="occurred_on" label={t.transactions.date} isRequired />
 			<TextField name="description" label={t.transactions.note} />
+			<AttachmentsField bookId={book.id} transactionId={row.id} queue={[]} onQueue={() => {}} />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
 	);
@@ -149,6 +153,8 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 		defaultValues: { flow: "expense", amount: "", category: "", description: "" },
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
+	// Files chosen before the transaction exists wait here and are sent once it does.
+	const [files, setFiles] = useState<File[]>([]);
 	return (
 		<FormRoot
 			form={form}
@@ -157,7 +163,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 				const values = schema.parse(raw);
 				try {
 					// Scope follows the book's kind on the server; the panel records what the person typed.
-					await record.mutateAsync({
+					const made = await record.mutateAsync({
 						bookId: book.id,
 						data: {
 							flow: values.flow,
@@ -168,8 +174,21 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 							description: values.description || null,
 						},
 					});
+					let unsent = 0;
+					for (const file of files) {
+						try {
+							await booksAddAttachment(book.id, made.id, { file });
+						} catch {
+							unsent += 1;
+						}
+					}
 					await refreshMoney(queryClient, book.id);
+					await queryClient.invalidateQueries({
+						queryKey: [`/api/v1/books/${book.id}/transactions`],
+					});
 					toast.success(t.transactions.saved);
+					// The transaction is saved either way; a file that did not go is said plainly, and can be added by editing.
+					if (unsent) toast.danger(t.attach.someUnsent);
 					onDone();
 				} catch (error) {
 					reportFailure(error);
@@ -200,43 +219,43 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 				}
 			/>
 			<TextField name="description" label={t.transactions.note} />
+			<AttachmentsField bookId={book.id} queue={files} onQueue={setFiles} />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
-	);
-}
-
-// On a phone the date range is folded away until wanted; it opens by itself while a filter is active.
-function Filters({
-	narrow,
-	filtered,
-	children,
-}: {
-	narrow: boolean;
-	filtered: boolean;
-	children: React.ReactNode;
-}) {
-	if (!narrow) return <>{children}</>;
-	return (
-		<Collapsible title={t.txExtra.filter} defaultOpen={filtered}>
-			{children}
-		</Collapsible>
 	);
 }
 
 function List({ book }: { book: BookResponse }) {
 	const [page, setPage] = useState(1);
 	const [adding, setAdding] = useState(false);
+	const [opened, setOpened] = useState<TransactionResponse | null>(null);
 	const [editing, setEditing] = useState<TransactionResponse | null>(null);
 	const [removing, setRemoving] = useState<TransactionResponse | null>(null);
-	const [since, setSince] = useState("");
-	const [until, setUntil] = useState("");
+	const [filters, setFilters] = useState<Filters>(NO_FILTERS);
 	const queryClient = useQueryClient();
-	const range = { since: pickedDay(since) || undefined, until: pickedDay(until) || undefined };
-	const filtered = Boolean(range.since || range.until);
-	const query = useBooksListTransactions(book.id, { ...range, page, per_page: PER_PAGE });
+	const dates = rangeDates(filters);
+	const text = filters.q.trim();
+	const filtered = Boolean(
+		dates.since ||
+			dates.until ||
+			filters.flows.length ||
+			filters.categories.length ||
+			text.length >= 2,
+	);
+	const query = useBooksListTransactions(book.id, {
+		...dates,
+		flow: filters.flows.length ? filters.flows : undefined,
+		category: filters.categories.length ? filters.categories : undefined,
+		q: text.length >= 2 ? text : undefined,
+		page,
+		per_page: PER_PAGE,
+	});
 	const remove = useBooksDeleteTransaction();
 	const narrow = useIsNarrow("md");
 	const pages = Math.max(1, Math.ceil((query.data?.total ?? 0) / PER_PAGE));
+	const status = query.isError ? "error" : query.isLoading ? "loading" : "ready";
+	const emptyTitle = filtered ? t.txFilter.noMatchTitle : t.transactions.emptyTitle;
+	const empty = filtered ? t.txFilter.noMatch : t.transactions.empty;
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -245,104 +264,136 @@ function List({ book }: { book: BookResponse }) {
 				description={book.name}
 				actions={<Button onPress={() => setAdding(true)}>{t.transactions.add}</Button>}
 			/>
-			<Filters narrow={narrow} filtered={filtered}>
-				<fieldset className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-					<legend className="sr-only">{t.txExtra.filter}</legend>
-					<DayField
-						label={t.txExtra.since}
-						value={since}
-						onChange={(value) => {
-							setSince(value);
-							setPage(1);
-						}}
-					/>
-					<DayField
-						label={t.txExtra.until}
-						value={until}
-						errorMessage={
-							range.since && range.until && range.since > range.until
-								? t.txExtra.badRange
-								: undefined
-						}
-						onChange={(value) => {
-							setUntil(value);
-							setPage(1);
-						}}
-					/>
-					{filtered ? (
-						<Button
-							variant="ghost"
-							onPress={() => {
-								setSince("");
-								setUntil("");
-								setPage(1);
-							}}
-						>
-							{t.txExtra.clearFilter}
-						</Button>
+			<FilterBar
+				book={book}
+				value={filters}
+				onChange={(next) => {
+					setFilters(next);
+					setPage(1);
+				}}
+			/>
+			{query.data && filtered ? (
+				<p
+					className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted"
+					aria-live="polite"
+				>
+					<span>
+						{formatAmount(query.data.total)} {t.txFilter.matches}
+					</span>
+					{Number(query.data.total_income ?? 0) > 0 ? (
+						<span>
+							{t.txFilter.incomeSum}:{" "}
+							<b className="text-success">
+								{formatMoney(query.data.total_income ?? "0", book.currency)}
+							</b>
+						</span>
 					) : null}
-				</fieldset>
-			</Filters>
+					{Number(query.data.total_expense ?? 0) > 0 ? (
+						<span>
+							{t.txFilter.expenseSum}:{" "}
+							<b className="text-foreground">
+								{formatMoney(query.data.total_expense ?? "0", book.currency)}
+							</b>
+						</span>
+					) : null}
+				</p>
+			) : null}
 			{narrow ? (
 				<CompactRows
 					book={book}
 					rows={query.data?.items}
-					status={query.isError ? "error" : query.isLoading ? "loading" : "ready"}
+					status={status}
 					onRetry={() => void query.refetch()}
-					emptyTitle={filtered ? t.txExtra.filteredEmptyTitle : t.transactions.emptyTitle}
-					empty={filtered ? t.txExtra.filteredEmpty : t.transactions.empty}
+					emptyTitle={emptyTitle}
+					empty={empty}
 					page={page}
 					pageCount={pages}
 					onPageChange={setPage}
-					onEdit={setEditing}
-					onRemove={setRemoving}
+					onOpen={setOpened}
 				/>
 			) : (
 				<DataTable<TransactionResponse>
 					ariaLabel={t.nav.transactions}
-					cards="md"
-					status={query.isError ? "error" : query.isLoading ? "loading" : "ready"}
+					status={status}
 					onRetry={() => void query.refetch()}
 					rows={query.data?.items}
 					getRowId={(row) => row.id}
-					emptyTitle={filtered ? t.txExtra.filteredEmptyTitle : t.transactions.emptyTitle}
-					empty={filtered ? t.txExtra.filteredEmpty : t.transactions.empty}
+					emptyTitle={emptyTitle}
+					empty={empty}
 					columns={[
 						{
 							id: "category",
 							header: t.transactions.category,
 							isRowHeader: true,
-							cell: (row) => row.category,
+							className: "w-36",
+							cell: (row) => (
+								<span className="flex items-center gap-2">
+									<button
+										type="button"
+										className="truncate text-start font-medium hover:underline"
+										onClick={() => setOpened(row)}
+									>
+										{row.category}
+									</button>
+									{(row.attachment_count ?? 0) > 0 ? (
+										<span title={t.attach.clip} className="shrink-0 text-xs text-muted">
+											<span aria-hidden>📎</span>
+											<span className="sr-only">{t.attach.clip}</span>{" "}
+											{formatAmount(row.attachment_count ?? 0)}
+										</span>
+									) : null}
+								</span>
+							),
 						},
 						{
 							id: "amount",
 							header: t.transactions.amount,
 							align: "end",
+							className: "w-36",
 							cell: (row) => (
-								<span dir="ltr" className={row.flow === "income" ? "text-success" : undefined}>
+								<span
+									dir="ltr"
+									className={`whitespace-nowrap ${row.flow === "income" ? "text-success" : ""}`}
+								>
+									<span className="sr-only">
+										{row.flow === "income" ? t.common.income : t.common.expense}{" "}
+									</span>
 									{row.flow === "income" ? "+" : "−"}
 									{formatMoney(row.converted_amount, book.currency)}
 								</span>
 							),
 						},
 						{
-							id: "kind",
-							header: t.transactions.kind,
-							cell: (row) => (
-								<StatusChip
-									tone={row.flow === "income" ? "success" : "neutral"}
-									label={row.flow === "income" ? t.common.income : t.common.expense}
-								/>
-							),
+							id: "date",
+							header: t.transactions.date,
+							className: "w-24 whitespace-nowrap",
+							cell: (row) => formatDay(row.occurred_on),
 						},
-						{ id: "date", header: t.transactions.date, cell: (row) => formatDay(row.occurred_on) },
-						{ id: "note", header: t.transactions.note, cell: (row) => row.description ?? "—" },
+						{
+							// One line of the note; the rest is a click away, so the table never grows sideways.
+							id: "note",
+							header: t.transactions.note,
+							cell: (row) =>
+								row.description ? (
+									<button
+										type="button"
+										title={row.description}
+										className="block w-full max-w-[11rem] truncate text-start text-muted hover:text-foreground xl:max-w-[22rem]"
+										onClick={() => setOpened(row)}
+									>
+										{row.description}
+									</button>
+								) : (
+									<span className="text-muted">—</span>
+								),
+						},
 						{
 							id: "actions",
 							header: "",
 							isActions: true,
+							className: "w-32",
 							cell: (row) => (
-								<div className="flex gap-1">
+								<div className="flex justify-end gap-1">
 									<Button size="sm" variant="ghost" onPress={() => setEditing(row)}>
 										{t.common.edit}
 									</Button>
@@ -356,6 +407,13 @@ function List({ book }: { book: BookResponse }) {
 					pagination={{ page, pageCount: pages, onPageChange: setPage }}
 				/>
 			)}
+			<TransactionDetail
+				book={book}
+				row={opened}
+				onClose={() => setOpened(null)}
+				onEdit={setEditing}
+				onRemove={setRemoving}
+			/>
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.transactions.add} size="sm">
 				<AddForm book={book} onDone={() => setAdding(false)} />
 			</Modal>
