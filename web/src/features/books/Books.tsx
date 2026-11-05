@@ -8,6 +8,7 @@ import { getBooksListBooksQueryKey, useBooksCreateBook, useBooksWallet } from "@
 import type { BookResponse } from "@/api/generated/model";
 import { currencyName, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
+import { Categories } from "./Categories";
 import { selectBook, useActiveBook } from "./useActiveBook";
 
 const TYPES = [
@@ -71,6 +72,7 @@ export function Books() {
 					))}
 				</div>
 			)}
+			{active ? <Categories book={active} /> : null}
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.books.add} size="sm">
 				<FormRoot
 					form={form}

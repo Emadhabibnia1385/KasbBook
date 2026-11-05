@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
@@ -18,28 +18,107 @@ import {
 	toast,
 } from "@nyxon/nasim";
 import {
-	getBooksListTransactionsQueryKey,
 	useBooksDeleteTransaction,
+	useBooksEditTransaction,
 	useBooksListTransactions,
 	useBooksRecordTransaction,
 } from "@/api/generated/books/books";
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
+import { CategoryChips } from "@/features/books/CategoryChips";
 import { useActiveBook } from "@/features/books/useActiveBook";
-import { formatDay, formatMoney, toAscii } from "@/shared/format";
+import { pickedDay, toPicker } from "@/shared/dates";
+import { DayField } from "@/shared/DayField";
+import { currencyName, formatDay, formatMoney, toAscii } from "@/shared/format";
+import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
 const PER_PAGE = 20;
 
+const amountRule = z
+	.string()
+	.transform(toAscii)
+	.refine((value) => /^\d+(\.\d{1,4})?$/.test(value) && Number(value) > 0, { error: t.transactions.badAmount });
+
 const schema = z.object({
 	flow: z.enum(["income", "expense"]),
-	amount: z
-		.string()
-		.transform(toAscii)
-		.refine((value) => /^\d+(\.\d{1,4})?$/.test(value) && Number(value) > 0, { error: t.transactions.badAmount }),
+	amount: amountRule,
 	category: z.string().trim().min(1, { error: t.transactions.needCategory }).max(80),
 	description: z.string().max(300),
 });
 type Values = z.input<typeof schema>;
+
+const editSchema = z.object({
+	amount: amountRule,
+	category: z.string().trim().min(1, { error: t.transactions.needCategory }).max(80),
+	description: z.string().max(300),
+	occurred_on: z.string().min(1, { error: t.days.needDate }),
+});
+type EditValues = z.input<typeof editSchema>;
+
+/** "1500000.0000" → "1500000": the amount as a person would type it back. */
+function plainAmount(value: string): string {
+	return value.includes(".") ? value.replace(/\.?0+$/, "") : value;
+}
+
+function EditForm({ book, row, onDone }: { book: BookResponse; row: TransactionResponse; onDone: () => void }) {
+	const queryClient = useQueryClient();
+	const edit = useBooksEditTransaction();
+	const form = useForm<EditValues>({
+		resolver: zodResolver(editSchema),
+		defaultValues: {
+			amount: plainAmount(row.original_amount),
+			category: row.category,
+			description: row.description ?? "",
+			occurred_on: toPicker(row.occurred_on),
+		},
+	});
+	const flow = row.flow === "income" ? "income" : "expense";
+	return (
+		<FormRoot
+			form={form}
+			className="flex flex-col gap-4"
+			onSubmit={async (raw) => {
+				const values = editSchema.parse(raw);
+				// Only what changed is sent: an unchanged amount would be re-checked against the wallet for nothing.
+				const changes: Record<string, string | null> = {};
+				if (values.amount !== plainAmount(row.original_amount)) changes.amount = values.amount;
+				if (values.category !== row.category) changes.category = values.category;
+				if ((values.description || null) !== (row.description || null)) changes.description = values.description || null;
+				if (pickedDay(values.occurred_on) !== row.occurred_on) changes.occurred_on = pickedDay(values.occurred_on);
+				if (Object.keys(changes).length === 0) {
+					onDone();
+					return;
+				}
+				try {
+					await edit.mutateAsync({ bookId: book.id, transactionId: row.id, data: changes });
+					await refreshMoney(queryClient, book.id);
+					toast.success(t.txExtra.editSaved);
+					onDone();
+				} catch (error) {
+					reportFailure(error);
+				}
+			}}
+		>
+			<TextField
+				name="amount"
+				label={t.transactions.amount}
+				description={
+					row.original_currency === book.currency
+						? undefined
+						: `${t.txExtra.foreignCurrency} ${currencyName(row.original_currency)}`
+				}
+				inputMode="decimal"
+				dir="ltr"
+				isRequired
+			/>
+			<TextField name="category" label={t.transactions.category} isRequired />
+			<CategoryChips bookId={book.id} flow={flow} onPick={(name) => form.setValue("category", name, { shouldValidate: true, shouldDirty: true })} />
+			<DayField name="occurred_on" label={t.transactions.date} isRequired />
+			<TextField name="description" label={t.transactions.note} />
+			<SubmitButton>{t.common.save}</SubmitButton>
+		</FormRoot>
+	);
+}
 
 function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 	const queryClient = useQueryClient();
@@ -48,6 +127,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 		resolver: zodResolver(schema),
 		defaultValues: { flow: "expense", amount: "", category: "", description: "" },
 	});
+	const flow = useWatch({ control: form.control, name: "flow" });
 	return (
 		<FormRoot
 			form={form}
@@ -66,12 +146,11 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 							description: values.description || null,
 						},
 					});
-					await queryClient.invalidateQueries({ queryKey: getBooksListTransactionsQueryKey(book.id) });
-					await queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).includes("/reports/") });
+					await refreshMoney(queryClient, book.id);
 					toast.success(t.transactions.saved);
 					onDone();
 				} catch (error) {
-					toast.danger(error instanceof Error ? error.message : t.errors.unknown);
+					reportFailure(error);
 				}
 			}}
 		>
@@ -85,6 +164,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 			/>
 			<TextField name="amount" label={t.transactions.amount} inputMode="decimal" dir="ltr" isRequired />
 			<TextField name="category" label={t.transactions.category} isRequired />
+			<CategoryChips bookId={book.id} flow={flow} onPick={(name) => form.setValue("category", name, { shouldValidate: true, shouldDirty: true })} />
 			<TextField name="description" label={t.transactions.note} />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
@@ -94,9 +174,14 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 function List({ book }: { book: BookResponse }) {
 	const [page, setPage] = useState(1);
 	const [adding, setAdding] = useState(false);
+	const [editing, setEditing] = useState<TransactionResponse | null>(null);
 	const [removing, setRemoving] = useState<TransactionResponse | null>(null);
+	const [since, setSince] = useState("");
+	const [until, setUntil] = useState("");
 	const queryClient = useQueryClient();
-	const query = useBooksListTransactions(book.id, { page, per_page: PER_PAGE });
+	const range = { since: pickedDay(since) || undefined, until: pickedDay(until) || undefined };
+	const filtered = Boolean(range.since || range.until);
+	const query = useBooksListTransactions(book.id, { ...range, page, per_page: PER_PAGE });
 	const remove = useBooksDeleteTransaction();
 	const pages = Math.max(1, Math.ceil((query.data?.total ?? 0) / PER_PAGE));
 
@@ -107,6 +192,38 @@ function List({ book }: { book: BookResponse }) {
 				description={book.name}
 				actions={<Button onPress={() => setAdding(true)}>{t.transactions.add}</Button>}
 			/>
+			<fieldset className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+				<legend className="sr-only">{t.txExtra.filter}</legend>
+				<DayField
+					label={t.txExtra.since}
+					value={since}
+					onChange={(value) => {
+						setSince(value);
+						setPage(1);
+					}}
+				/>
+				<DayField
+					label={t.txExtra.until}
+					value={until}
+					errorMessage={range.since && range.until && range.since > range.until ? t.txExtra.badRange : undefined}
+					onChange={(value) => {
+						setUntil(value);
+						setPage(1);
+					}}
+				/>
+				{filtered ? (
+					<Button
+						variant="ghost"
+						onPress={() => {
+							setSince("");
+							setUntil("");
+							setPage(1);
+						}}
+					>
+						{t.txExtra.clearFilter}
+					</Button>
+				) : null}
+			</fieldset>
 			<DataTable<TransactionResponse>
 				ariaLabel={t.nav.transactions}
 				cards="md"
@@ -114,8 +231,8 @@ function List({ book }: { book: BookResponse }) {
 				onRetry={() => void query.refetch()}
 				rows={query.data?.items}
 				getRowId={(row) => row.id}
-				emptyTitle={t.transactions.emptyTitle}
-				empty={t.transactions.empty}
+				emptyTitle={filtered ? t.txExtra.filteredEmptyTitle : t.transactions.emptyTitle}
+				empty={filtered ? t.txExtra.filteredEmpty : t.transactions.empty}
 				columns={[
 					{ id: "category", header: t.transactions.category, isRowHeader: true, cell: (row) => row.category },
 					{
@@ -146,9 +263,14 @@ function List({ book }: { book: BookResponse }) {
 						header: "",
 						isActions: true,
 						cell: (row) => (
-							<Button size="sm" variant="ghost" onPress={() => setRemoving(row)}>
-								{t.common.delete}
-							</Button>
+							<div className="flex gap-1">
+								<Button size="sm" variant="ghost" onPress={() => setEditing(row)}>
+									{t.common.edit}
+								</Button>
+								<Button size="sm" variant="ghost" onPress={() => setRemoving(row)}>
+									{t.common.delete}
+								</Button>
+							</div>
 						),
 					},
 				]}
@@ -156,6 +278,9 @@ function List({ book }: { book: BookResponse }) {
 			/>
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.transactions.add} size="sm">
 				<AddForm book={book} onDone={() => setAdding(false)} />
+			</Modal>
+			<Modal isOpen={editing !== null} onOpenChange={(open) => !open && setEditing(null)} title={t.txExtra.edit} size="sm">
+				{editing ? <EditForm key={editing.id} book={book} row={editing} onDone={() => setEditing(null)} /> : null}
 			</Modal>
 			<ConfirmDialog
 				isOpen={removing !== null}
@@ -166,9 +291,13 @@ function List({ book }: { book: BookResponse }) {
 				tone="danger"
 				onConfirm={async () => {
 					if (!removing) return;
-					await remove.mutateAsync({ bookId: book.id, transactionId: removing.id });
-					await queryClient.invalidateQueries({ queryKey: getBooksListTransactionsQueryKey(book.id) });
-					await queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).includes("/reports/") });
+					try {
+						await remove.mutateAsync({ bookId: book.id, transactionId: removing.id });
+						await refreshMoney(queryClient, book.id);
+					} catch (error) {
+						reportFailure(error);
+						throw error;
+					}
 				}}
 			/>
 		</div>
