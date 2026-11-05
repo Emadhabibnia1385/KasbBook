@@ -1,0 +1,1 @@
+function e(e){return e===`locked`?`neutral`:e===`paid`?`success`:e===`awaiting_approval`?`warning`:`info`}var t=e=>e!==`locked`&&e!==`paid`;export{e as n,t};
