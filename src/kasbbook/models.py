@@ -17,6 +17,7 @@ from .modules.identity.models import (
     LinkToken,
     RefreshToken,
     User,
+    WebLoginChallenge,
 )
 from .modules.loans.models import Loan, LoanPayment
 from .modules.recurring.models import RecurringRule
@@ -49,6 +50,7 @@ __all__ = [
     "Base",
     "Account",
     "AccountLoginChallenge",
+    "WebLoginChallenge",
     "Category",
     "CurrencyConversion",
     "TeamInvitation",

@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..shared.database import Database
 from ..shared.settings import Settings
-from . import errors
+from . import errors, web_static
 from .ratelimit import MemoryRateLimiter, RateLimiter
 from .routers import (
     auth,
@@ -29,6 +29,7 @@ from .routers import (
     planning,
     reports,
     webhooks,
+    weblogin,
 )
 
 logger = logging.getLogger("kasbbook.api")
@@ -158,5 +159,8 @@ def create_app(
     app.include_router(reports.router, prefix=api)
     app.include_router(planning.router, prefix=api)
     app.include_router(payroll.router, prefix=api)
+    app.include_router(weblogin.router, prefix=api)
     app.include_router(webhooks.router, prefix=api)
+    # Last, so it only ever answers what nothing above claimed.
+    web_static.mount_web(app)
     return app

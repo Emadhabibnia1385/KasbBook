@@ -166,6 +166,38 @@ class LinkToken(UUIDPrimaryKey, Timestamped, Base):
         return self.consumed_at is None and self.revoked_at is None
 
 
+class WebLoginChallenge(UUIDPrimaryKey, Timestamped, Base):
+    """A browser asking a messenger to vouch for it.
+
+    Two secrets, because they travel differently. `token_digest` is the half in
+    the deep link, which the person opens in the messenger. `poll_digest` is
+    the half that never leaves the browser that asked, and is the only thing
+    that can collect the session once the messenger has approved. Without that
+    split, whoever saw the link could take the session.
+    """
+
+    __tablename__ = "web_login_challenges"
+    __table_args__ = (
+        Index("ix_web_login_token", "token_digest", unique=True),
+        Index("ix_web_login_poll", "poll_digest", unique=True),
+    )
+
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    poll_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    # What the approval screen shows, so a person can tell their own login from
+    # one somebody else started and sent them a link to.
+    requester_ip: Mapped[Optional[str]] = mapped_column(String(64))
+    requester_agent: Mapped[Optional[str]] = mapped_column(String(200))
+
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE")
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    denied_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class AccountLoginChallenge(UUIDPrimaryKey, Timestamped, Base):
     """Proof from an existing messenger, bound to the identity asking to move."""
 

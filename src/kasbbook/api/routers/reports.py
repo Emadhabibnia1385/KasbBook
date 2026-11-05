@@ -15,18 +15,37 @@ from fastapi import APIRouter, Query, Response
 
 from ...modules.ledger.models import Flow
 from ...modules.reports import service as reports
+from ...shared import jalali
 from ...shared.errors import ValidationError
 from ...shared.money import ZERO, quantize
 from ..deps import CurrentUser, SessionDep
-from ..schemas import CategoryLine, DayResponse, SummaryResponse
+from ..schemas import CategoryLine, DailyPoint, DayResponse, MonthlyPoint, SummaryResponse
 
 router = APIRouter(prefix="/books/{book_id}/reports", tags=["reports"])
+
+
+def _as_spec(text: str) -> str:
+    """The documented forms (`1403-05`, `1403`, `week`) in the service's own.
+
+    The service speaks the bot's button payloads (`m:1403:05`), which are what
+    this route used to require while the docs promised the friendlier forms, so
+    the documented call answered 422. Payloads still pass through unchanged.
+    """
+    if text == "week":
+        return "w:0"
+    year, dash, month = text.partition("-")
+    if year.isdigit() and len(year) == 4:
+        if not dash:
+            return f"y:{year}"
+        if month.isdigit():
+            return f"m:{year}:{int(month):02d}"
+    return text
 
 
 def _period(spec: Optional[str]):
     if not spec:
         return None
-    period = reports.parse_spec(spec)
+    period = reports.parse_spec(_as_spec(spec.strip()))
     if period is None:
         raise ValidationError(
             "period should look like 1403-05 for a month, 1403 for a year, "
@@ -108,6 +127,36 @@ async def by_category(
         )
         for name, amount, _ in lines
     ]
+
+
+@router.get("/monthly", response_model=List[MonthlyPoint])
+async def monthly(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    months: int = Query(default=6, ge=1, le=24),
+) -> List[MonthlyPoint]:
+    """Income and expense for each of the last N Jalali months, oldest first."""
+    rows = await reports.ReportService(session).monthly(book_id, user.id, months)
+    return [
+        MonthlyPoint(
+            period=f"{y}-{m:02d}", label=jalali.month_name(m), income=t.income,
+            expense=t.expense, net=t.net, transaction_count=t.count,
+        )
+        for y, m, t in rows
+    ]
+
+
+@router.get("/daily", response_model=List[DailyPoint])
+async def daily(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    period: str = Query(description="1403-05, 1403, or week"),
+) -> List[DailyPoint]:
+    """Per-day income and expense inside one period, for a chart."""
+    rows = await reports.ReportService(session).daily(book_id, user.id, _period(period))
+    return [DailyPoint(on=d, income=i, expense=e) for d, i, e in rows]
 
 
 @router.get("/export.csv")

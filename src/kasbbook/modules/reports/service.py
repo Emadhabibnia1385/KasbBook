@@ -245,6 +245,53 @@ class ReportService:
             out.append((f"{jalali.month_name(m)} {y}", summary.net))
         return out
 
+    async def monthly(
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        months: int = 6,
+        today: Optional[date] = None,
+    ) -> List[Tuple[int, int, Summary]]:
+        """Income, expense and count per Jalali month, oldest first.
+
+        One read for the whole window rather than one per month: a chart of the
+        last year should not be twelve round trips, and it must still go
+        through the same permission gate as every other report.
+        """
+        wanted = jalali.recent_months(months, today)
+        start = jalali.month_range(*wanted[0])[0]
+        end = jalali.month_range(*wanted[-1])[1]
+        window = Period("", start, end, "")
+        totals = {key: Summary() for key in wanted}
+        for tx in await self._rows(book_id, user_id, window):
+            y, m, _ = jalali.to_parts(tx.occurred_on)
+            bucket = totals.get((y, m))
+            if bucket is None:
+                continue
+            if tx.flow is Flow.INCOME:
+                bucket.income += tx.converted_amount
+            else:
+                bucket.expense += tx.converted_amount
+            bucket.count += 1
+        return [
+            (y, m, Summary(quantize(t.income), quantize(t.expense), t.count))
+            for (y, m), t in totals.items()
+        ]
+
+    async def daily(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, period: Period
+    ) -> List[Tuple[date, Decimal, Decimal]]:
+        """(day, income, expense) for every day of the period that has activity."""
+        days: dict = {}
+        for tx in await self._rows(book_id, user_id, period):
+            income, expense = days.get(tx.occurred_on, (ZERO, ZERO))
+            if tx.flow is Flow.INCOME:
+                income += tx.converted_amount
+            else:
+                expense += tx.converted_amount
+            days[tx.occurred_on] = (income, expense)
+        return [(d, quantize(i), quantize(e)) for d, (i, e) in sorted(days.items())]
+
     async def compare(
         self, book_id: uuid.UUID, user_id: uuid.UUID, period: Period
     ) -> Optional[Tuple[Period, Summary, Summary]]:

@@ -380,3 +380,26 @@ def ask_login_code() -> Screen:
 def login_proof(code) -> Screen:
     return rtl(f"🔐 کد ورود به حساب کسب‌بوک: {code}\nاعتبار: 5 دقیقه.\n"
                "فقط در ربات رسمی یا API رسمی کسب‌بوک وارد کن. اگر درخواست نداده‌ای، این پیام را نادیده بگیر."), []
+
+
+def web_login_prompt(token: str, ip: str, agent: str) -> Screen:
+    """Asked before a browser is let in: the person decides, not the link."""
+    where = f"\nآی‌پی: {ip}" if ip else ""
+    device = f"\nدستگاه: {agent[:60]}" if agent else ""
+    return rtl(
+        "🌐 درخواست ورود به پنل وب کسب‌بوک\n"
+        f"{where}{device}\n\n"
+        "اگر خودت همین الان وارد سایت شدی، تأیید کن. اگر کسی این لینک را برایت "
+        "فرستاده، «من نبودم» را بزن."
+    ), [
+        [Button("✅ تأیید ورود", data=f"wl:ok:{token}")],
+        [Button("🚫 من نبودم", data=f"wl:no:{token}", style="danger")],
+    ]
+
+
+def web_login_done() -> Screen:
+    return rtl("✅ وارد شدی. به مرورگر برگرد؛ پنل خودش باز می‌شود."), []
+
+
+def web_login_refused() -> Screen:
+    return rtl("🚫 ورود رد شد و ثبت شد. اگر کسی این لینک را فرستاده، او را جدی نگیر."), []

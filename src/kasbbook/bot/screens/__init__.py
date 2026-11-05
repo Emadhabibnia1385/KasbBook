@@ -34,6 +34,9 @@ from .account import (
     ask_login_destination,
     ask_login_code,
     login_proof,
+    web_login_prompt,
+    web_login_done,
+    web_login_refused,
 )
 from .books import (
     book_list,
@@ -224,6 +227,9 @@ __all__ = [
     "ask_login_destination",
     "ask_login_code",
     "login_proof",
+    "web_login_prompt",
+    "web_login_done",
+    "web_login_refused",
     "book_list",
     "book_created",
     "new_book_type",

@@ -30,6 +30,7 @@ from .features.payroll import PayrollFeature
 from .features.planning import PlanningFeature
 from .features.reports import ReportsFeature
 from .features.transactions import TransactionsFeature
+from .features.weblogin import WebLoginFeature
 from .features.wallet import WalletFeature
 from .state import StateStore, conversation_key
 
@@ -44,6 +45,7 @@ FEATURES: tuple = (
     ReportsFeature,
     TransactionsFeature,
     WalletFeature,
+    WebLoginFeature,
 )
 FEATURE_BY_PREFIX, FEATURE_BY_FLOW = index(FEATURES)
 
@@ -128,6 +130,7 @@ class Conversation:
         self._transactions = next(
             f for f in self._features if isinstance(f, TransactionsFeature)
         )
+        self._web_login = next(f for f in self._features if isinstance(f, WebLoginFeature))
         self._by_prefix = {p: f for f in self._features for p in f.prefixes}
         self._by_flow = {name: f for f in self._features for name in f.flows}
 
@@ -172,6 +175,20 @@ class Conversation:
         user = await self.ctx.identity.user_for_identity(
             self.provider, event.identity.external_id
         )
+
+        payload = (event.args or "").strip()
+        if (event.kind is EventKind.COMMAND and event.command == "start"
+                and payload.startswith("wl_")):
+            # A browser asking to sign in. Someone who has never used the bot
+            # and arrives from the website gets an account on the way, exactly
+            # as a plain /start would have made one.
+            if user is None:
+                user = await self.ctx.identity.create_account_from_messenger(
+                    self.provider, event.identity.external_id,
+                    display_name=event.identity.display_name,
+                    external_username=event.identity.username,
+                )
+            return await self._web_login.prompt(payload[3:], user)
 
         if user is None:
             return await self._unlinked(event, key)

@@ -360,6 +360,23 @@ class DayResponse(MoneyModel):
     transaction_count: int
 
 
+class MonthlyPoint(MoneyModel):
+    """`period` is the Jalali month in the same form the other reports accept."""
+
+    period: str
+    label: str
+    income: Decimal
+    expense: Decimal
+    net: Decimal
+    transaction_count: int
+
+
+class DailyPoint(MoneyModel):
+    on: date
+    income: Decimal
+    expense: Decimal
+
+
 class CategoryLine(MoneyModel):
     category: str
     total: Decimal
