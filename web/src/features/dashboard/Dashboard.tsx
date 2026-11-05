@@ -1,3 +1,4 @@
+import { RatesCard } from "@/features/market/RatesCard";
 import { Collapsible, useIsNarrow } from "@nyxon/nasim";
 import { Link } from "@tanstack/react-router";
 import {
@@ -106,6 +107,7 @@ export function Dashboard() {
 			<div className="grid gap-5 lg:grid-cols-2">
 				<TopCategories book={book} period={period} flow="expense" title={a.topTitle} />
 				<Recent book={book} />
+				<RatesCard />
 			</div>
 		</div>
 	);

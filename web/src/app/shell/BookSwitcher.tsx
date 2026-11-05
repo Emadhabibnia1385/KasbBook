@@ -46,7 +46,12 @@ export function BookSwitcher() {
 
 	return (
 		<>
-			<button type="button" className={trigger()} aria-haspopup="dialog" onClick={() => setOpen(true)}>
+			<button
+				type="button"
+				className={trigger()}
+				aria-haspopup="dialog"
+				onClick={() => setOpen(true)}
+			>
 				<BookIcon aria-hidden className="size-5 shrink-0 text-muted" />
 				<span className="truncate">{book.name}</span>
 				<ChevronDownIcon aria-hidden className="size-4 shrink-0 text-muted" />

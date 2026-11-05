@@ -2077,6 +2077,55 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "MarketRateResponse": {
+        "properties": {
+          "age_seconds": {
+            "title": "Age Seconds",
+            "type": "integer"
+          },
+          "base": {
+            "title": "Base",
+            "type": "string"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "pair": {
+            "title": "Pair",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pair",
+          "base",
+          "quote",
+          "value",
+          "source",
+          "fetched_at",
+          "age_seconds",
+          "stale"
+        ],
+        "title": "MarketRateResponse",
+        "type": "object"
+      },
       "MemberResponse": {
         "properties": {
           "display_name": {
@@ -8244,6 +8293,188 @@
         ]
       }
     },
+    "/api/v1/books/{book_id}/funds/{fund_id}/rules/{rule_id}/toggle": {
+      "post": {
+        "description": "Switch a rule off or back on, without touching its dates.\n\nThis is not `close`. Off, the rule applies to no period calculated from now\non, whatever its dates say, and on again it is exactly what it was. `close`\nends the rule on a date: periods up to that date still use it, later ones\ndo not, and nothing here can undo it.",
+        "operationId": "payroll_toggle_rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Fund Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TreasuryRuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Toggle Rule",
+        "tags": [
+          "payroll"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/funds/{fund_id}/toggle": {
+      "post": {
+        "description": "Switch a fund off or back on.\n\nFlips whatever it is now, as the bot's button does; the answer says which\nit became. An off fund takes nothing from any period calculated after this\nand keeps its rules exactly as they were, so switching it on again restores\nit. Periods that are paid or locked keep what they already took.",
+        "operationId": "payroll_toggle_fund",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Fund Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Toggle Fund",
+        "tags": [
+          "payroll"
+        ]
+      }
+    },
     "/api/v1/books/{book_id}/invitations": {
       "post": {
         "operationId": "books_invite_teammate",
@@ -12869,6 +13100,94 @@
         "summary": "Respond",
         "tags": [
           "invitations"
+        ]
+      }
+    },
+    "/api/v1/market/rates": {
+      "get": {
+        "description": "Current prices, each with its source and when it was fetched.\n\nPrices are cached in the process for about a minute, so polling this does\nnot become polling the provider. While the provider is down the last good\nprices are returned with `stale: true` and their age; with none at all the\nanswer is 503.",
+        "operationId": "market_rates",
+        "parameters": [
+          {
+            "description": "Comma-separated pairs such as `USDT/IRT,TON/USDT`, at most 20. Omitted: the pairs a shop owner watches. A pair the market does not publish is left out of the answer, not guessed.",
+            "in": "query",
+            "name": "pairs",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated pairs such as `USDT/IRT,TON/USDT`, at most 20. Omitted: the pairs a shop owner watches. A pair the market does not publish is left out of the answer, not guessed.",
+              "title": "Pairs"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MarketRateResponse"
+                  },
+                  "title": "Response Market Rates",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rates",
+        "tags": [
+          "market"
         ]
       }
     },

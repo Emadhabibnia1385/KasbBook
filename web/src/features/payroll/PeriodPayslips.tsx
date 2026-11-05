@@ -20,7 +20,10 @@ import {
 	toast,
 	type StatusTone,
 } from "@nyxon/nasim";
+import { useEffect, useRef } from "react";
 import { useBooksListCurrencies } from "@/api/generated/books/books";
+import { ageText } from "@/features/market/format";
+import { useRates } from "@/features/market/useRates";
 import type {
 	BookResponse,
 	PaymentResponse,
@@ -99,6 +102,21 @@ function PayForm({
 	const currency = useWatch({ control: form.control, name: "currency" });
 	const rate = useWatch({ control: form.control, name: "rate" });
 	const foreign = currency !== slip.currency;
+	// What the market says one unit of the chosen currency is worth in the slip's own. Prefilled once
+	// per currency and then left alone: a rate the person typed is the rate they meant.
+	const market = useRates(foreign ? `${currency}/${slip.currency}` : undefined);
+	const quote = foreign ? market.data?.[0] : undefined;
+	const filledFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (!foreign) {
+			filledFor.current = null;
+			return;
+		}
+		if (quote && filledFor.current !== currency && !form.getValues("rate")) {
+			form.setValue("rate", quote.value, { shouldDirty: true });
+			filledFor.current = currency;
+		}
+	}, [foreign, quote, currency, form]);
 	const rateOk = DECIMAL.test(toAscii(rate)) && isPositive(toAscii(rate));
 
 	return (
@@ -137,7 +155,15 @@ function PayForm({
 				<TextField
 					name="rate"
 					label={`${t.payroll.pay.rate} (${currencyName(currency)} → ${currencyName(slip.currency)})`}
-					description={t.payroll.pay.rateHint}
+					description={
+						quote
+							? `${t.rateNote.source} ${t.market.sources[quote.source] ?? quote.source}، ${ageText(market.ageOf(quote.age_seconds))}. ${quote.stale ? t.rateNote.stale : t.rateNote.editable}`
+							: market.isLoading
+								? t.rateNote.loading
+								: foreign
+									? t.rateNote.missing
+									: t.payroll.pay.rateHint
+					}
 					inputMode="decimal"
 					dir="ltr"
 					isRequired

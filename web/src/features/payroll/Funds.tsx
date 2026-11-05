@@ -28,6 +28,8 @@ import {
 	usePayrollCreateFund,
 	usePayrollDeleteFund,
 	usePayrollDeleteRule,
+	usePayrollToggleFund,
+	usePayrollToggleRule,
 	usePayrollListFunds,
 	usePayrollListRules,
 } from "@/api/generated/payroll/payroll";
@@ -222,6 +224,7 @@ function Rules({ book, fund }: { book: BookResponse; fund: FundResponse }) {
 	const query = usePayrollListRules(book.id, fund.id);
 	const close = usePayrollCloseRule();
 	const remove = usePayrollDeleteRule();
+	const toggle = usePayrollToggleRule();
 	const [adding, setAdding] = useState(false);
 	const [stopping, setStopping] = useState<TreasuryRuleResponse | null>(null);
 	const [removing, setRemoving] = useState<TreasuryRuleResponse | null>(null);
@@ -268,6 +271,26 @@ function Rules({ book, fund }: { book: BookResponse; fund: FundResponse }) {
 										{t.payroll.rules.stop}
 									</Button>
 								)}
+								<Button
+									size="sm"
+									variant="secondary"
+									isPending={toggle.isPending && toggle.variables?.ruleId === rule.id}
+									onPress={async () => {
+										try {
+											const now = await toggle.mutateAsync({
+												bookId: book.id,
+												fundId: fund.id,
+												ruleId: rule.id,
+											});
+											await refreshPayroll(queryClient, book.id);
+											toast.success(now.is_active ? t.switches.ruleOn : t.switches.ruleOff);
+										} catch (error) {
+											reportError(error);
+										}
+									}}
+								>
+									{rule.is_active ? t.switches.ruleTurnOff : t.switches.ruleTurnOn}
+								</Button>
 								<Button size="sm" variant="ghost" onPress={() => setRemoving(rule)}>
 									{t.payroll.rules.delete}
 								</Button>
@@ -351,6 +374,8 @@ function FundCard({
 	onDelete: () => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const queryClient = useQueryClient();
+	const toggle = usePayrollToggleFund();
 	return (
 		<ItemCard
 			title={fund.name}
@@ -373,6 +398,22 @@ function FundCard({
 					>
 						{open ? t.payroll.funds.hideRules : t.payroll.funds.showRules}
 					</Button>
+					<Button
+						size="sm"
+						variant="secondary"
+						isPending={toggle.isPending}
+						onPress={async () => {
+							try {
+								const now = await toggle.mutateAsync({ bookId: book.id, fundId: fund.id });
+								await refreshPayroll(queryClient, book.id);
+								toast.success(now.is_active ? t.switches.fundOn : t.switches.fundOff);
+							} catch (error) {
+								reportError(error);
+							}
+						}}
+					>
+						{fund.is_active ? t.switches.fundTurnOff : t.switches.fundTurnOn}
+					</Button>
 					<Button size="sm" variant="ghost" onPress={onDelete}>
 						{t.payroll.funds.delete}
 					</Button>
@@ -381,6 +422,9 @@ function FundCard({
 		>
 			<p className="text-sm text-muted">
 				{t.payroll.funds.balance}: <Figure>{formatMoney(fund.balance, book.currency)}</Figure>
+			</p>
+			<p className="text-xs text-muted">
+				{t.switches.fundHint} {t.switches.lockedNote}
 			</p>
 			{open ? <Rules book={book} fund={fund} /> : null}
 		</ItemCard>

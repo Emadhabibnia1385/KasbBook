@@ -1,5 +1,6 @@
 import { analyticsStrings } from "./analytics";
 import { currencyStrings } from "./currencies";
+import { marketStrings } from "./market";
 import { parity3 } from "./parity3";
 
 // Every word a person reads, in one place: screens import `t`, never a literal.
@@ -10,6 +11,7 @@ export const t = {
 	...parity1,
 	...parity2,
 	...parity3,
+	...marketStrings,
 	...currencyStrings,
 	...analyticsStrings,
 	brand: "کسب‌بوک",

@@ -836,6 +836,189 @@ export const usePayrollCloseRule = <TError = ErrorType<HTTPValidationError>, TCo
 > => {
 	return useMutation(getPayrollCloseRuleMutationOptions(options), queryClient);
 };
+export const getPayrollToggleRuleUrl = (bookId: string, fundId: string, ruleId: string) => {
+	return `/api/v1/books/${bookId}/funds/${fundId}/rules/${ruleId}/toggle`;
+};
+
+/**
+ * Switch a rule off or back on, without touching its dates.
+ *
+ * This is not `close`. Off, the rule applies to no period calculated from now
+ * on, whatever its dates say, and on again it is exactly what it was. `close`
+ * ends the rule on a date: periods up to that date still use it, later ones
+ * do not, and nothing here can undo it.
+ * @summary Toggle Rule
+ */
+export const payrollToggleRule = async (
+	bookId: string,
+	fundId: string,
+	ruleId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<TreasuryRuleResponse> => {
+	return apiFetch<TreasuryRuleResponse>(getPayrollToggleRuleUrl(bookId, fundId, ruleId), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getPayrollToggleRuleMutationKey = () => ["payrollToggleRule"] as const;
+
+export const getPayrollToggleRuleMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof payrollToggleRule>>,
+		TError,
+		PayrollToggleRuleMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof payrollToggleRule>>,
+	TError,
+	PayrollToggleRuleMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPayrollToggleRuleMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof payrollToggleRule>>,
+		PayrollToggleRuleMutationVariables
+	> = (props) => {
+		const { bookId, fundId, ruleId } = props ?? {};
+
+		return payrollToggleRule(bookId, fundId, ruleId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PayrollToggleRuleMutationResult = NonNullable<
+	Awaited<ReturnType<typeof payrollToggleRule>>
+>;
+
+export type PayrollToggleRuleMutationError = ErrorType<HTTPValidationError>;
+export type PayrollToggleRuleMutationVariables = { bookId: string; fundId: string; ruleId: string };
+
+/**
+ * @summary Toggle Rule
+ */
+export const usePayrollToggleRule = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof payrollToggleRule>>,
+			TError,
+			PayrollToggleRuleMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof payrollToggleRule>>,
+	TError,
+	PayrollToggleRuleMutationVariables,
+	TContext
+> => {
+	return useMutation(getPayrollToggleRuleMutationOptions(options), queryClient);
+};
+export const getPayrollToggleFundUrl = (bookId: string, fundId: string) => {
+	return `/api/v1/books/${bookId}/funds/${fundId}/toggle`;
+};
+
+/**
+ * Switch a fund off or back on.
+ *
+ * Flips whatever it is now, as the bot's button does; the answer says which
+ * it became. An off fund takes nothing from any period calculated after this
+ * and keeps its rules exactly as they were, so switching it on again restores
+ * it. Periods that are paid or locked keep what they already took.
+ * @summary Toggle Fund
+ */
+export const payrollToggleFund = async (
+	bookId: string,
+	fundId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<FundResponse> => {
+	return apiFetch<FundResponse>(getPayrollToggleFundUrl(bookId, fundId), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getPayrollToggleFundMutationKey = () => ["payrollToggleFund"] as const;
+
+export const getPayrollToggleFundMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof payrollToggleFund>>,
+		TError,
+		PayrollToggleFundMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof payrollToggleFund>>,
+	TError,
+	PayrollToggleFundMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPayrollToggleFundMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof payrollToggleFund>>,
+		PayrollToggleFundMutationVariables
+	> = (props) => {
+		const { bookId, fundId } = props ?? {};
+
+		return payrollToggleFund(bookId, fundId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PayrollToggleFundMutationResult = NonNullable<
+	Awaited<ReturnType<typeof payrollToggleFund>>
+>;
+
+export type PayrollToggleFundMutationError = ErrorType<HTTPValidationError>;
+export type PayrollToggleFundMutationVariables = { bookId: string; fundId: string };
+
+/**
+ * @summary Toggle Fund
+ */
+export const usePayrollToggleFund = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof payrollToggleFund>>,
+			TError,
+			PayrollToggleFundMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof payrollToggleFund>>,
+	TError,
+	PayrollToggleFundMutationVariables,
+	TContext
+> => {
+	return useMutation(getPayrollToggleFundMutationOptions(options), queryClient);
+};
 export const getPayrollPayUrl = (bookId: string, payslipId: string) => {
 	return `/api/v1/books/${bookId}/payslips/${payslipId}/payments`;
 };

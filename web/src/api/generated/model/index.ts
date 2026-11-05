@@ -83,6 +83,8 @@ export * from "./inviteRequest";
 export * from "./loanRequest";
 export * from "./loanResponse";
 export * from "./loginRequest";
+export * from "./marketRateResponse";
+export * from "./marketRatesParams";
 export * from "./memberResponse";
 export * from "./monthlyPoint";
 export * from "./overviewResponse";
