@@ -21,13 +21,12 @@ export interface AssetRequest {
 	down_payment?: number | string | null;
 	installment_amount?: number | string | null;
 	installment_count?: number | null;
+	instrument?: string | null;
 	kind?: string;
+	loan_id?: string | null;
 	loan_starts_on?: string | null;
-	/**
-	 * @minLength 1
-	 * @maxLength 80
-	 */
-	name: string;
+	/** @maxLength 80 */
+	name?: string;
 	note?: string | null;
 	quantity?: number | string | null;
 	unit?: string | null;

@@ -23,6 +23,8 @@ export interface PortfolioHoldingResponse {
 	group: string;
 	id: string;
 	instrument: string;
+	kind?: string;
+	loan_id?: string | null;
 	name: string;
 	note?: string | null;
 	price?: string | null;
@@ -31,6 +33,8 @@ export interface PortfolioHoldingResponse {
 	profit_percent?: string | null;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	quantity: string;
+	sold_for?: string | null;
+	sold_on?: string | null;
 	unit: string;
 	value?: string | null;
 }

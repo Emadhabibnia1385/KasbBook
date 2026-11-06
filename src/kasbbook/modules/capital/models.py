@@ -51,6 +51,12 @@ class Asset(UUIDPrimaryKey, Timestamped, Base):
     loan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("loans.id", ondelete="SET NULL"), nullable=True
     )
+    # True when the loan was one already made under the instalments and was tied to this purchase, so removing
+    # the purchase gives the loan back as it was instead of deleting it.
+    loan_linked: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="0")
+    # What it is, when it is something with a market price (gold, a coin, a currency): then it is valued at
+    # today's price beside what it cost. Empty for a house or a car, which are carried at their cost.
+    instrument: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sold_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     sold_for: Mapped[Optional[Money]] = mapped_column(Money, nullable=True)

@@ -849,7 +849,8 @@ class QuoteResponse(Model):
 
 # ------------------------------------------------- assets, funds, capital
 class AssetRequest(MoneyModel):
-    name: str = Field(min_length=1, max_length=80)
+    # Left empty, a priced `instrument` names it («طلای ۱۸ عیار»); one with neither is refused.
+    name: str = Field(default="", max_length=80)
     kind: str = "other"
     cost: Decimal = Field(gt=0)
     acquired_on: date
@@ -861,6 +862,10 @@ class AssetRequest(MoneyModel):
     installment_amount: Optional[Decimal] = Field(default=None, gt=0)
     installment_count: Optional[int] = Field(default=None, ge=1, le=600)
     loan_starts_on: Optional[date] = None
+    # Or tied to a loan already made under the instalments (one with no payments yet), after `down_payment`.
+    loan_id: Optional[uuid.UUID] = None
+    # What it is, when the market prices it (`gold18`, `EMAMI`, `TRX`…): then it is valued at today's price.
+    instrument: Optional[str] = Field(default=None, max_length=16)
 
 
 class AssetResponse(MoneyModel):
@@ -872,6 +877,7 @@ class AssetResponse(MoneyModel):
     unit: Optional[str] = None
     acquired_on: date
     loan_id: Optional[uuid.UUID] = None
+    instrument: Optional[str] = None
     note: Optional[str] = None
     sold_on: Optional[date] = None
     sold_for: Optional[Decimal] = None
@@ -955,6 +961,8 @@ class PortfolioHoldingUpdate(MoneyModel):
 
 class PortfolioHoldingResponse(MoneyModel):
     id: uuid.UUID
+    # "holding": written down here. "asset": bought and kept (it moved the wallet, and may have a loan).
+    kind: str = "holding"
     instrument: str
     name: str
     unit: str
@@ -970,6 +978,9 @@ class PortfolioHoldingResponse(MoneyModel):
     price_source: str = ""
     exact: bool = False
     as_of: Optional[datetime] = None
+    loan_id: Optional[uuid.UUID] = None
+    sold_on: Optional[date] = None
+    sold_for: Optional[Decimal] = None
 
 
 class PortfolioResponse(MoneyModel):

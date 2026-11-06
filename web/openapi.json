@@ -433,10 +433,34 @@
             ],
             "title": "Installment Count"
           },
+          "instrument": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument"
+          },
           "kind": {
             "default": "other",
             "title": "Kind",
             "type": "string"
+          },
+          "loan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loan Id"
           },
           "loan_starts_on": {
             "anyOf": [
@@ -451,8 +475,8 @@
             "title": "Loan Starts On"
           },
           "name": {
+            "default": "",
             "maxLength": 80,
-            "minLength": 1,
             "title": "Name",
             "type": "string"
           },
@@ -498,7 +522,6 @@
           }
         },
         "required": [
-          "name",
           "cost",
           "acquired_on"
         ],
@@ -521,6 +544,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "instrument": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument"
           },
           "kind": {
             "title": "Kind",
@@ -4648,6 +4682,23 @@
             "title": "Instrument",
             "type": "string"
           },
+          "kind": {
+            "default": "holding",
+            "title": "Kind",
+            "type": "string"
+          },
+          "loan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loan Id"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4708,6 +4759,30 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "sold_for": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold For"
+          },
+          "sold_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold On"
           },
           "unit": {
             "title": "Unit",

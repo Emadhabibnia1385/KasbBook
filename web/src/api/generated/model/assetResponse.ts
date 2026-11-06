@@ -20,6 +20,7 @@ export interface AssetResponse {
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	cost: string;
 	id: string;
+	instrument?: string | null;
 	kind: string;
 	loan_id?: string | null;
 	name: string;

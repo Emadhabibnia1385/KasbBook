@@ -317,3 +317,76 @@ async def test_a_stranger_sees_none_of_it(api):
     for path in ("overview", "assets", "funds"):
         response = await api.get(f"/api/v1/books/{book['id']}/capital/{path}", headers=bearer(stranger))
         assert response.status_code == 404
+
+
+# ------------------------------------------- one table of what is held
+async def make_loan(api, tokens, book, **extra):
+    body = {"title": "وام خودرو", "installment_amount": "5000000", "installment_count": 10,
+            "starts_on": "2026-12-01", **extra}
+    return (await api.post(f"/api/v1/books/{book['id']}/loans",
+                           headers=bearer(tokens), json=body)).json()
+
+
+async def held(api, tokens, book):
+    return (await api.get(f"/api/v1/books/{book['id']}/portfolio", headers=bearer(tokens))).json()
+
+
+async def test_an_asset_with_an_instrument_is_listed_with_the_things_held(api, db):
+    tokens = await register(api)
+    book = await a_book(api, tokens)
+
+    made = await buy(api, tokens, book, name="", instrument="gold18", quantity="2", cost="50000000")
+
+    assert made.status_code == 201, made.text
+    assert made.json()["instrument"] == "gold18"
+    table = await held(api, tokens, book)
+    row = next(r for r in table["holdings"] if r["kind"] == "asset")
+    assert row["name"] == "طلای ۱۸ عیار" and row["unit"] == "گرم" and float(row["cost"]) == 50_000_000
+
+
+async def test_a_house_or_a_car_is_listed_at_what_it_cost(api, db):
+    tokens = await register(api)
+    book = await a_book(api, tokens)
+    await buy(api, tokens, book, name="پراید", kind="other", cost="300000000")
+
+    table = await held(api, tokens, book)
+
+    row = next(r for r in table["holdings"] if r["name"] == "پراید")
+    assert row["kind"] == "asset" and float(row["value"]) == 300_000_000 and row["price_source"] == "cost"
+    assert float(table["total_value"]) == 300_000_000
+
+
+async def test_a_purchase_can_be_tied_to_a_loan_already_made(api, db):
+    tokens = await register(api)
+    book = await a_book(api, tokens)
+    loan = await make_loan(api, tokens, book)
+
+    made = await buy(api, tokens, book, name="ماشین", loan_id=loan["id"], down_payment="10000000")
+
+    assert made.status_code == 201, made.text
+    assert made.json()["loan_id"] == loan["id"]
+    income, expense, cash = await figures(api, tokens, book)
+    assert (income, expense, cash) == (0.0, 0.0, -10_000_000)
+    assert float((await overview(api, tokens, book))["liabilities"]) == 40_000_000
+    loans = (await api.get(f"/api/v1/books/{book['id']}/loans", headers=bearer(tokens))).json()
+    assert next(l for l in loans if l["id"] == loan["id"])["kind"] == "capital"
+    assert await balanced(db, book)
+    # Taking the purchase back gives the loan back as it was, not gone.
+    gone = await api.delete(f"/api/v1/books/{book['id']}/capital/assets/{made.json()['id']}", headers=bearer(tokens))
+    assert gone.status_code == 204
+    loans = (await api.get(f"/api/v1/books/{book['id']}/loans", headers=bearer(tokens))).json()
+    assert next(l for l in loans if l["id"] == loan["id"])["kind"] == "consumer"
+
+
+async def test_a_loan_that_is_too_small_or_already_paid_on_cannot_be_tied(api, db):
+    tokens = await register(api)
+    book = await a_book(api, tokens)
+    small = await make_loan(api, tokens, book, installment_amount="1000000", installment_count=2)
+
+    refused = await buy(api, tokens, book, name="ماشین", loan_id=small["id"])
+
+    assert refused.status_code == 422
+    other = await make_loan(api, tokens, book, title="دیگر")
+    await api.post(f"/api/v1/books/{book['id']}/loans/{other['id']}/pay", headers=bearer(tokens))
+    paid = await buy(api, tokens, book, name="ماشین", loan_id=other["id"])
+    assert paid.status_code == 422

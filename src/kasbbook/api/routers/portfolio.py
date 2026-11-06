@@ -39,13 +39,12 @@ def _service(request: Request, session, rates) -> PortfolioService:
 
 
 def _holding(view) -> PortfolioHoldingResponse:
-    h = view.holding
     return PortfolioHoldingResponse(
-        id=h.id, instrument=h.instrument, name=view.name, unit=view.unit, group=view.group,
-        quantity=h.quantity, cost=h.cost, acquired_on=h.acquired_on, note=h.note,
-        price=view.price, value=view.value, profit=view.profit,
+        id=view.id, kind=view.kind, instrument=view.instrument, name=view.name, unit=view.unit,
+        group=view.group, quantity=view.quantity, cost=view.cost, acquired_on=view.acquired_on,
+        note=view.note, price=view.price, value=view.value, profit=view.profit,
         profit_percent=view.profit_percent, price_source=view.source, exact=view.exact,
-        as_of=view.as_of,
+        as_of=view.as_of, loan_id=view.loan_id, sold_on=view.sold_on, sold_for=view.sold_for,
     )
 
 
@@ -102,7 +101,7 @@ async def add_holding(
         acquired_on=body.acquired_on, label=body.label, unit_price=body.unit_price, note=body.note,
     )
     view = await service.view(book_id, user.id)
-    return _holding(next(row for row in view.rows if row.holding.id == created.id))
+    return _holding(next(row for row in view.rows if row.id == created.id))
 
 
 @router.patch("/holdings/{holding_id}", response_model=PortfolioHoldingResponse)
@@ -116,7 +115,7 @@ async def update_holding(
         unit_price=body.unit_price, label=body.label, note=body.note, acquired_on=body.acquired_on,
     )
     view = await service.view(book_id, user.id)
-    return _holding(next(row for row in view.rows if row.holding.id == holding_id))
+    return _holding(next(row for row in view.rows if row.id == holding_id))
 
 
 @router.delete("/holdings/{holding_id}", status_code=204)

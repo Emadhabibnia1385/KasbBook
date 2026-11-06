@@ -32,7 +32,7 @@ router = APIRouter(prefix="/books/{book_id}/capital", tags=["capital"])
 def _asset(row) -> AssetResponse:
     return AssetResponse(
         id=row.id, name=row.name, kind=row.kind.value, cost=row.cost, quantity=row.quantity,
-        unit=row.unit, acquired_on=row.acquired_on, loan_id=row.loan_id, note=row.note,
+        unit=row.unit, acquired_on=row.acquired_on, loan_id=row.loan_id, instrument=row.instrument, note=row.note,
         sold_on=row.sold_on, sold_for=row.sold_for,
     )
 
@@ -81,6 +81,7 @@ async def buy_asset(
         down_payment=body.down_payment, installment_amount=body.installment_amount,
         installment_count=body.installment_count, loan_starts_on=body.loan_starts_on,
         quantity=body.quantity, unit=body.unit, note=body.note,
+        instrument=body.instrument, loan_id=body.loan_id,
     )
     return _asset(asset)
 

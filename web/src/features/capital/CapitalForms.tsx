@@ -4,21 +4,18 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { FormRoot, SelectField, SubmitButton, SwitchField, TextField, toast } from "@nyxon/nasim";
 import {
-	getCapitalListAssetsQueryKey,
-	getCapitalListFundsQueryKey,
-	getCapitalOverviewQueryKey,
 	useCapitalBuyAsset,
 	useCapitalContribute,
 	useCapitalCreateFund,
 	useCapitalReceivePayout,
 	useCapitalSellAsset,
 } from "@/api/generated/capital/capital";
-import { getPlanningListLoansQueryKey } from "@/api/generated/planning/planning";
-import type { AssetResponse, BookResponse, CircleResponse } from "@/api/generated/model";
+import type { BookResponse, CircleResponse } from "@/api/generated/model";
 import { pickedDay, todayPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
 import { formatMoney, toAscii } from "@/shared/format";
-import { refreshMoney, reportFailure } from "@/shared/mutations";
+import { reportFailure } from "@/shared/mutations";
+import { refresh } from "./refresh";
 import { t } from "@/strings";
 
 // Money stays a string from the keyboard to the API: validated here, never turned into a number to send.
@@ -45,16 +42,6 @@ const KINDS = [
 	{ value: "property", label: t.capital.kinds.property },
 	{ value: "other", label: t.capital.kinds.other },
 ];
-
-async function refresh(queryClient: ReturnType<typeof useQueryClient>, bookId: string) {
-	await Promise.all([
-		queryClient.invalidateQueries({ queryKey: getCapitalListAssetsQueryKey(bookId) }),
-		queryClient.invalidateQueries({ queryKey: getCapitalListFundsQueryKey(bookId) }),
-		queryClient.invalidateQueries({ queryKey: getCapitalOverviewQueryKey(bookId) }),
-		queryClient.invalidateQueries({ queryKey: getPlanningListLoansQueryKey(bookId) }),
-		refreshMoney(queryClient, bookId),
-	]);
-}
 
 // ---------------------------------------------------------------- buying
 const buySchema = z.object({
@@ -201,7 +188,7 @@ export function SellAssetForm({
 	onDone,
 }: {
 	book: BookResponse;
-	asset: AssetResponse;
+	asset: { id: string; name: string; cost: string };
 	onDone: () => void;
 }) {
 	const queryClient = useQueryClient();

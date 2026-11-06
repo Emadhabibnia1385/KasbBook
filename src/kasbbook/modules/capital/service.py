@@ -119,6 +119,8 @@ class CapitalService:
         quantity=None,
         unit: Optional[str] = None,
         note: Optional[str] = None,
+        instrument: Optional[str] = None,
+        loan_id: Optional[uuid.UUID] = None,
     ) -> Asset:
         """Buy something that is kept.
 
@@ -127,15 +129,46 @@ class CapitalService:
         Either way nothing is spent: the cost is carried as an asset until it is sold.
         """
         await self.books.require(book_id, user_id, Permission.RECORD_EXPENSE)
+        from ..portfolio.service import describe
+
         name = (name or "").strip()
+        if instrument:
+            known = describe(instrument)
+            if known is None:
+                raise ValidationError("این نوع سرمایه شناخته نشد")
+            name = name or known[0]
+            unit = unit or known[1]
         if not name:
             raise ValidationError("نام دارایی لازم است")
         price = _positive(cost, "قیمت باید بیشتر از صفر باشد")
 
-        financed = installment_amount is not None and installment_count
+        existing: Optional[Loan] = None
+        if loan_id is not None:
+            if installment_amount is not None or installment_count:
+                raise ValidationError("یا یک وام موجود را انتخاب کن یا قسط تازه بنویس، نه هر دو.")
+            existing = await self.session.get(Loan, loan_id)
+            if existing is None or existing.book_id != book_id:
+                raise NotFound("این وام پیدا نشد")
+            if existing.kind != "consumer":
+                raise ValidationError("این وام قبلاً به یک دارایی وصل شده است.")
+            if await self.session.scalar(
+                select(LoanPayment.id).where(LoanPayment.loan_id == loan_id).limit(1)
+            ):
+                raise ValidationError("برای این وام قسط پرداخت شده؛ وامی را انتخاب کن که هنوز قسطی ندارد.")
+
+        financed = existing is None and installment_amount is not None and installment_count
         down = ZERO
         borrowed = ZERO
-        if financed:
+        if existing is not None:
+            down = quantize(to_decimal(down_payment)) if down_payment is not None else ZERO
+            if down < ZERO or down >= price:
+                raise ValidationError("پیش‌پرداخت باید کمتر از قیمت باشد")
+            borrowed = price - down
+            if existing.installment_amount * existing.installment_count < borrowed:
+                raise ValidationError(
+                    "جمع قسط‌های این وام از مبلغ وام کمتر است؛ پیش‌پرداخت را بیشتر کن یا وام دیگری انتخاب کن."
+                )
+        elif financed:
             each = _positive(installment_amount, "مبلغ قسط باید بیشتر از صفر باشد")
             if int(installment_count) <= 0:
                 raise ValidationError("تعداد اقساط باید حداقل 1 باشد")
@@ -154,9 +187,16 @@ class CapitalService:
             book_id=book_id, name=name[:80], kind=kind, cost=price, acquired_on=on,
             quantity=quantize(to_decimal(quantity)) if quantity is not None else None,
             unit=(unit or None) and unit.strip()[:16], note=note,
+            instrument=instrument or None,
         )
         self.session.add(asset)
-        if financed:
+        if existing is not None:
+            existing.kind = "capital"
+            existing.principal = borrowed
+            await self.session.flush()
+            asset.loan_id = existing.id
+            asset.loan_linked = True
+        elif financed:
             loan = Loan(
                 book_id=book_id, title=name[:80], installment_amount=each,
                 installment_count=int(installment_count), starts_on=loan_starts_on or on,
@@ -225,12 +265,15 @@ class CapitalService:
             raise ValidationError("برای وام این دارایی قسط پرداخت شده؛ حذفش ممکن نیست.")
         await self.ledger._require_open_date(book_id, asset.acquired_on)
         await self._erase_movements(CapitalMovement.asset_id == asset.id)
-        loan_id = asset.loan_id
+        loan_id, linked = asset.loan_id, asset.loan_linked
         await self.session.delete(asset)
         await self.session.flush()
         if loan_id is not None:
             loan = await self.session.get(Loan, loan_id)
-            if loan is not None:
+            if loan is not None and linked:
+                # It was a loan of its own before it was tied to this purchase: give it back as it was.
+                loan.kind, loan.principal = "consumer", None
+            elif loan is not None:
                 await self.session.delete(loan)
         await self.session.flush()
 

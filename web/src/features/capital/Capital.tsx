@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -12,20 +11,16 @@ import {
 	toast,
 } from "@nyxon/nasim";
 import {
-	getCapitalListAssetsQueryKey,
 	getCapitalListFundsQueryKey,
-	getCapitalOverviewQueryKey,
-	useCapitalDeleteAsset,
 	useCapitalDeleteFund,
-	useCapitalListAssets,
 	useCapitalListFunds,
 	useCapitalOverview,
 } from "@/api/generated/capital/capital";
-import type { AssetResponse, BookResponse, CircleResponse } from "@/api/generated/model";
-import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
-import { refreshMoney, reportFailure } from "@/shared/mutations";
+import type { BookResponse, CircleResponse } from "@/api/generated/model";
+import { formatAmount, formatMoney } from "@/shared/format";
+import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
-import { BuyAssetForm, FundForm, FundMoveForm, SellAssetForm } from "./CapitalForms";
+import { FundForm, FundMoveForm } from "./CapitalForms";
 
 const Figure = ({ children }: { children: string }) => (
 	<span className="text-lg sm:text-xl">{children}</span>
@@ -56,126 +51,6 @@ export function Overview({ book }: { book: BookResponse }) {
 			</div>
 			<p className="text-xs text-muted">{t.capital.overviewNote}</p>
 		</div>
-	);
-}
-
-export function Assets({ book }: { book: BookResponse }) {
-	const queryClient = useQueryClient();
-	const { data = [], isLoading } = useCapitalListAssets(book.id);
-	const remove = useCapitalDeleteAsset();
-	const [buying, setBuying] = useState(false);
-	const [selling, setSelling] = useState<AssetResponse | null>(null);
-	const [removing, setRemoving] = useState<AssetResponse | null>(null);
-	return (
-		<SectionCard
-			title={t.capital.assets}
-			description={t.capital.assetsHint}
-			actions={
-				<Button size="sm" onPress={() => setBuying(true)}>
-					{t.capital.buy}
-				</Button>
-			}
-		>
-			{isLoading ? null : data.length === 0 ? (
-				<p className="text-sm text-muted">{t.capital.noAssets}</p>
-			) : (
-				<ul className="grid gap-3 md:grid-cols-2">
-					{data.map((asset) => {
-						const sold = asset.sold_on !== null && asset.sold_on !== undefined;
-						return (
-							<li
-								key={asset.id}
-								className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3"
-							>
-								<div className="flex items-center justify-between gap-2">
-									<span className="font-medium">{asset.name}</span>
-									<span className="flex items-center gap-2">
-										<StatusChip
-											tone="neutral"
-											label={
-												t.capital.kinds[asset.kind as keyof typeof t.capital.kinds] ?? asset.kind
-											}
-										/>
-										{asset.loan_id ? <StatusChip tone="info" label={t.capital.viaLoan} /> : null}
-									</span>
-								</div>
-								<p className="text-lg font-semibold">{formatMoney(asset.cost, book.currency)}</p>
-								<p className="text-sm text-muted">
-									{t.capital.boughtOn} {formatFullDate(asset.acquired_on)}
-									{asset.quantity
-										? ` · ${formatAmount(Number(asset.quantity))} ${asset.unit ?? ""}`
-										: ""}
-								</p>
-								{sold && asset.sold_on ? (
-									<p className="text-sm text-success">
-										{t.capital.sold} {formatFullDate(asset.sold_on)} · {t.capital.soldFor}{" "}
-										{formatMoney(asset.sold_for ?? "0", book.currency)}
-									</p>
-								) : null}
-								<div className="flex flex-wrap gap-2">
-									{sold ? null : (
-										<Button size="sm" variant="secondary" onPress={() => setSelling(asset)}>
-											{t.capital.sell}
-										</Button>
-									)}
-									{asset.loan_id ? (
-										<Link to="/planning" className="self-center text-sm text-accent">
-											{t.planning.loans}
-										</Link>
-									) : null}
-									{sold ? null : (
-										<Button size="sm" variant="ghost" onPress={() => setRemoving(asset)}>
-											{t.common.delete}
-										</Button>
-									)}
-								</div>
-							</li>
-						);
-					})}
-				</ul>
-			)}
-			<Modal isOpen={buying} onOpenChange={setBuying} title={t.capital.buy} size="md">
-				<BuyAssetForm book={book} onDone={() => setBuying(false)} />
-			</Modal>
-			<Modal
-				isOpen={selling !== null}
-				onOpenChange={(open) => !open && setSelling(null)}
-				title={selling ? `${t.capital.sellTitle} ${selling.name}` : t.capital.sell}
-				size="sm"
-			>
-				{selling ? (
-					<SellAssetForm
-						key={selling.id}
-						book={book}
-						asset={selling}
-						onDone={() => setSelling(null)}
-					/>
-				) : null}
-			</Modal>
-			<ConfirmDialog
-				isOpen={removing !== null}
-				onOpenChange={(open) => !open && setRemoving(null)}
-				title={t.capital.deleteAsset}
-				description={t.capital.deleteAssetBody}
-				confirmLabel={t.common.delete}
-				tone="danger"
-				onConfirm={async () => {
-					if (!removing) return;
-					try {
-						await remove.mutateAsync({ bookId: book.id, assetId: removing.id });
-						await Promise.all([
-							queryClient.invalidateQueries({ queryKey: getCapitalListAssetsQueryKey(book.id) }),
-							queryClient.invalidateQueries({ queryKey: getCapitalOverviewQueryKey(book.id) }),
-							refreshMoney(queryClient, book.id),
-						]);
-						toast.success(t.capital.deleted);
-					} catch (error) {
-						reportFailure(error);
-						throw error;
-					}
-				}}
-			/>
-		</SectionCard>
 	);
 }
 

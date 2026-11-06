@@ -18,6 +18,7 @@ from ..books.service import BookService
 from ...rates import quote as quoting
 from ..exchange.catalog import BY_CODE as CURRENCIES
 from .catalog import BY_CODE
+from ..capital.models import Asset
 from .models import FinancialNote, Holding, NoteEntry
 from .pricing import Price, price_table, to_book_currency
 
@@ -26,10 +27,16 @@ ENTRY_KINDS = ("spent", "value", "note")
 
 @dataclass
 class HoldingView:
-    holding: Holding
+    id: uuid.UUID
+    kind: str                       # "holding" (written down) or "asset" (bought and kept)
+    instrument: str
     name: str
     unit: str
     group: str
+    quantity: Decimal
+    cost: Optional[Decimal]
+    acquired_on: Optional[date]
+    note: Optional[str]
     price: Optional[Decimal]        # one unit, in the book's currency
     value: Optional[Decimal]
     profit: Optional[Decimal]
@@ -37,6 +44,9 @@ class HoldingView:
     source: str
     exact: bool
     as_of: Optional[datetime]
+    loan_id: Optional[uuid.UUID] = None
+    sold_on: Optional[date] = None
+    sold_for: Optional[Decimal] = None
 
 
 @dataclass
@@ -106,9 +116,31 @@ class PortfolioService:
             )
         ).scalars().all()
 
+        async def market_price(code: str):
+            """(price in the book's currency, source, exact, as_of) for an instrument, or None."""
+            found = table.get(code)
+            if found is None and code in CURRENCIES and self.rates is not None and self.fiat is not None:
+                # Any currency the app knows can be held, not only the few in the instrument list.
+                asked = quoting.quote(
+                    await self.rates.prices(), await self.fiat.per_usd(), code, "IRT",
+                    self.rates.fetched_at, self.fiat.fetched_at,
+                )
+                if asked is not None:
+                    found = Price(code, asked.value, asked.source, asked.exact, asked.fetched_at)
+            if found is not None and found.value is not None and factor is not None:
+                return quantize(found.value * factor), found.source, found.exact, found.as_of
+            return None
+
         rows: List[HoldingView] = []
         total_value = total_cost = ZERO
         unpriced = 0
+
+        def profit_of(value, cost):
+            if value is None or cost is None:
+                return None, None
+            profit = quantize(value - cost)
+            return profit, (quantize(profit * 100 / cost) if cost > ZERO else None)
+
         for holding in holdings:
             described = describe(holding.instrument)
             name = holding.label or (described[0] if described else holding.instrument)
@@ -117,39 +149,69 @@ class PortfolioService:
             if holding.unit_price is not None:
                 price, source, exact = to_decimal(holding.unit_price), "manual", True
             else:
-                found = table.get(holding.instrument)
-                if found is None and holding.instrument in CURRENCIES and self.rates is not None and self.fiat is not None:
-                    # Any currency the app knows can be held, not only the few in the instrument list.
-                    asked = quoting.quote(
-                        await self.rates.prices(), await self.fiat.per_usd(), holding.instrument, "IRT",
-                        self.rates.fetched_at, self.fiat.fetched_at,
-                    )
-                    if asked is not None:
-                        found = Price(holding.instrument, asked.value, asked.source, asked.exact, asked.fetched_at)
-                if found is not None and found.value is not None and factor is not None:
-                    price = quantize(found.value * factor)
-                    source, exact, as_of = found.source, found.exact, found.as_of
+                priced = await market_price(holding.instrument)
+                if priced is not None:
+                    price, source, exact, as_of = priced
             value = quantize(to_decimal(holding.quantity) * price) if price is not None else None
-            profit = percent = None
-            if value is not None and holding.cost is not None:
-                cost = to_decimal(holding.cost)
-                profit = quantize(value - cost)
-                percent = quantize(profit * 100 / cost) if cost > ZERO else None
+            cost = to_decimal(holding.cost) if holding.cost is not None else None
+            profit, percent = profit_of(value, cost)
             if value is None:
                 unpriced += 1
             else:
                 total_value += value
-            if holding.cost is not None:
-                total_cost += to_decimal(holding.cost)
+            if cost is not None:
+                total_cost += cost
             rows.append(HoldingView(
-                holding=holding, name=name, unit=described[1] if described else "",
-                group=described[2] if described else "other",
-                price=price, value=value, profit=profit, profit_percent=percent,
+                id=holding.id, kind="holding", instrument=holding.instrument, name=name,
+                unit=described[1] if described else "", group=described[2] if described else "other",
+                quantity=to_decimal(holding.quantity), cost=cost, acquired_on=holding.acquired_on,
+                note=holding.note, price=price, value=value, profit=profit, profit_percent=percent,
                 source=source, exact=exact, as_of=as_of,
             ))
-        # Profit is only over holdings that have both a cost and a price: anything else would be a guess.
+
+        # What was bought and is kept (gold, a car, a house) is the same kind of thing: a priced one is
+        # valued at today's price, any other at what it cost. A sold one is listed, and counts for nothing.
+        assets = (
+            await self.session.execute(
+                select(Asset).where(Asset.book_id == book_id)
+                .order_by(Asset.sold_on.is_not(None), Asset.acquired_on.desc(), Asset.created_at.desc())
+            )
+        ).scalars().all()
+        for asset in assets:
+            described = describe(asset.instrument) if asset.instrument else None
+            cost = to_decimal(asset.cost)
+            quantity = to_decimal(asset.quantity) if asset.quantity is not None else Decimal("1")
+            price = value = None
+            source, exact, as_of = "", False, None
+            if asset.sold_on is None:
+                if asset.instrument:
+                    priced = await market_price(asset.instrument)
+                    if priced is not None:
+                        price, source, exact, as_of = priced
+                        value = quantize(quantity * price)
+                    else:
+                        unpriced += 1
+                else:
+                    value, source, exact = cost, "cost", True
+                total_cost += cost
+                if value is not None:
+                    total_value += value
+                profit, percent = profit_of(value, cost) if asset.instrument else (None, None)
+            else:
+                profit, percent = (
+                    profit_of(to_decimal(asset.sold_for), cost) if asset.sold_for is not None else (None, None)
+                )
+            rows.append(HoldingView(
+                id=asset.id, kind="asset", instrument=asset.instrument or "", name=asset.name,
+                unit=asset.unit or (described[1] if described else ""),
+                group=described[2] if described else "other", quantity=quantity, cost=cost,
+                acquired_on=asset.acquired_on, note=asset.note, price=price, value=value,
+                profit=profit, profit_percent=percent, source=source, exact=exact, as_of=as_of,
+                loan_id=asset.loan_id, sold_on=asset.sold_on, sold_for=asset.sold_for,
+            ))
+        # Profit is only over what has both a cost and a price: anything else would be a guess.
         total_profit = quantize(sum(
-            (row.profit for row in rows if row.profit is not None), ZERO
+            (row.profit for row in rows if row.profit is not None and row.sold_on is None), ZERO
         ))
         return PortfolioView(
             currency=book.base_currency, rows=rows, total_value=quantize(total_value),

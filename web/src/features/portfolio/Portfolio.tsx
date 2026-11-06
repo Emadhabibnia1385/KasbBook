@@ -1,19 +1,21 @@
+import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
 	Button,
 	ConfirmDialog,
+	DataTable,
 	ErrorState,
 	Modal,
 	PageHeader,
 	PageSkeleton,
 	SectionCard,
 	StatCard,
+	StatusChip,
 	toast,
 } from "@nyxon/nasim";
 import {
 	getPortfolioListNotesQueryKey,
-	getPortfolioPortfolioQueryKey,
 	usePortfolioDeleteEntry,
 	usePortfolioDeleteHolding,
 	usePortfolioDeleteNote,
@@ -28,8 +30,11 @@ import type {
 	InstrumentResponse,
 	PortfolioHoldingResponse,
 } from "@/api/generated/model";
+import { useCapitalDeleteAsset } from "@/api/generated/capital/capital";
+import { SellAssetForm } from "@/features/capital/CapitalForms";
+import { refresh } from "@/features/capital/refresh";
 import { useActiveBook } from "@/features/books/useActiveBook";
-import { Assets, Overview } from "@/features/capital/Capital";
+import { Overview } from "@/features/capital/Capital";
 import { PersonalOnly } from "@/features/manage/PersonalOnly";
 import { BookRequired } from "@/features/books/BookRequired";
 import { ManageTabs } from "@/features/manage/ManageTabs";
@@ -37,7 +42,7 @@ import { Donut, categoryColor } from "@/shared/charts";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
-import { EntryForm, HoldingForm, NoteForm } from "./PortfolioForms";
+import { AddItemForm, EntryForm, HoldingForm, NoteForm } from "./PortfolioForms";
 
 const Figure = ({ children }: { children: string }) => (
 	<span className="text-lg sm:text-xl">{children}</span>
@@ -77,6 +82,8 @@ function Holdings({
 	const [adding, setAdding] = useState(false);
 	const [editing, setEditing] = useState<PortfolioHoldingResponse | null>(null);
 	const [removing, setRemoving] = useState<PortfolioHoldingResponse | null>(null);
+	const [selling, setSelling] = useState<PortfolioHoldingResponse | null>(null);
+	const removeAsset = useCapitalDeleteAsset();
 	const rows = data?.holdings ?? [];
 	const slices = rows
 		.filter((row) => row.value && Number(row.value) > 0)
@@ -136,61 +143,123 @@ function Holdings({
 								formatValue={(value: string) => formatMoney(value, book.currency)}
 							/>
 						) : null}
-						<ul className="grid gap-3 md:grid-cols-2">
-							{rows.map((row) => (
-								<li
-									key={row.id}
-									className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-3"
-								>
-									<div className="flex items-center justify-between gap-2">
-										<span className="font-medium">{row.name}</span>
-										<span className="text-sm text-muted">
+						<DataTable<PortfolioHoldingResponse>
+							ariaLabel={t.portfolio.holdings}
+							cards="md"
+							status="ready"
+							rows={rows}
+							getRowId={(row) => row.id}
+							columns={[
+								{
+									id: "name",
+									header: t.portfolio.colName,
+									isRowHeader: true,
+									cell: (row) => (
+										<span className="flex flex-col items-start gap-0.5">
+											<span className="flex flex-wrap items-center gap-1.5 font-medium">
+												{row.name}
+												{row.sold_on ? (
+													<StatusChip tone="success" label={t.portfolio.soldChip} />
+												) : row.kind === "asset" ? (
+													<StatusChip tone="neutral" label={t.portfolio.kindAsset} />
+												) : null}
+												{row.loan_id ? (
+													<Link to="/planning" className="text-xs text-accent">
+														{t.capital.viaLoan}
+													</Link>
+												) : null}
+											</span>
+											{row.note ? <span className="text-xs text-muted">{row.note}</span> : null}
+										</span>
+									),
+								},
+								{
+									id: "amount",
+									header: t.portfolio.colAmount,
+									align: "center",
+									cell: (row) => (
+										<span className="whitespace-nowrap">
 											{formatAmount(Number(row.quantity))} {row.unit}
 										</span>
-									</div>
-									{row.value ? (
-										<p className="text-lg font-semibold">{formatMoney(row.value, book.currency)}</p>
-									) : (
-										<p className="text-sm text-muted">{t.portfolio.noPrice}</p>
-									)}
-									{row.price ? (
-										<p className="text-xs text-muted">
-											{t.portfolio.priceNow}: {formatMoney(row.price, book.currency)}
-											{row.exact ? "" : ` · ${t.portfolio.estimate}`}
-										</p>
-									) : null}
-									{row.cost ? (
-										<p className="text-sm text-muted">
-											{t.portfolio.costOf}: {formatMoney(row.cost, book.currency)}
-											{row.profit ? (
-												<>
-													{" · "}
-													<Result
-														value={row.profit}
-														base={book.currency}
-														percent={row.profit_percent}
-													/>
-												</>
-											) : null}
-										</p>
-									) : null}
-									{row.note ? <p className="text-xs text-muted">{row.note}</p> : null}
-									<div className="flex gap-2">
-										<Button size="sm" variant="secondary" onPress={() => setEditing(row)}>
-											{t.portfolio.edit}
-										</Button>
-										<Button size="sm" variant="ghost" onPress={() => setRemoving(row)}>
-											{t.common.delete}
-										</Button>
-									</div>
-								</li>
-							))}
-						</ul>
+									),
+								},
+								{
+									id: "cost",
+									header: t.portfolio.colCost,
+									align: "center",
+									cell: (row) => (row.cost ? formatMoney(row.cost, book.currency) : "—"),
+								},
+								{
+									id: "value",
+									header: t.portfolio.colValue,
+									align: "center",
+									cell: (row) =>
+										row.sold_on ? (
+											<span className="text-muted">
+												{formatFullDate(row.sold_on)} ·{" "}
+												{formatMoney(row.sold_for ?? "0", book.currency)}
+											</span>
+										) : row.value ? (
+											<span className="flex flex-col items-center">
+												<b>{formatMoney(row.value, book.currency)}</b>
+												{row.price && row.price_source !== "cost" ? (
+													<span className="text-xs text-muted">
+														{formatMoney(row.price, book.currency)}
+														{row.exact ? "" : ` · ${t.portfolio.estimate}`}
+													</span>
+												) : null}
+											</span>
+										) : (
+											<span className="text-sm text-muted">{t.portfolio.noPrice}</span>
+										),
+								},
+								{
+									id: "result",
+									header: t.portfolio.colResult,
+									align: "center",
+									cell: (row) =>
+										row.profit ? (
+											<Result
+												value={row.profit}
+												base={book.currency}
+												percent={row.profit_percent}
+											/>
+										) : (
+											"—"
+										),
+								},
+								{
+									id: "actions",
+									header: <span className="sr-only">{t.portfolio.edit}</span>,
+									align: "center",
+									isActions: true,
+									className: "w-44",
+									cell: (row) => (
+										<span className="inline-flex gap-1">
+											{row.kind === "holding" ? (
+												<Button size="sm" variant="secondary" onPress={() => setEditing(row)}>
+													{t.portfolio.edit}
+												</Button>
+											) : row.sold_on ? null : (
+												<Button size="sm" variant="secondary" onPress={() => setSelling(row)}>
+													{t.capital.sell}
+												</Button>
+											)}
+											{row.sold_on ? null : (
+												<Button size="sm" variant="ghost" onPress={() => setRemoving(row)}>
+													{t.common.delete}
+												</Button>
+											)}
+										</span>
+									),
+								},
+							]}
+						/>
 					</div>
 				)}
 			</SectionCard>
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.portfolio.add} size="md">
-				<HoldingForm book={book} instruments={instruments} onDone={() => setAdding(false)} />
+				<AddItemForm book={book} instruments={instruments} onDone={() => setAdding(false)} />
 			</Modal>
 			<Modal
 				isOpen={editing !== null}
@@ -208,6 +277,24 @@ function Holdings({
 					/>
 				) : null}
 			</Modal>
+			<Modal
+				isOpen={selling !== null}
+				onOpenChange={(open) => !open && setSelling(null)}
+				title={selling ? `${t.capital.sellTitle} ${selling.name}` : t.capital.sell}
+				size="sm"
+			>
+				{selling ? (
+					<SellAssetForm
+						key={selling.id}
+						book={book}
+						asset={{ id: selling.id, name: selling.name, cost: selling.cost ?? "0" }}
+						onDone={() => {
+							setSelling(null);
+							void refresh(queryClient, book.id);
+						}}
+					/>
+				) : null}
+			</Modal>
 			<ConfirmDialog
 				isOpen={removing !== null}
 				onOpenChange={(open) => !open && setRemoving(null)}
@@ -218,10 +305,12 @@ function Holdings({
 				onConfirm={async () => {
 					if (!removing) return;
 					try {
-						await remove.mutateAsync({ bookId: book.id, holdingId: removing.id });
-						await queryClient.invalidateQueries({
-							queryKey: getPortfolioPortfolioQueryKey(book.id),
-						});
+						if (removing.kind === "asset") {
+							await removeAsset.mutateAsync({ bookId: book.id, assetId: removing.id });
+						} else {
+							await remove.mutateAsync({ bookId: book.id, holdingId: removing.id });
+						}
+						await refresh(queryClient, book.id);
 						toast.success(t.portfolio.deleted);
 					} catch (error) {
 						reportFailure(error);
@@ -411,7 +500,6 @@ export function Portfolio() {
 			<PersonalOnly book={book}>
 				<Overview book={book} />
 				<Holdings book={book} instruments={instruments.data ?? []} />
-				<Assets book={book} />
 				<Notes book={book} />
 			</PersonalOnly>
 		</div>
