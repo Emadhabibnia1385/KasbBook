@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button, PageHeader } from "@nyxon/nasim";
 import { SIDE_NAV } from "@/app/shell/nav";
 import { signOut } from "@/app/shell/signOut";
+import { GithubStar } from "@/features/shell/GithubStar";
 import { InstallButton } from "@/features/pwa/InstallButton";
 import { LogoutIcon } from "@/shared/icons";
 import { t } from "@/strings";
@@ -26,6 +27,9 @@ function More() {
 				))}
 			</ul>
 			<InstallButton />
+			<div className="flex justify-center">
+				<GithubStar />
+			</div>
 			<Button variant="outline" onPress={() => void signOut(queryClient)}>
 				<LogoutIcon aria-hidden />
 				{t.common.logout}

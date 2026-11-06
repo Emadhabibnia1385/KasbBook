@@ -16,6 +16,7 @@ export const t = {
 	...marketStrings,
 	...currencyStrings,
 	...analyticsStrings,
+	github: { star: "Star", label: "ستاره‌دادن به کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",
 	nav: {
