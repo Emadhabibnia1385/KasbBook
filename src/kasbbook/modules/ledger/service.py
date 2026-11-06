@@ -295,6 +295,7 @@ class LedgerService:
         categories: Optional[Sequence[str]] = None,
         text: Optional[str] = None,
         currencies: Optional[Sequence[str]] = None,
+        sort: str = "oldest",
     ) -> Sequence[Transaction]:
         """The book's transactions, narrowed by any of: dates, income/expense, categories, words.
 
@@ -329,7 +330,33 @@ class LedgerService:
             )
 
         stmt = stmt.order_by(Transaction.occurred_on, Transaction.created_at)
-        return (await self.session.execute(stmt)).scalars().all()
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return self._sorted(rows, sort)
+
+    SORTS = ("newest", "oldest", "amount_desc", "amount_asc", "category")
+
+    @classmethod
+    def _sorted(cls, rows: Sequence[Transaction], sort: str) -> Sequence[Transaction]:
+        """The list in the order asked for. Done here, on Decimals, because the amount column is text on
+        SQLite and sorting it in SQL would put 9 after 10.
+
+        Amounts are compared in the book's own currency (what the reports add up), so 20 TON and 5 000 000
+        toman are ordered by what they were worth. Ties keep the newest first.
+        """
+        if sort not in cls.SORTS:
+            raise ValidationError("sort must be one of: " + ", ".join(cls.SORTS))
+        # Ties (the same day and the same instant) keep the order they were written in, so reversing
+        # the oldest-first list gives newest-first with the last written first.
+        oldest = sorted(rows, key=lambda r: (r.occurred_on, r.created_at))
+        newest = list(reversed(oldest))
+        if sort == "oldest":
+            return oldest
+        if sort == "newest":
+            return newest
+        if sort == "category":
+            # Stable on top of newest-first, so inside a category the latest comes first.
+            return sorted(newest, key=lambda r: r.category.casefold())
+        return sorted(newest, key=lambda r: r.converted_amount, reverse=(sort == "amount_desc"))
 
     @staticmethod
     def split_totals(rows: Sequence[Transaction]) -> tuple:

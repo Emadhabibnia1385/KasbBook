@@ -342,6 +342,8 @@ class TransactionResponse(MoneyModel):
     category: str
     original_amount: Decimal
     original_currency: str
+    # What one unit of the original currency was worth in the book's own when this was recorded.
+    conversion_rate: Decimal
     converted_amount: Decimal
     description: Optional[str] = None
     occurred_on: date

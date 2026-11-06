@@ -303,6 +303,7 @@ async def list_transactions(
     category: Optional[List[str]] = Query(default=None, description="repeat for several categories"),
     currency: Optional[List[str]] = Query(default=None, description="the money it was paid in; repeat for several"),
     q: Optional[str] = Query(default=None, max_length=100, description="words in the category or the note"),
+    sort: str = Query(default="newest", description="newest, oldest, amount_desc, amount_asc or category"),
 ) -> TransactionPage:
     from datetime import date as date_type
 
@@ -318,11 +319,10 @@ async def list_transactions(
         book_id, user.id, parse(since, "since"), parse(until, "until"),
         flows=[_as_enum(Flow, value, "flow") for value in flow] if flow else None,
         categories=category or None, text=q,
-        currencies=[c.upper() for c in currency] if currency else None,
+        currencies=[c.upper() for c in currency] if currency else None, sort=sort,
     )
     totals = LedgerService.split_totals(rows)
-    # Newest first, which is what a list is read for.
-    rows = list(reversed(rows))
+    rows = list(rows)
     start = (page - 1) * per_page
     visible = rows[start:start + per_page]
     activities = await LedgerService(session).activities(user.id, visible)
@@ -403,6 +403,7 @@ def _transaction(row, activity, attachment_count: int = 0) -> TransactionRespons
         category=row.category,
         original_amount=row.original_amount,
         original_currency=row.original_currency,
+        conversion_rate=row.conversion_rate,
         converted_amount=row.converted_amount,
         description=row.description,
         occurred_on=row.occurred_on,

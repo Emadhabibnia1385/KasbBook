@@ -99,3 +99,28 @@ async def test_a_bad_flow_is_refused_and_a_stranger_sees_nothing(api):
         "display_name": "غریبه", "email": "x@example.com", "password": "a-good-password"})).json()
     other = {"Authorization": f"Bearer {tokens['access_token']}"}
     assert (await api.get(f"/api/v1/books/{book}/transactions?flow=income", headers=other)).status_code == 404
+
+
+async def test_the_list_can_be_sorted_by_amount_category_and_age(api):
+    headers, book = await seeded(api)
+    order = lambda page: [row["description"] for row in page["items"]]
+    newest = await ask(api, headers, book, "sort=newest")
+    oldest = await ask(api, headers, book, "sort=oldest")
+    assert order(newest) == list(reversed(order(oldest)))
+    assert newest["items"][0]["occurred_on"] == "2026-11-03"
+    big = await ask(api, headers, book, "sort=amount_desc")
+    assert [row["converted_amount"] for row in big["items"]][:2] == ["1000.0000", "700.0000"]
+    small = await ask(api, headers, book, "sort=amount_asc")
+    assert small["items"][0]["converted_amount"] == "50.0000"
+    by_category = await ask(api, headers, book, "sort=category")
+    names = [row["category"] for row in by_category["items"]]
+    assert names == sorted(names, key=str.casefold)
+    assert (await api.get(f"/api/v1/books/{book}/transactions?sort=sideways", headers=headers)).status_code == 422
+
+
+async def test_amounts_sort_as_numbers_not_as_text(api):
+    headers, book = await seeded(api)
+    await api.post(f"/api/v1/books/{book}/transactions", headers=headers, json={
+        "flow": "expense", "scope": "work", "category": "تست", "amount": "9", "occurred_on": "2026-11-04"})
+    small = await ask(api, headers, book, "sort=amount_asc")
+    assert [row["converted_amount"] for row in small["items"]][:2] == ["9.0000", "50.0000"]
