@@ -382,6 +382,11 @@ def login_proof(code) -> Screen:
                "فقط در ربات رسمی یا API رسمی کسب‌بوک وارد کن. اگر درخواست نداده‌ای، این پیام را نادیده بگیر."), []
 
 
+def password_reset_proof(code) -> Screen:
+    return rtl(f"🔑 کد تغییر رمز حساب کسب‌بوک: {code}\nاعتبار: 10 تا 20 دقیقه.\n"
+               "این کد را فقط در پنل وب کسب‌بوک وارد کن. اگر درخواست نداده‌ای، نادیده‌اش بگیر."), []
+
+
 def web_login_prompt(token: str, ip: str, agent: str) -> Screen:
     """Asked before a browser is let in: the person decides, not the link."""
     where = f"\nآی‌پی: {ip}" if ip else ""

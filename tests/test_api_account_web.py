@@ -149,3 +149,101 @@ async def test_a_messenger_remembers_when_it_last_spoke(session):
     moved = (await identity.find_identity(Provider.TELEGRAM, "777001")).last_seen_at
     # SQLite hands times back without a zone; compare them the same way.
     assert moved.replace(tzinfo=None) >= stamp.replace(tzinfo=None) - timedelta(seconds=1)
+
+
+# ------------------------------------------------- a forgotten password
+async def link_messenger(db, api, tokens):
+    """Attach a Telegram account to the registered user, the way the bot does when someone presses Start."""
+    from kasbbook.modules.identity.models import Provider
+    from kasbbook.modules.identity.service import IdentityService
+
+    me = (await api.get("/api/v1/auth/me", headers=bearer(tokens))).json()
+    import uuid
+
+    async for s in db.session():
+        service = IdentityService(s)
+        issued = await service.start_link_from_web(uuid.UUID(me["id"]), Provider.TELEGRAM)
+        await service.complete_link_from_messenger(issued.token, Provider.TELEGRAM, "909090")
+        await s.commit()
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    """What the panel would have handed to the messenger."""
+    outbox = []
+
+    async def capture(request, settings, identity, text, buttons):
+        outbox.append((identity.provider.value, identity.external_id, text))
+
+    monkeypatch.setattr("kasbbook.api.routers.auth._send_code", capture)
+    return outbox
+
+
+async def test_a_forgotten_password_is_reset_with_a_code_from_the_messenger(api, db, sent):
+    tokens = await register(api)
+    await link_messenger(db, api, tokens)
+
+    asked = await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))
+
+    assert asked.status_code == 200 and asked.json()["sent_to"] == "telegram"
+    assert len(sent) == 1 and sent[0][1] == "909090"
+    import re
+
+    code = re.search(r"[A-Z2-9]{8}", sent[0][2]).group()
+    changed = await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                            json={"new_password": "brand-new-password", "reset_code": code})
+    assert changed.status_code == 204
+    signed = await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "brand-new-password"})
+    assert signed.status_code == 200
+
+
+async def test_a_wrong_code_changes_nothing(api, db, sent):
+    tokens = await register(api)
+    await link_messenger(db, api, tokens)
+
+    refused = await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                            json={"new_password": "brand-new-password", "reset_code": "AAAAAAAA"})
+
+    assert refused.status_code == 422
+    signed = await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "a-good-password"})
+    assert signed.status_code == 200
+
+
+async def test_a_used_code_is_dead(api, db, sent):
+    tokens = await register(api)
+    await link_messenger(db, api, tokens)
+    await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))
+    import re
+
+    code = re.search(r"[A-Z2-9]{8}", sent[0][2]).group()
+    await api.put("/api/v1/auth/me/password", headers=bearer(tokens),
+                  json={"new_password": "brand-new-password", "reset_code": code})
+    again = await api.post("/api/v1/auth/login", json={
+        "identifier": "emad@example.com", "password": "brand-new-password"})
+
+    reused = await api.put("/api/v1/auth/me/password",
+                           headers=bearer(again.json()),
+                           json={"new_password": "third-password-here", "reset_code": code})
+
+    assert reused.status_code == 422
+
+
+async def test_no_code_is_sent_without_a_messenger_or_a_password(api, sent):
+    tokens = await register(api)
+
+    no_messenger = await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))
+
+    assert no_messenger.status_code == 422 and sent == []
+    guest = (await api.post("/api/v1/auth/guest")).json()
+    assert (await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(guest))).status_code == 422
+
+
+async def test_asking_for_codes_is_limited(api, db, sent):
+    tokens = await register(api)
+    await link_messenger(db, api, tokens)
+    for _ in range(3):
+        assert (await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))).status_code == 200
+
+    assert (await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))).status_code == 429

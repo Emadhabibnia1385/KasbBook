@@ -125,6 +125,7 @@ export * from "./reportsExportCsvParams";
 export * from "./reportsMonthlyParams";
 export * from "./reportsSearchParams";
 export * from "./reportsSummaryParams";
+export * from "./resetCodeResponse";
 export * from "./scopePoint";
 export * from "./sessionResponse";
 export * from "./shareRequest";

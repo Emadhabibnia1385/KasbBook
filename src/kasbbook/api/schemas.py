@@ -93,7 +93,14 @@ class PasswordRequest(Model):
     # Required once one is set; the service decides, not the schema, so the bot
     # and the API cannot disagree about when it is needed.
     current_password: Optional[str] = Field(default=None, max_length=200)
+    # Instead of the current password: the code a linked messenger was sent when it was forgotten.
+    reset_code: Optional[str] = Field(default=None, max_length=32)
     new_password: str = Field(min_length=8, max_length=200)
+
+
+class ResetCodeResponse(Model):
+    # Which messenger the code went to, so the screen can say where to look.
+    sent_to: str
 
 
 class CloseAccountRequest(Model):

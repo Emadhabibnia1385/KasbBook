@@ -33,6 +33,7 @@ from ...shared.security import (
     new_token,
     token_digest,
     utcnow,
+    valid_reset_code,
     verify_password,
 )
 from ...shared.parsing import to_ascii_digits
@@ -292,6 +293,8 @@ class IdentityService:
         user_id: uuid.UUID,
         new_password: str,
         current_password: Optional[str] = None,
+        reset_code: Optional[str] = None,
+        secret: Optional[str] = None,
     ) -> "User":
         """Set or change the password the API signs in with.
 
@@ -299,6 +302,10 @@ class IdentityService:
         linked messenger can already read and change the books, so this buys
         less than it looks — but it does stop a stolen phone from quietly
         taking the web side too, and it costs one screen.
+
+        Someone who has forgotten it proves they hold a linked messenger
+        instead: a code sent there (`password_reset_code`) stands in for the
+        current password.
         """
         user = await self.get_user(user_id)
         if user.is_guest:
@@ -310,7 +317,10 @@ class IdentityService:
             )
 
         if user.password_hash:
-            if not current_password or not verify_password(
+            if reset_code:
+                if not secret or not valid_reset_code(secret, user.id, user.password_hash, reset_code):
+                    raise ValidationError("کد تأیید درست نیست یا مهلتش تمام شده")
+            elif not current_password or not verify_password(
                 current_password, user.password_hash
             ):
                 raise ValidationError("رمز فعلی درست نیست")

@@ -22,4 +22,5 @@ export interface PasswordRequest {
 	 * @maxLength 200
 	 */
 	new_password: string;
+	reset_code?: string | null;
 }

@@ -1,10 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { FormRoot, SubmitButton, TextField, toast } from "@nyxon/nasim";
+import { Button, FormRoot, Notice, SubmitButton, TextField, toast } from "@nyxon/nasim";
 import {
 	authLogin,
+	authSendPasswordResetCode,
 	getAuthMeQueryKey,
 	useAuthSetPassword,
 	useAuthSetUsername,
@@ -13,9 +15,17 @@ import type { UserResponse } from "@/api/generated/model";
 import { saveSession } from "@/api/session";
 import { t } from "@/strings";
 
+const PROVIDERS: Record<string, string> = {
+	telegram: "تلگرام",
+	bale: "بله",
+	rubika: "روبیکا",
+	eitaa: "ایتا",
+};
+
 const schema = z.object({
 	username: z.string().trim().min(1, { error: t.acct.needUsername }),
 	current: z.string(),
+	code: z.string(),
 	password: z.string().min(8, { error: t.acct.needPassword }),
 });
 type Values = z.input<typeof schema>;
@@ -28,15 +38,22 @@ export function LoginDetails({ user }: { user: UserResponse }) {
 	const queryClient = useQueryClient();
 	const setUsername = useAuthSetUsername();
 	const setPassword = useAuthSetPassword();
+	// Someone who forgot the current password is sent a code on a messenger they own, which stands in for it.
+	const [sentTo, setSentTo] = useState<string | null>(null);
+	const [sending, setSending] = useState(false);
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
-		defaultValues: { username: user.username ?? "", current: "", password: "" },
+		defaultValues: { username: user.username ?? "", current: "", code: "", password: "" },
 	});
 	return (
 		<FormRoot
 			form={form}
 			className="flex flex-col gap-4"
 			onSubmit={async (values) => {
+				if (sentTo && !values.code.trim()) {
+					form.setError("code", { message: t.acct.needCode });
+					return;
+				}
 				try {
 					const username = values.username.trim().toLowerCase();
 					if (username !== user.username) {
@@ -46,7 +63,8 @@ export function LoginDetails({ user }: { user: UserResponse }) {
 					await setPassword.mutateAsync({
 						data: {
 							new_password: values.password,
-							current_password: user.web_login_ready ? values.current || null : null,
+							current_password: user.web_login_ready && !sentTo ? values.current || null : null,
+							reset_code: sentTo ? values.code.trim() : null,
 						},
 					});
 					const pair = await authLogin({ identifier: username, password: values.password });
@@ -56,7 +74,8 @@ export function LoginDetails({ user }: { user: UserResponse }) {
 						expires_in: pair.expires_in,
 					});
 					await queryClient.invalidateQueries();
-					form.reset({ username, current: "", password: "" });
+					form.reset({ username, current: "", code: "", password: "" });
+					setSentTo(null);
 					toast.success(t.acct.loginSaved);
 				} catch (error) {
 					toast.danger(error instanceof Error ? error.message : t.errors.unknown);
@@ -64,7 +83,11 @@ export function LoginDetails({ user }: { user: UserResponse }) {
 			}}
 		>
 			<p className="text-sm text-muted">
-				{user.web_login_ready && user.username ? t.acct.hasLogin : t.acct.loginLead}
+				{!user.web_login_ready
+					? t.acct.noPasswordYet
+					: user.username
+						? t.acct.hasLogin
+						: t.acct.loginLead}
 			</p>
 			<TextField
 				name="username"
@@ -74,12 +97,56 @@ export function LoginDetails({ user }: { user: UserResponse }) {
 				isRequired
 			/>
 			{user.web_login_ready ? (
-				<TextField
-					name="current"
-					type="password"
-					label={t.acct.currentPassword}
-					autoComplete="current-password"
-				/>
+				sentTo ? (
+					<>
+						<Notice tone="info">
+							{t.acct.codeSent} {PROVIDERS[sentTo] ?? sentTo}
+						</Notice>
+						<TextField
+							name="code"
+							label={t.acct.codeLabel}
+							description={t.acct.codeHint}
+							autoComplete="one-time-code"
+							isRequired
+						/>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="self-start"
+							onPress={() => setSentTo(null)}
+						>
+							{t.acct.backToCurrent}
+						</Button>
+					</>
+				) : (
+					<>
+						<TextField
+							name="current"
+							type="password"
+							label={t.acct.currentPassword}
+							autoComplete="current-password"
+						/>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="self-start"
+							isPending={sending}
+							onPress={async () => {
+								setSending(true);
+								try {
+									const sent = await authSendPasswordResetCode();
+									setSentTo(sent.sent_to);
+								} catch (error) {
+									toast.danger(error instanceof Error ? error.message : t.errors.unknown);
+								} finally {
+									setSending(false);
+								}
+							}}
+						>
+							{t.acct.forgotCurrent}
+						</Button>
+					</>
+				)
 			) : null}
 			<TextField
 				name="password"

@@ -115,6 +115,7 @@ that is theft detection working, not a bug. See [security.md](./security.md).
 | `PATCH /auth/me` | display name, timezone, locale, and the digest: `digest_enabled`, `digest_hour` (0-23), `reminder_days` (0-60) |
 | `PUT /auth/me/contact` | the email or phone this account is reached and recovered by |
 | `PUT /auth/me/username` | the name the web login takes next to the password (3-32 characters: a-z, 0-9, `.`, `_`; starts with a letter) |
+| `POST /auth/me/password/reset-code` | for a forgotten current password: sends a one-time code (valid 10-20 minutes, three requests per 10 minutes) to the messenger most recently used; send it back as `reset_code` in place of `current_password` |
 | `PUT /auth/me/password` | set or change it — **ends every session, including yours** |
 
 Changing a password signs everything out — refresh tokens and already-issued

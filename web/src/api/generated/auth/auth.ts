@@ -45,6 +45,7 @@ import type {
 	ProfileRequest,
 	RefreshRequest,
 	RegisterRequest,
+	ResetCodeResponse,
 	SessionResponse,
 	StartLoginResponse,
 	TokenResponse,
@@ -1384,6 +1385,90 @@ export const useAuthSetPassword = <TError = ErrorType<HTTPValidationError>, TCon
 	TContext
 > => {
 	return useMutation(getAuthSetPasswordMutationOptions(options), queryClient);
+};
+export const getAuthSendPasswordResetCodeUrl = () => {
+	return `/api/v1/auth/me/password/reset-code`;
+};
+
+/**
+ * For someone who has forgotten the current password: a code goes to a messenger they already own.
+ * @summary Send Password Reset Code
+ */
+export const authSendPasswordResetCode = async (
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<ResetCodeResponse> => {
+	return apiFetch<ResetCodeResponse>(getAuthSendPasswordResetCodeUrl(), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getAuthSendPasswordResetCodeMutationKey = () => ["authSendPasswordResetCode"] as const;
+
+export const getAuthSendPasswordResetCodeMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof authSendPasswordResetCode>>,
+		TError,
+		void,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof authSendPasswordResetCode>>,
+	TError,
+	void,
+	TContext
+> => {
+	const mutationKey = getAuthSendPasswordResetCodeMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof authSendPasswordResetCode>>,
+		void
+	> = () => {
+		return authSendPasswordResetCode(requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type AuthSendPasswordResetCodeMutationResult = NonNullable<
+	Awaited<ReturnType<typeof authSendPasswordResetCode>>
+>;
+
+export type AuthSendPasswordResetCodeMutationError = ErrorType<HTTPValidationError>;
+
+/**
+ * @summary Send Password Reset Code
+ */
+export const useAuthSendPasswordResetCode = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof authSendPasswordResetCode>>,
+			TError,
+			void,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof authSendPasswordResetCode>>,
+	TError,
+	void,
+	TContext
+> => {
+	return useMutation(getAuthSendPasswordResetCodeMutationOptions(options), queryClient);
 };
 export const getAuthSetUsernameUrl = () => {
 	return `/api/v1/auth/me/username`;

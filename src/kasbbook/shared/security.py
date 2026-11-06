@@ -76,3 +76,41 @@ def is_expired(moment: Optional[datetime]) -> bool:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     return moment <= utcnow()
+
+
+# A code to reset a forgotten password, sent to a messenger the account already owns. It is not stored:
+# it is derived from the signing key, the account, the password it replaces and the clock, so it dies
+# by itself when the window passes and the moment the password changes.
+RESET_WINDOW_SECONDS = 600
+
+
+def _reset_code_for(secret: str, user_id: str, password_hash: Optional[str], window: int) -> str:
+    mac = hmac.new(
+        secret.encode(), f"pwreset:{user_id}:{password_hash or ''}:{window}".encode(), hashlib.sha256
+    ).digest()
+    number = int.from_bytes(mac[:8], "big")
+    chars = []
+    for _ in range(8):
+        number, index = divmod(number, len(_CODE_ALPHABET))
+        chars.append(_CODE_ALPHABET[index])
+    return "".join(chars)
+
+
+def password_reset_code(
+    secret: str, user_id: object, password_hash: Optional[str], now: Optional[datetime] = None
+) -> str:
+    moment = (now or utcnow()).timestamp()
+    return _reset_code_for(secret, str(user_id), password_hash, int(moment // RESET_WINDOW_SECONDS))
+
+
+def valid_reset_code(
+    secret: str, user_id: object, password_hash: Optional[str], code: str, now: Optional[datetime] = None
+) -> bool:
+    """Whether `code` is the current code or the one before it, so one never dies the second it is read."""
+    moment = (now or utcnow()).timestamp()
+    window = int(moment // RESET_WINDOW_SECONDS)
+    given = (code or "").strip().upper()
+    return any(
+        hmac.compare_digest(_reset_code_for(secret, str(user_id), password_hash, window - back), given)
+        for back in (0, 1)
+    )

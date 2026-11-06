@@ -11,11 +11,21 @@ from typing import List
 
 from fastapi import APIRouter, Request, status
 
+from dataclasses import replace
+
 from ...modules.identity.auth import AuthError
 from ...modules.identity.service import IdentityService
-from ...shared.security import verify_password
+from ...shared.security import password_reset_code, verify_password
 from ...shared.errors import NotFound, ValidationError
-from ..deps import AuthDep, CurrentUser, LimiterDep, Person, SessionDep, client_fingerprint
+from ..deps import (
+    AuthDep,
+    CurrentUser,
+    LimiterDep,
+    Person,
+    SessionDep,
+    SettingsDep,
+    client_fingerprint,
+)
 from ..schemas import (
     ApiKeyCreated,
     ContactRequest,
@@ -28,6 +38,7 @@ from ..schemas import (
     ProfileRequest,
     RefreshRequest,
     RegisterRequest,
+    ResetCodeResponse,
     SessionResponse,
     TokenResponse,
     UsernameRequest,
@@ -211,17 +222,81 @@ async def set_username(
     return UserResponse.model_validate(updated)
 
 
+RESET_CODE_LIMIT, RESET_CODE_WINDOW = 3, 600
+RESET_TRY_LIMIT = 10
+
+
+async def _send_code(request: Request, settings, identity, text: str, buttons) -> None:
+    """Hand a message to the messenger the identity belongs to, using the running bot's adapter."""
+    from ...adapters.base import OutgoingMessage
+    from ...bot.delivery import deliver_notifications
+
+    adapter = getattr(request.app.state, "adapters", {}).get(identity.provider.value)
+    temporary = adapter is None
+    if temporary:
+        from apps.bot.runner import build_adapter
+
+        selected = replace(settings, provider=identity.provider)
+        if not selected.token:
+            raise ValidationError("ارسال کد در این پیام‌رسان پیکربندی نشده است.")
+        adapter = build_adapter(selected)
+    try:
+        notification = OutgoingMessage(identity.external_id, text, buttons)
+        await deliver_notifications(adapter, OutgoingMessage("", "", notifications=[notification]))
+    finally:
+        if temporary:
+            await adapter.aclose()
+
+
+@router.post("/me/password/reset-code", response_model=ResetCodeResponse)
+async def send_password_reset_code(
+    request: Request, user: Person, session: SessionDep, settings: SettingsDep, limiter: LimiterDep
+) -> ResetCodeResponse:
+    """For someone who has forgotten the current password: a code goes to a messenger they already own."""
+    from ...bot.screens import password_reset_proof
+
+    await _enforce(limiter, f"pwreset:send:{user.id}", RESET_CODE_LIMIT, RESET_CODE_WINDOW)
+    if not user.password_hash:
+        raise ValidationError("این حساب هنوز رمزی ندارد؛ لازم نیست کدی بفرستی.")
+    if not settings.api_secret_key:
+        raise ValidationError("ارسال کد پیکربندی نشده است.")
+    identities = [
+        row for row in await IdentityService(session).list_identities(user.id)
+        if row.provider.value != "web"
+    ]
+    if not identities:
+        raise ValidationError("پیام‌رسانی وصل نیست؛ اول یکی را وصل کن تا کد به آن برود.")
+    # The one used most recently is the one the person is most likely looking at.
+    chosen = max(identities, key=lambda row: row.last_seen_at or row.linked_at)
+    code = password_reset_code(settings.api_secret_key, user.id, user.password_hash)
+    text, buttons = password_reset_proof(code)
+    await _send_code(request, settings, chosen, text, buttons)
+    return ResetCodeResponse(sent_to=chosen.provider.value)
+
+
 @router.put("/me/password", status_code=204)
 async def set_password(
-    body: PasswordRequest, user: Person, session: SessionDep, auth: AuthDep
+    body: PasswordRequest,
+    user: Person,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+    limiter: LimiterDep,
 ) -> None:
     """Set or change the password, and end every session including this one.
 
     Somebody changing a password because they fear it leaked expects the
     sessions to go with it; leaving them alive would defeat the point.
     """
+    if body.reset_code:
+        # A code is guessable in principle, so tries are counted like login attempts.
+        await _enforce(limiter, f"pwreset:try:{user.id}", RESET_TRY_LIMIT, RESET_CODE_WINDOW)
     await IdentityService(session).set_password(
-        user.id, body.new_password, current_password=body.current_password
+        user.id,
+        body.new_password,
+        current_password=body.current_password,
+        reset_code=body.reset_code,
+        secret=settings.api_secret_key,
     )
     await auth.revoke_all_for_user(user.id)
 
