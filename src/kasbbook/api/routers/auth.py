@@ -119,24 +119,23 @@ async def guest(
     return TokenResponse(**pair.__dict__)
 
 
-DEMO_LIMIT, DEMO_WINDOW = 4, 3600
+DEMO_LIMIT, DEMO_WINDOW = 30, 3600
 
 
 @router.post("/demo", response_model=TokenResponse, status_code=201)
 async def demo(
     request: Request, session: SessionDep, auth: AuthDep, limiter: LimiterDep
 ) -> TokenResponse:
-    """A guest account with four books of a year's worth of made-up data, to see the whole panel.
+    """Sign in to the shared demo: four books with a year of made-up data, the same for everyone.
 
-    Like any guest it is removed when the visitor signs out (and after a day), and so are the made-up
-    colleagues. Making it writes a thousand rows, so it is limited harder than a plain guest.
+    It is made the first time anyone asks (a thousand rows, a few seconds) and renewed when it has grown
+    old, so its dates stay recent; every other visit just signs in to it. Signing out leaves it as it is.
     """
-    from ...modules.demo.seed import seed_demo
+    from ...modules.demo.seed import ensure_demo
 
     fingerprint = client_fingerprint(request)
     await _enforce(limiter, f"demo:{fingerprint}", DEMO_LIMIT, DEMO_WINDOW)
-    await IdentityService(session).purge_guests()
-    user, _ = await seed_demo(session)
+    user = await ensure_demo(session)
     pair = await auth.issue_pair(
         user, user_agent=request.headers.get("user-agent"), ip_address=fingerprint
     )
@@ -185,14 +184,14 @@ async def logout(body: RefreshRequest, auth: AuthDep, session: SessionDep) -> No
     """Sign out this session. An unknown token is not an error; it is signed out."""
     owner = await auth.owner_of(body.refresh_token)
     await auth.revoke_refresh(body.refresh_token)
-    if owner is not None and owner.is_guest:
+    if owner is not None and owner.is_guest and not owner.is_demo:
         await IdentityService(session).delete_account(owner.id)
 
 
 @router.post("/logout-everywhere", status_code=204)
 async def logout_everywhere(user: Person, auth: AuthDep, session: SessionDep) -> None:
     await auth.revoke_all_for_user(user.id)
-    if user.is_guest:
+    if user.is_guest and not user.is_demo:
         await IdentityService(session).delete_account(user.id)
 
 

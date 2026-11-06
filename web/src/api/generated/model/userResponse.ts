@@ -21,6 +21,7 @@ export interface UserResponse {
 	display_name: string;
 	email?: string | null;
 	id: string;
+	is_demo?: boolean;
 	is_guest?: boolean;
 	locale: string;
 	phone?: string | null;

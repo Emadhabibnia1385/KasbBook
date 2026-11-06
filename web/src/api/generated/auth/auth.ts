@@ -385,10 +385,10 @@ export const getAuthDemoUrl = () => {
 };
 
 /**
- * A guest account with four books of a year's worth of made-up data, to see the whole panel.
+ * Sign in to the shared demo: four books with a year of made-up data, the same for everyone.
  *
- * Like any guest it is removed when the visitor signs out (and after a day), and so are the made-up
- * colleagues. Making it writes a thousand rows, so it is limited harder than a plain guest.
+ * It is made the first time anyone asks (a thousand rows, a few seconds) and renewed when it has grown
+ * old, so its dates stay recent; every other visit just signs in to it. Signing out leaves it as it is.
  * @summary Demo
  */
 export const authDemo = async (

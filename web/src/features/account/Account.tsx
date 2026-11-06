@@ -49,8 +49,11 @@ export function Account() {
 							<div className="grid gap-5 pt-4 lg:grid-cols-2">
 								{guest ? (
 									<div className="lg:col-span-2">
-										<Notice tone="warning" title={t.acct.guestTitle}>
-											{t.acct.guestBody}
+										<Notice
+											tone="warning"
+											title={user?.is_demo ? t.acct.demoTitle : t.acct.guestTitle}
+										>
+											{user?.is_demo ? t.acct.demoBody : t.acct.guestBody}
 										</Notice>
 									</div>
 								) : null}
@@ -84,7 +87,11 @@ export function Account() {
 								<SectionCard title={t.acct.signOutTitle}>
 									<div className="flex flex-col items-start gap-3">
 										<p className="text-sm text-muted">
-											{guest ? t.acct.signOutGuest : t.acct.signOutLead}
+											{user?.is_demo
+												? t.acct.signOutDemo
+												: guest
+													? t.acct.signOutGuest
+													: t.acct.signOutLead}
 										</p>
 										<Button variant="outline" onPress={() => void signOut(queryClient)}>
 											<LogoutIcon aria-hidden />

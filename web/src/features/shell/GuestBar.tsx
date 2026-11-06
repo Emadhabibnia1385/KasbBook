@@ -7,7 +7,7 @@ export function GuestBar() {
 	if (!me.data?.is_guest) return null;
 	return (
 		<output className="block shrink-0 bg-warning/15 px-page py-1.5 text-center text-xs font-medium text-foreground">
-			{t.acct.guestBar}
+			{me.data.is_demo ? t.acct.demoBar : t.acct.guestBar}
 		</output>
 	);
 }

@@ -58,21 +58,65 @@ async def test_the_demo_uses_the_whole_panel(api, db):
     assert org and books["organization"]["calendar"] == "gregorian"
 
 
-async def test_signing_out_removes_the_demo_with_its_colleagues(api, db):
+async def test_everyone_signs_in_to_the_same_demo_and_nothing_is_made_twice(api, db):
+    first = (await api.post("/api/v1/auth/demo")).json()
+    async for s in db.session():
+        rows = (await s.execute(select(func.count(Transaction.id)))).scalar()
+    second = (await api.post("/api/v1/auth/demo")).json()
+
+    ids = []
+    for tokens in (first, second):
+        me = (await api.get("/api/v1/auth/me", headers=bearer(tokens))).json()
+        assert me["is_demo"] is True and me["is_guest"] is True
+        ids.append(me["id"])
+    assert ids[0] == ids[1]
+    async for s in db.session():
+        assert (await s.execute(select(func.count(Transaction.id)))).scalar() == rows
+        assert (await s.execute(select(func.count(Book.id)))).scalar() == 4
+
+
+async def test_signing_out_of_the_demo_leaves_it_for_the_next_visitor(api, db):
     tokens = (await api.post("/api/v1/auth/demo")).json()
 
     out = await api.post("/api/v1/auth/logout", json={"refresh_token": tokens["refresh_token"]})
 
     assert out.status_code == 204
+    again = (await api.post("/api/v1/auth/demo")).json()
+    books = (await api.get("/api/v1/books", headers=bearer(again))).json()
+    assert len(books) == 4
+    everywhere = await api.post("/api/v1/auth/logout-everywhere", headers=bearer(again))
+    assert everywhere.status_code == 204
     async for s in db.session():
-        assert (await s.execute(select(func.count(Book.id)))).scalar() == 0
-        assert (await s.execute(select(func.count(Transaction.id)))).scalar() == 0
-        assert (await s.execute(select(func.count(User.id)))).scalar() == 0
-        assert (await s.execute(select(func.count(Membership.id)))).scalar() == 0
+        assert (await s.execute(select(func.count(Book.id)))).scalar() == 4
 
 
-async def test_demo_creation_is_limited(api):
-    for _ in range(4):
-        assert (await api.post("/api/v1/auth/demo")).status_code == 201
+async def test_nobody_can_close_the_shared_demo(api, db):
+    tokens = (await api.post("/api/v1/auth/demo")).json()
 
-    assert (await api.post("/api/v1/auth/demo")).status_code == 429
+    refused = await api.delete("/api/v1/auth/me", headers=bearer(tokens))
+
+    assert refused.status_code in (400, 422)
+    async for s in db.session():
+        assert (await s.execute(select(func.count(Book.id)))).scalar() == 4
+
+
+async def test_an_old_demo_is_renewed_with_its_colleagues_replaced(api, db):
+    from datetime import timedelta
+
+    from kasbbook.shared.security import utcnow
+
+    first = (await api.post("/api/v1/auth/demo")).json()
+    old = (await api.get("/api/v1/auth/me", headers=bearer(first))).json()["id"]
+    async for s in db.session():
+        user = (await s.execute(select(User).where(User.id == uuid.UUID(old)))).scalar_one()
+        user.created_at = utcnow() - timedelta(days=30)
+        await s.commit()
+
+    renewed = (await api.post("/api/v1/auth/demo")).json()
+
+    new = (await api.get("/api/v1/auth/me", headers=bearer(renewed))).json()["id"]
+    assert new != old
+    async for s in db.session():
+        assert (await s.execute(select(func.count(Book.id)))).scalar() == 4
+        # 1 owner + 4 team colleagues + 6 organization colleagues, never the old set on top.
+        assert (await s.execute(select(func.count(User.id)))).scalar() == 11

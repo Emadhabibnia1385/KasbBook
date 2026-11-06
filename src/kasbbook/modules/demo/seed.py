@@ -5,8 +5,9 @@ Everything here goes through the same services the panel and the bot use, so the
 wallets follow, the reports add up and the rules (permissions, periods, funds) are the real ones. Only the
 figures are made up. The dates are relative to today, so the current month is always the last one filled.
 
-The account is a guest account: it is removed when the visitor signs out, and with it every book and every
-made-up colleague.
+There is one such account for everybody (`ensure_demo`): it is a guest account, so it can keep nothing
+lasting, but signing out of it does not remove it. It is renewed once it is a couple of weeks old, so the
+months it shows stay the latest ones; renewing removes every book and made-up colleague first.
 """
 
 from __future__ import annotations
@@ -15,10 +16,12 @@ import calendar as pycal
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional, Sequence, Tuple
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
@@ -31,7 +34,9 @@ from ..capital.models import AssetKind
 from ..debts.models import Direction
 from ..debts.service import DebtService
 from ..exchange.service import ExchangeService
-from ..identity.models import User
+from ...shared.security import utcnow
+from ..identity.models import DEMO_USERNAME, User
+from ..identity.service import IdentityService
 from ..ledger.categories import CategoryService
 from ..ledger.models import Flow, Scope
 from ..ledger.service import LedgerService
@@ -45,6 +50,7 @@ from ..treasury.models import FundKind, RuleBasis
 from ..treasury.service import TreasuryService
 
 DEMO_NAME = "کاربر دمو"
+DEMO_LIFETIME_DAYS = 14
 SCOPE_OF = {
     BookType.PERSONAL: Scope.PERSONAL,
     BookType.BUSINESS: Scope.WORK,
@@ -459,7 +465,7 @@ def jalali_now():
 async def seed_demo(session: AsyncSession, today: Optional[date] = None) -> Tuple[User, int]:
     """Make the demo account with its four books. Returns the owner and how many ledger rows were written."""
     today = today or jalali.today_in(jalali.DEFAULT_TIMEZONE)
-    owner = User(display_name=DEMO_NAME, is_guest=True)
+    owner = User(display_name=DEMO_NAME, username=DEMO_USERNAME, is_guest=True)
     session.add(owner)
     await session.flush()
     seeder = Seeder(session, today)
@@ -468,3 +474,39 @@ async def seed_demo(session: AsyncSession, today: Optional[date] = None) -> Tupl
     await seeder.studio(owner)
     await seeder.company(owner)
     return owner, seeder.rows
+
+
+async def _existing(session: AsyncSession) -> Optional[User]:
+    return (
+        await session.execute(select(User).where(User.username == DEMO_USERNAME))
+    ).scalar_one_or_none()
+
+
+def _age(user: User) -> timedelta:
+    made = user.created_at
+    if made.tzinfo is None:  # sqlite hands the time back without its zone
+        made = made.replace(tzinfo=timezone.utc)
+    return utcnow() - made
+
+
+async def ensure_demo(session: AsyncSession, today: Optional[date] = None) -> User:
+    """The one shared demo account: made if it is not there, renewed if it is old, otherwise as it is.
+
+    Two first visits at once both try to make it; the second waits on the unique name until the first
+    has committed, finds the account when it gets there, and signs in to that one.
+    """
+    user = await _existing(session)
+    if user is not None and _age(user) > timedelta(days=DEMO_LIFETIME_DAYS):
+        await IdentityService(session).delete_account(user.id, renewing_demo=True)
+        user = None
+    if user is not None:
+        return user
+    try:
+        async with session.begin_nested():
+            owner, _ = await seed_demo(session, today)
+        return owner
+    except IntegrityError:
+        found = await _existing(session)
+        if found is None:
+            raise
+        return found

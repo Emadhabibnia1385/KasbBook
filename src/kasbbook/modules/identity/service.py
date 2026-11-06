@@ -38,7 +38,7 @@ from ...shared.security import (
 )
 from ...shared.parsing import to_ascii_digits
 from ...shared.regions import region_for_zone
-from .models import AuditEvent, Identity, LinkDirection, LinkToken, Provider, User
+from .models import DEMO_USERNAME, AuditEvent, Identity, LinkDirection, LinkToken, Provider, User
 
 # Long enough to switch apps and paste, short enough that a leaked link is dead
 # before anyone finds it.
@@ -58,6 +58,7 @@ LAST_SEEN_EVERY_SECONDS = 60
 
 GUEST_NAME = "مهمان"
 GUEST_LIFETIME_HOURS = 24
+DEMO_REFUSAL = "این حساب دمو برای همه است و بسته نمی‌شود"
 GUEST_REFUSAL = "حساب مهمان ذخیره نمی‌شود؛ برای نگه‌داشتن اطلاعات با تلگرام یا نام کاربری وارد شو"
 
 USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_.]{2,31}$")
@@ -135,7 +136,12 @@ class IdentityService:
         cutoff = utcnow() - timedelta(hours=GUEST_LIFETIME_HOURS)
         old = (
             await self.session.execute(
-                select(User.id).where(User.is_guest.is_(True), User.created_at < cutoff)
+                select(User.id).where(
+                    User.is_guest.is_(True),
+                    User.created_at < cutoff,
+                    # The shared demo is not a visitor's own: it stays, and is renewed when it is stale.
+                    func.coalesce(User.username, "") != DEMO_USERNAME,
+                )
             )
         ).scalars().all()
         for user_id in old:
@@ -458,9 +464,15 @@ class IdentityService:
             other_books_left=int(member_of),
         )
 
-    async def delete_account(self, user_id: uuid.UUID) -> bool:
-        """Close an account (see `_delete_account`); a guest's demo colleagues go with it."""
+    async def delete_account(self, user_id: uuid.UUID, *, renewing_demo: bool = False) -> bool:
+        """Close an account (see `_delete_account`); a guest's demo colleagues go with it.
+
+        The shared demo belongs to everyone who tries it, so no one can close it; only the demo's own
+        renewal (`renewing_demo`) may.
+        """
         user = await self.get_user(user_id)
+        if user.is_demo and not renewing_demo:
+            raise ValidationError(DEMO_REFUSAL)
         colleagues = await self._release_demo_members(user_id) if user.is_guest else []
         gone = await self._delete_account(user_id)
         for member_id in colleagues:

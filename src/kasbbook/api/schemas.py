@@ -56,6 +56,8 @@ class UserResponse(Model):
     display_name: str
     username: Optional[str] = None
     is_guest: bool = False
+    # The shared demo account: it is kept when anyone signs out of it.
+    is_demo: bool = False
     # What a new book would start with, from where this account's time zone says it is.
     suggested_currency: str = "IRT"
     suggested_calendar: str = "jalali"

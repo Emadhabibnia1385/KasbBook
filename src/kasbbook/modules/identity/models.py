@@ -51,6 +51,10 @@ class LinkDirection(str, enum.Enum):
     FROM_MESSENGER = "from_messenger"  # bound to a messenger identity, waiting for a login
 
 
+# A name no one can pick for themselves (the real pattern has no colon), so only the seeder holds it.
+DEMO_USERNAME = "kasbbook:demo"
+
+
 class User(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "users"
 
@@ -67,6 +71,11 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     locale: Mapped[str] = mapped_column(String(8), nullable=False, default="fa")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Tehran")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    @property
+    def is_demo(self) -> bool:
+        """The one shared demo account everybody who asks for the demo signs in to."""
+        return self.username == DEMO_USERNAME
 
     # Access tokens are signed JWTs that nothing looks up, which is what makes
     # them cheap and also what makes them unrevokable. This counter is the one
