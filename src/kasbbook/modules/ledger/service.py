@@ -294,6 +294,7 @@ class LedgerService:
         flows: Optional[Sequence[Flow]] = None,
         categories: Optional[Sequence[str]] = None,
         text: Optional[str] = None,
+        currencies: Optional[Sequence[str]] = None,
     ) -> Sequence[Transaction]:
         """The book's transactions, narrowed by any of: dates, income/expense, categories, words.
 
@@ -313,6 +314,9 @@ class LedgerService:
             stmt = stmt.where(Transaction.flow.in_(list(flows)))
         if categories:
             stmt = stmt.where(Transaction.category.in_(list(categories)))
+        if currencies:
+            # The money it was paid in, not the book's: «only the TON ones».
+            stmt = stmt.where(Transaction.original_currency.in_(list(currencies)))
         needle = (text or "").strip()
         if len(needle) >= 2:
             # `%` and `_` are LIKE wildcards: "50%" must find "50%", and `\` is escaped first
@@ -517,16 +521,49 @@ class LedgerService:
                 or len(file_name or "") > 200 or len(mime_type or "") > 120):
             raise ValidationError("اطلاعات پیوست معتبر نیست.")
 
+    async def _require_wallets_survive(self, tx: Transaction, new_currency: str,
+                                       new_amount: Decimal, new_flow: Flow) -> None:
+        """Refuse a rewrite that would leave any held currency below zero, old side and new.
+
+        A transaction that changes only its amount moves one currency; one that changes currency or
+        kind takes its effect out of the old currency and puts it into the new, and both have to
+        survive. Computed on the balances as they stand with this transaction still in them, so the
+        old effect is taken back out first. The base currency is exempt for the reason
+        `require_funds` gives.
+        """
+        exchange = ExchangeService(self.session)
+        base = (await self.books.get_book(tx.book_id)).base_currency
+        old_effect = tx.original_amount if tx.flow is Flow.INCOME else -tx.original_amount
+        new_effect = new_amount if new_flow is Flow.INCOME else -new_amount
+        after = {}
+        for code in {tx.original_currency, new_currency}:
+            if code != base:
+                after[code] = await exchange.balance_of(tx.book_id, code)
+        if tx.original_currency != base:
+            after[tx.original_currency] -= old_effect
+        if new_currency != base:
+            after[new_currency] += new_effect
+        for code, held in after.items():
+            if held < ZERO:
+                name = CURRENCY_NAMES.get(code, code)
+                raise ValidationError(
+                    f"این کار موجودی {name} را منفی می‌کند؛ اول هزینه‌ها یا تبدیل‌هایی را که "
+                    f"از آن استفاده کرده‌اند اصلاح کن."
+                )
+
     async def update(
         self, book_id, actor_user_id, transaction_id, *, category=UNSET,
         amount=UNSET, description=UNSET, occurred_on=UNSET,
+        flow=UNSET, currency=UNSET, conversion_rate=UNSET,
     ) -> Transaction:
         await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
-        if all(value is UNSET
-               for value in (category, amount, description, occurred_on)):
+        if all(value is UNSET for value in (
+            category, amount, description, occurred_on, flow, currency, conversion_rate,
+        )):
             raise ValidationError("یک تغییر معتبر بفرست.")
-        if category is None or amount is None or occurred_on is None:
-            raise ValidationError("دسته، مبلغ و تاریخ نمی‌تواند خالی باشد.")
+        if (category is None or amount is None or occurred_on is None or flow is None
+                or currency is None):
+            raise ValidationError("نوع، دسته، مبلغ، ارز و تاریخ نمی‌تواند خالی باشد.")
         await self.categories.lock_book(book_id)
         tx = await self.session.scalar(select(Transaction).where(
             Transaction.id == transaction_id, Transaction.book_id == book_id
@@ -544,39 +581,72 @@ class LedgerService:
         original = quantize(amount) if amount is not UNSET else tx.original_amount
         if original <= ZERO:
             raise ValidationError("مبلغ باید بیشتر از صفر باشد.")
-        if amount is not UNSET and await self.session.scalar(select(LoanPayment.id).where(
+
+        book = await self.books.get_book(book_id)
+        new_flow = flow if flow is not UNSET else tx.flow
+        new_currency = (currency.upper() if currency is not UNSET else tx.original_currency)
+        if new_currency == book.base_currency:
+            new_rate = Decimal("1")
+        else:
+            if new_currency != tx.original_currency and new_currency not in await ExchangeService(
+                self.session
+            ).allowed(book_id):
+                raise ValidationError(
+                    f"این دفتر {new_currency} را پشتیبانی نمی‌کند؛ اول از تنظیمات ارزها فعالش کن."
+                )
+            if conversion_rate is not UNSET:
+                new_rate = to_decimal(conversion_rate)
+            elif new_currency == tx.original_currency:
+                new_rate = tx.conversion_rate
+            else:
+                # A new currency has no rate of its own to inherit.
+                raise ValidationError(f"مبلغ {new_currency} نرخ تبدیل لازم دارد.")
+            if new_rate <= ZERO:
+                raise ValidationError("نرخ تبدیل باید بیشتر از صفر باشد.")
+
+        money_changed = (
+            original != tx.original_amount or new_currency != tx.original_currency
+            or new_rate != tx.conversion_rate or new_flow is not tx.flow
+        )
+        if money_changed and await self.session.scalar(select(LoanPayment.id).where(
             LoanPayment.transaction_id == tx.id
         ).limit(1)):
-            raise ValidationError("مبلغ پرداخت قسط از این صفحه قابل ویرایش نیست.")
-        converted = quantize(original * tx.conversion_rate)
+            raise ValidationError("مبلغ، ارز و نوع پرداخت قسط از این صفحه قابل ویرایش نیست.")
+        converted = quantize(original * new_rate)
         if converted <= ZERO:
             raise ValidationError("مبلغ تبدیل‌شده باید بیشتر از صفر باشد.")
-        if amount is not UNSET:
-            await self._require_wallet_survives(tx, original - tx.original_amount)
+        if money_changed:
+            await self._require_wallets_survive(tx, new_currency, original, new_flow)
         entries = (await self.session.scalars(select(JournalEntry).where(
             JournalEntry.book_id == book_id, JournalEntry.transaction_id == tx.id
         ))).all()
         if (len(entries) != 1 or not entries[0].is_balanced
                 or entries[0].total_debit != tx.converted_amount):
             raise BalanceError("سند این تراکنش معتبر نیست؛ ویرایش انجام نشد.")
-        if amount is not UNSET:
+        if money_changed:
             cash = await self.account(book_id, CASH)
-            other = await self.account(book_id, INCOME if tx.flow is Flow.INCOME else EXPENSE)
-        category_row = (await self.categories._ensure(book_id, new_category, tx.flow)
-                        if category is not UNSET or tx.category_id is None
+            other = await self.account(book_id, INCOME if new_flow is Flow.INCOME else EXPENSE)
+        # A kind change needs a category of the new kind, so it is looked up again even if the name stays.
+        category_row = (await self.categories._ensure(book_id, new_category, new_flow)
+                        if category is not UNSET or tx.category_id is None or new_flow is not tx.flow
                         else await self.session.get(Category, tx.category_id))
         tx.category, tx.category_id = category_row.name, category_row.id
         tx.description = new_description
         tx.occurred_on = moved_to
-        if amount is not UNSET:
-            # Rebuild through the one ledger writer using the frozen conversion
-            # rate; neither client is allowed to write individual journal lines.
+        if money_changed:
+            # Rebuild through the one ledger writer; neither client is allowed to write individual
+            # journal lines. The rate is the one on the form: frozen again, as at record time.
             await self.session.delete(entries[0])
             await self.session.flush()
             lines = ([(cash.id, converted, ZERO), (other.id, ZERO, converted)]
-                     if tx.flow is Flow.INCOME else
+                     if new_flow is Flow.INCOME else
                      [(other.id, converted, ZERO), (cash.id, ZERO, converted)])
+            tx.flow = new_flow
             tx.original_amount, tx.converted_amount = original, converted
+            tx.original_currency, tx.conversion_rate = new_currency, new_rate
+            tx.base_currency = book.base_currency
+            if new_currency != book.base_currency:
+                tx.rate_mode, tx.rate_source, tx.rate_at = RateMode.MANUAL, None, None
             await self.post_entry(book_id, tx.occurred_on, lines,
                                   memo=f"{tx.flow.value}: {tx.category}", transaction_id=tx.id)
         else:

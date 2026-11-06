@@ -322,6 +322,10 @@ class TransactionUpdate(MoneyModel):
     description: Optional[str] = Field(default=None, max_length=500)
     # A date typed wrongly decides which period pays whom, and was permanent.
     occurred_on: Optional[date] = None
+    # Income or expense, and the money it was paid in; changing these rebuilds the entry.
+    flow: Optional[str] = None
+    currency: Optional[str] = Field(default=None, min_length=2, max_length=8)
+    conversion_rate: Optional[Decimal] = Field(default=None, gt=0)
 
 
 class TransactionActivityResponse(Model):

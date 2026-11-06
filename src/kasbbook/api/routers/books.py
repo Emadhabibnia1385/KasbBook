@@ -301,6 +301,7 @@ async def list_transactions(
     per_page: int = Query(default=50, ge=1, le=200),
     flow: Optional[List[str]] = Query(default=None, description="income and/or expense; repeat for both"),
     category: Optional[List[str]] = Query(default=None, description="repeat for several categories"),
+    currency: Optional[List[str]] = Query(default=None, description="the money it was paid in; repeat for several"),
     q: Optional[str] = Query(default=None, max_length=100, description="words in the category or the note"),
 ) -> TransactionPage:
     from datetime import date as date_type
@@ -317,6 +318,7 @@ async def list_transactions(
         book_id, user.id, parse(since, "since"), parse(until, "until"),
         flows=[_as_enum(Flow, value, "flow") for value in flow] if flow else None,
         categories=category or None, text=q,
+        currencies=[c.upper() for c in currency] if currency else None,
     )
     totals = LedgerService.split_totals(rows)
     # Newest first, which is what a list is read for.
@@ -385,6 +387,8 @@ async def delete_transaction(
 async def edit_transaction(book_id: uuid.UUID, transaction_id: uuid.UUID, body: TransactionUpdate,
                             user: CurrentUser, session: SessionDep):
     changes = body.model_dump(exclude_unset=True)
+    if "flow" in changes and changes["flow"] is not None:
+        changes["flow"] = _as_enum(Flow, changes["flow"], "flow")
     row = await LedgerService(session).update(book_id, user.id, transaction_id, **changes)
     activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
     count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
