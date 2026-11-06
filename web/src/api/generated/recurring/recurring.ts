@@ -30,7 +30,14 @@ import type {
 	UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HTTPValidationError, RecurringRequest, RecurringResponse } from "../model";
+import type {
+	ConfirmOccurrence,
+	HTTPValidationError,
+	PendingOccurrenceResponse,
+	RecurringRequest,
+	RecurringResponse,
+	RecurringUpdate,
+} from "../model";
 
 import { apiFetch } from "../../transport";
 import type { ErrorType } from "../../transport";
@@ -291,6 +298,352 @@ export const useRecurringCreateRule = <TError = ErrorType<HTTPValidationError>, 
 > => {
 	return useMutation(getRecurringCreateRuleMutationOptions(options), queryClient);
 };
+export const getRecurringConfirmOccurrenceUrl = (bookId: string, occurrenceId: string) => {
+	return `/api/v1/books/${bookId}/recurring/occurrences/${occurrenceId}/confirm`;
+};
+
+/**
+ * Record one waiting date as a real transaction, on its own day.
+ * @summary Confirm Occurrence
+ */
+export const recurringConfirmOccurrence = async (
+	bookId: string,
+	occurrenceId: string,
+	confirmOccurrence: ConfirmOccurrence,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<void>(getRecurringConfirmOccurrenceUrl(bookId, occurrenceId), {
+		...options,
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(confirmOccurrence),
+	});
+};
+
+export const getRecurringConfirmOccurrenceMutationKey = () =>
+	["recurringConfirmOccurrence"] as const;
+
+export const getRecurringConfirmOccurrenceMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof recurringConfirmOccurrence>>,
+		TError,
+		RecurringConfirmOccurrenceMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof recurringConfirmOccurrence>>,
+	TError,
+	RecurringConfirmOccurrenceMutationVariables,
+	TContext
+> => {
+	const mutationKey = getRecurringConfirmOccurrenceMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof recurringConfirmOccurrence>>,
+		RecurringConfirmOccurrenceMutationVariables
+	> = (props) => {
+		const { bookId, occurrenceId, data } = props ?? {};
+
+		return recurringConfirmOccurrence(bookId, occurrenceId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type RecurringConfirmOccurrenceMutationResult = NonNullable<
+	Awaited<ReturnType<typeof recurringConfirmOccurrence>>
+>;
+export type RecurringConfirmOccurrenceMutationBody = ConfirmOccurrence;
+export type RecurringConfirmOccurrenceMutationError = ErrorType<HTTPValidationError>;
+export type RecurringConfirmOccurrenceMutationVariables = {
+	bookId: string;
+	occurrenceId: string;
+	data: ConfirmOccurrence;
+};
+
+/**
+ * @summary Confirm Occurrence
+ */
+export const useRecurringConfirmOccurrence = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof recurringConfirmOccurrence>>,
+			TError,
+			RecurringConfirmOccurrenceMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof recurringConfirmOccurrence>>,
+	TError,
+	RecurringConfirmOccurrenceMutationVariables,
+	TContext
+> => {
+	return useMutation(getRecurringConfirmOccurrenceMutationOptions(options), queryClient);
+};
+export const getRecurringSkipOccurrenceUrl = (bookId: string, occurrenceId: string) => {
+	return `/api/v1/books/${bookId}/recurring/occurrences/${occurrenceId}/skip`;
+};
+
+/**
+ * Leave one waiting date unrecorded; the rule carries on with the next.
+ * @summary Skip Occurrence
+ */
+export const recurringSkipOccurrence = async (
+	bookId: string,
+	occurrenceId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+	return apiFetch<void>(getRecurringSkipOccurrenceUrl(bookId, occurrenceId), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getRecurringSkipOccurrenceMutationKey = () => ["recurringSkipOccurrence"] as const;
+
+export const getRecurringSkipOccurrenceMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof recurringSkipOccurrence>>,
+		TError,
+		RecurringSkipOccurrenceMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof recurringSkipOccurrence>>,
+	TError,
+	RecurringSkipOccurrenceMutationVariables,
+	TContext
+> => {
+	const mutationKey = getRecurringSkipOccurrenceMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof recurringSkipOccurrence>>,
+		RecurringSkipOccurrenceMutationVariables
+	> = (props) => {
+		const { bookId, occurrenceId } = props ?? {};
+
+		return recurringSkipOccurrence(bookId, occurrenceId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type RecurringSkipOccurrenceMutationResult = NonNullable<
+	Awaited<ReturnType<typeof recurringSkipOccurrence>>
+>;
+
+export type RecurringSkipOccurrenceMutationError = ErrorType<HTTPValidationError>;
+export type RecurringSkipOccurrenceMutationVariables = { bookId: string; occurrenceId: string };
+
+/**
+ * @summary Skip Occurrence
+ */
+export const useRecurringSkipOccurrence = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof recurringSkipOccurrence>>,
+			TError,
+			RecurringSkipOccurrenceMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof recurringSkipOccurrence>>,
+	TError,
+	RecurringSkipOccurrenceMutationVariables,
+	TContext
+> => {
+	return useMutation(getRecurringSkipOccurrenceMutationOptions(options), queryClient);
+};
+export const getRecurringListPendingUrl = (bookId: string) => {
+	return `/api/v1/books/${bookId}/recurring/pending`;
+};
+
+/**
+ * Due dates of rules that ask first, waiting for someone to confirm or skip them.
+ * @summary List Pending
+ */
+export const recurringListPending = async (
+	bookId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<PendingOccurrenceResponse[]> => {
+	return apiFetch<PendingOccurrenceResponse[]>(getRecurringListPendingUrl(bookId), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getRecurringListPendingQueryKey = (bookId: string) => {
+	return [`/api/v1/books/${bookId}/recurring/pending`] as const;
+};
+
+export const useRecurringListPendingQueryOptions = <
+	TData = Awaited<ReturnType<typeof recurringListPending>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPending>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getRecurringListPendingQueryKey(bookId);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof recurringListPending>>> = ({ signal }) =>
+		recurringListPending(bookId, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled: bookId !== null && bookId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof recurringListPending>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type RecurringListPendingQueryResult = NonNullable<
+	Awaited<ReturnType<typeof recurringListPending>>
+>;
+export type RecurringListPendingQueryError = ErrorType<HTTPValidationError>;
+
+export function useRecurringListPending<
+	TData = Awaited<ReturnType<typeof recurringListPending>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPending>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof recurringListPending>>,
+					TError,
+					Awaited<ReturnType<typeof recurringListPending>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useRecurringListPending<
+	TData = Awaited<ReturnType<typeof recurringListPending>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPending>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof recurringListPending>>,
+					TError,
+					Awaited<ReturnType<typeof recurringListPending>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useRecurringListPending<
+	TData = Awaited<ReturnType<typeof recurringListPending>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPending>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary List Pending
+ */
+
+export function useRecurringListPending<
+	TData = Awaited<ReturnType<typeof recurringListPending>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPending>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useRecurringListPendingQueryOptions(bookId, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getRecurringDeleteRuleUrl = (bookId: string, ruleId: string) => {
 	return `/api/v1/books/${bookId}/recurring/${ruleId}`;
 };
@@ -375,6 +728,118 @@ export const useRecurringDeleteRule = <TError = ErrorType<HTTPValidationError>, 
 	TContext
 > => {
 	return useMutation(getRecurringDeleteRuleMutationOptions(options), queryClient);
+};
+export const getRecurringUpdateRuleUrl = (bookId: string, ruleId: string) => {
+	return `/api/v1/books/${bookId}/recurring/${ruleId}`;
+};
+
+/**
+ * Change a rule's mode, amount or note. What it already recorded does not change.
+ * @summary Update Rule
+ */
+export const recurringUpdateRule = async (
+	bookId: string,
+	ruleId: string,
+	recurringUpdate: RecurringUpdate,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<RecurringResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<RecurringResponse>(getRecurringUpdateRuleUrl(bookId, ruleId), {
+		...options,
+		method: "PATCH",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(recurringUpdate),
+	});
+};
+
+export const getRecurringUpdateRuleMutationKey = () => ["recurringUpdateRule"] as const;
+
+export const getRecurringUpdateRuleMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof recurringUpdateRule>>,
+		TError,
+		RecurringUpdateRuleMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof recurringUpdateRule>>,
+	TError,
+	RecurringUpdateRuleMutationVariables,
+	TContext
+> => {
+	const mutationKey = getRecurringUpdateRuleMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof recurringUpdateRule>>,
+		RecurringUpdateRuleMutationVariables
+	> = (props) => {
+		const { bookId, ruleId, data } = props ?? {};
+
+		return recurringUpdateRule(bookId, ruleId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type RecurringUpdateRuleMutationResult = NonNullable<
+	Awaited<ReturnType<typeof recurringUpdateRule>>
+>;
+export type RecurringUpdateRuleMutationBody = RecurringUpdate;
+export type RecurringUpdateRuleMutationError = ErrorType<HTTPValidationError>;
+export type RecurringUpdateRuleMutationVariables = {
+	bookId: string;
+	ruleId: string;
+	data: RecurringUpdate;
+};
+
+/**
+ * @summary Update Rule
+ */
+export const useRecurringUpdateRule = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof recurringUpdateRule>>,
+			TError,
+			RecurringUpdateRuleMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof recurringUpdateRule>>,
+	TError,
+	RecurringUpdateRuleMutationVariables,
+	TContext
+> => {
+	return useMutation(getRecurringUpdateRuleMutationOptions(options), queryClient);
 };
 export const getRecurringToggleRuleUrl = (bookId: string, ruleId: string) => {
 	return `/api/v1/books/${bookId}/recurring/${ruleId}/toggle`;
@@ -462,3 +927,130 @@ export const useRecurringToggleRule = <TError = ErrorType<HTTPValidationError>, 
 > => {
 	return useMutation(getRecurringToggleRuleMutationOptions(options), queryClient);
 };
+export const getRecurringListPendingEverywhereUrl = () => {
+	return `/api/v1/recurring/pending`;
+};
+
+/**
+ * @summary List Pending Everywhere
+ */
+export const recurringListPendingEverywhere = async (
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<PendingOccurrenceResponse[]> => {
+	return apiFetch<PendingOccurrenceResponse[]>(getRecurringListPendingEverywhereUrl(), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getRecurringListPendingEverywhereQueryKey = () => {
+	return [`/api/v1/recurring/pending`] as const;
+};
+
+export const useRecurringListPendingEverywhereQueryOptions = <
+	TData = Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+	TError = ErrorType<HTTPValidationError>,
+>(options?: {
+	query?: Partial<
+		UseQueryOptions<Awaited<ReturnType<typeof recurringListPendingEverywhere>>, TError, TData>
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getRecurringListPendingEverywhereQueryKey();
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof recurringListPendingEverywhere>>> = ({
+		signal,
+	}) => recurringListPendingEverywhere({ signal, ...requestOptions });
+
+	const customOptions = queryDefaults({ queryKey, queryFn, ...queryOptions });
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type RecurringListPendingEverywhereQueryResult = NonNullable<
+	Awaited<ReturnType<typeof recurringListPendingEverywhere>>
+>;
+export type RecurringListPendingEverywhereQueryError = ErrorType<HTTPValidationError>;
+
+export function useRecurringListPendingEverywhere<
+	TData = Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPendingEverywhere>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+					TError,
+					Awaited<ReturnType<typeof recurringListPendingEverywhere>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useRecurringListPendingEverywhere<
+	TData = Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPendingEverywhere>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+					TError,
+					Awaited<ReturnType<typeof recurringListPendingEverywhere>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useRecurringListPendingEverywhere<
+	TData = Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPendingEverywhere>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary List Pending Everywhere
+ */
+
+export function useRecurringListPendingEverywhere<
+	TData = Awaited<ReturnType<typeof recurringListPendingEverywhere>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof recurringListPendingEverywhere>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useRecurringListPendingEverywhereQueryOptions(options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}

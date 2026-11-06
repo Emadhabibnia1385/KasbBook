@@ -445,6 +445,34 @@ class RecurringRequest(MoneyModel):
     period: str
     starts_on: date
     description: Optional[str] = Field(default=None, max_length=500)
+    # "ask" (the default) waits for a confirmation on every date; "auto" records on its own.
+    mode: str = "ask"
+    # True when the person has just recorded the first date by hand, so the schedule begins after it.
+    first_booked: bool = False
+
+
+class RecurringUpdate(MoneyModel):
+    mode: Optional[str] = None
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+
+class ConfirmOccurrence(MoneyModel):
+    # Changes what this one date records; the rule keeps its own amount.
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+
+
+class PendingOccurrenceResponse(MoneyModel):
+    id: uuid.UUID
+    rule_id: uuid.UUID
+    book_id: uuid.UUID
+    book_name: str
+    currency: str
+    due_on: date
+    flow: str
+    category: str
+    amount: Decimal
+    description: Optional[str] = None
 
 
 class RecurringResponse(MoneyModel):
@@ -457,6 +485,7 @@ class RecurringResponse(MoneyModel):
     next_run_on: date
     last_run_on: Optional[date] = None
     is_active: bool
+    mode: str = "auto"
 
 
 # -------------------------------------------------------------- reports

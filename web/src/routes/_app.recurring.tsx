@@ -1,4 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Recurring } from "@/features/recurring/Recurring";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_app/recurring")({ component: Recurring });
+// Repeating transactions live inside the transactions page now; an old link lands there.
+export const Route = createFileRoute("/_app/recurring")({
+	beforeLoad: () => {
+		throw redirect({ to: "/transactions" });
+	},
+});

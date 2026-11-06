@@ -259,7 +259,17 @@ because that is how a loan is described to a person: "twelve of 4,000,000".
 
 | | |
 |---|---|
-| `GET`/`POST /books/{id}/recurring` | rules, soonest first; `POST` takes `flow`, `category`, `amount`, `period` (`daily`, `weekly`, `monthly`), `starts_on` |
+| `GET`/`POST /books/{id}/recurring` | rules, soonest first; `POST` takes `flow`, `category`, `amount`, `period` (`daily`, `weekly`, `monthly`), `starts_on`, `mode` and `first_booked` |
+| `PATCH /books/{id}/recurring/{rule}` | change `mode`, `amount` or `description` from now on |
+| `GET /books/{id}/recurring/pending`, `GET /recurring/pending` | due dates of rules that ask first, waiting for an answer (one book, or every book the caller can reach) |
+| `POST /books/{id}/recurring/occurrences/{id}/confirm` | record that date as a transaction on its own day; an optional `amount` changes only this one |
+| `POST /books/{id}/recurring/occurrences/{id}/skip` | leave that date unrecorded |
+
+A rule's `mode` is `ask` (the default for rules made through the API) or `auto`. An `ask` rule
+records nothing when a date comes due: the date waits in the pending list until someone with
+permission to record confirms or skips it. An `auto` rule records on its own, as every rule did
+before this existed. `first_booked: true` says the first date was just recorded by hand, so the
+schedule starts from the one after it.
 | `POST /books/{id}/recurring/{rule}/toggle` | pause or resume |
 | `DELETE /books/{id}/recurring/{rule}` | what the rule already booked stays |
 

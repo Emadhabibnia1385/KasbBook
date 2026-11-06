@@ -23,7 +23,9 @@ export interface RecurringRequest {
 	 */
 	category: string;
 	description?: string | null;
+	first_booked?: boolean;
 	flow: string;
+	mode?: string;
 	period: string;
 	starts_on: string;
 }

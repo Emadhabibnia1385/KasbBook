@@ -33,8 +33,13 @@ const pageHeader = tv({
       true: { title: 'flex min-h-11 items-center' },
       false: {},
     },
+    // The actions stay on the title's row, at its far end, however narrow the page is.
+    inline: {
+      true: { root: 'flex-nowrap items-center', text: 'flex-[1_1_0%]', actions: 'shrink-0' },
+      false: {},
+    },
   },
-  defaultVariants: { size: 'page', placement: 'content', back: false },
+  defaultVariants: { size: 'page', placement: 'content', back: false, inline: false },
 });
 
 type PageHeaderProps = {
@@ -46,6 +51,8 @@ type PageHeaderProps = {
   backHref?: string;
   /** Buttons at the far end, e.g. a primary action. */
   actions?: ReactNode;
+  /** Keep the actions on the title's row instead of letting them wrap under it on a narrow page. */
+  inlineActions?: boolean;
   /** Heading level: one h1 per page, h2 for a section header. */
   as?: 'h1' | 'h2' | 'h3';
   size?: 'page' | 'section';
@@ -60,6 +67,7 @@ export function PageHeader({
   meta,
   backHref,
   actions,
+  inlineActions,
   as: Heading = 'h1',
   size,
   placement,
@@ -68,7 +76,7 @@ export function PageHeader({
   const nativeBack = useNativeBack();
   useAnnouncePageHeading(Heading === 'h1' ? title : undefined);
   const showBack = Boolean(backHref) && !nativeBack;
-  const slots = pageHeader({ size, placement, back: showBack });
+  const slots = pageHeader({ size, placement, back: showBack, inline: inlineActions });
   return (
     <header className={slots.root({ className })}>
       {showBack ? (

@@ -300,11 +300,16 @@ class ReminderService:
                 late.setdefault(rule, []).append((tx.occurred_on, tx.converted_amount))
         for rule, day in run.skipped:
             skipped.setdefault(rule, []).append((day, rule.amount))
+        waiting: dict = {}
+        for rule, occurrence in run.pending:
+            waiting.setdefault(rule, []).append((occurrence.due_on, rule.amount))
 
         by_book: dict = {}
 
         def lines_for(book_id):
-            return by_book.setdefault(book_id, {"late": [], "skipped": [], "paused": []})
+            return by_book.setdefault(
+                book_id, {"late": [], "skipped": [], "paused": [], "waiting": []}
+            )
 
         for rule, dates in late.items():
             lines_for(rule.book_id)["late"].append(_rule_line(rule, dates))
@@ -312,6 +317,8 @@ class ReminderService:
             lines_for(rule.book_id)["skipped"].append(_rule_line(rule, dates))
         for rule in run.paused:
             lines_for(rule.book_id)["paused"].append(f"• {rule.category}: {rule.amount:,.0f}")
+        for rule, dates in waiting.items():
+            lines_for(rule.book_id)["waiting"].append(_rule_line(rule, dates))
 
         notices: List[Reminder] = []
         for book_id, found in by_book.items():
@@ -319,6 +326,11 @@ class ReminderService:
             if book is None:
                 continue
             parts = [f"🔁 تراکنش‌های تکرارشونده — دفتر «{book.name}»"]
+            if found["waiting"]:
+                parts.append(
+                    "منتظر تأیید شما است؛ در پنل وب، بخش تراکنش‌ها، تأیید یا ردش کنید:\n"
+                    + "\n".join(_shown(found["waiting"]))
+                )
             if found["late"]:
                 parts.append("ثبت شد، با تاریخ خودش:\n" + "\n".join(_shown(found["late"])))
             if found["skipped"]:

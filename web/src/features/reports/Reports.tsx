@@ -93,9 +93,10 @@ export function Reports() {
 			<PageHeader
 				title={t.nav.reports}
 				description={book.name}
+				inlineActions
 				actions={
 					period ? (
-						<Button variant="secondary" onPress={() => void download(book, period)}>
+						<Button size="sm" variant="secondary" onPress={() => void download(book, period)}>
 							{t.reports.export}
 						</Button>
 					) : undefined

@@ -24,6 +24,7 @@ export interface RecurringResponse {
 	id: string;
 	is_active: boolean;
 	last_run_on?: string | null;
+	mode?: string;
 	next_run_on: string;
 	period: string;
 }

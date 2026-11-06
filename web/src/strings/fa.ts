@@ -1,6 +1,7 @@
 import { accountStrings } from "./account";
 import { analyticsStrings } from "./analytics";
 import { manageStrings } from "./manage";
+import { repeatStrings } from "./repeat";
 import { currencyStrings } from "./currencies";
 import { marketStrings } from "./market";
 import { parity3 } from "./parity3";
@@ -22,6 +23,7 @@ export const t = {
 	...analyticsStrings,
 	...accountStrings,
 	...manageStrings,
+	...repeatStrings,
 	github: { label: "کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",

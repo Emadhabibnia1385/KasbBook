@@ -3,9 +3,23 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { FormRoot, Modal, SubmitButton, TextField, toast } from "@nyxon/nasim";
+import {
+	FormRoot,
+	Modal,
+	RadioGroupField,
+	SelectField,
+	SubmitButton,
+	SwitchField,
+	TextField,
+	toast,
+} from "@nyxon/nasim";
 import { booksAddAttachment, useBooksRecordTransaction } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
+import {
+	getRecurringListPendingEverywhereQueryKey,
+	getRecurringListRulesQueryKey,
+	useRecurringCreateRule,
+} from "@/api/generated/recurring/recurring";
 import { lastBook, rememberBook } from "@/features/books/lastBook";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { pickedDay, toPicker } from "@/shared/dates";
@@ -31,6 +45,10 @@ const schema = z.object({
 	rate: z.string().transform(toAscii),
 	// Today unless changed: most entries are made the day they happen.
 	occurred_on: z.string().min(1, { error: t.days.needDate }),
+	// A repeating transaction: how often, and whether each date asks first or records itself.
+	repeat: z.boolean(),
+	period: z.enum(["daily", "weekly", "monthly"]),
+	mode: z.enum(["ask", "auto"]),
 });
 type Values = z.input<typeof schema>;
 
@@ -45,6 +63,7 @@ function Fields({
 }) {
 	const queryClient = useQueryClient();
 	const record = useBooksRecordTransaction();
+	const createRule = useRecurringCreateRule();
 	const first = books.find((b) => b.id === initial) ?? books[0];
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
@@ -57,10 +76,16 @@ function Fields({
 			currency: first?.currency ?? "IRT",
 			rate: "",
 			occurred_on: toPicker(todayIso()),
+			repeat: false,
+			period: "monthly",
+			mode: "ask",
 		},
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
 	const bookId = useWatch({ control: form.control, name: "book_id" });
+	const repeat = useWatch({ control: form.control, name: "repeat" });
+	const mode = useWatch({ control: form.control, name: "mode" });
+	const day = useWatch({ control: form.control, name: "occurred_on" });
 	const book = books.find((b) => b.id === bookId) ?? first;
 	// Files chosen before the transaction exists wait here and are sent once it does.
 	const [files, setFiles] = useState<File[]>([]);
@@ -87,7 +112,40 @@ function Fields({
 					form.setError("rate", { message: t.fx.needRate });
 					return;
 				}
+				const startsOn = pickedDay(values.occurred_on);
+				// A repeating entry dated in the future is only scheduled: it is recorded when its day comes.
+				const onlySchedule = values.repeat && startsOn > todayIso();
+				if (values.repeat && other) {
+					form.setError("currency", { message: t.repeat.onlyBase });
+					toast.danger(t.repeat.onlyBase);
+					return;
+				}
+				const schedule = (firstBooked: boolean) =>
+					createRule.mutateAsync({
+						bookId: book.id,
+						data: {
+							flow: values.flow,
+							category: values.category,
+							amount: values.amount,
+							period: values.period,
+							starts_on: startsOn,
+							description: values.description || null,
+							mode: values.mode,
+							first_booked: firstBooked,
+						},
+					});
 				try {
+					if (onlySchedule) {
+						await schedule(false);
+						await queryClient.invalidateQueries({
+							queryKey: getRecurringListRulesQueryKey(book.id),
+						});
+						rememberBook(book.id);
+						toast.success(t.repeat.savedFuture);
+						if (files.length) toast.danger(t.attach.someUnsent);
+						onDone();
+						return;
+					}
 					// Scope follows the book's kind on the server; the panel records what the person typed.
 					const made = await record.mutateAsync({
 						bookId: book.id,
@@ -112,8 +170,18 @@ function Fields({
 						}
 					}
 					rememberBook(book.id);
+					// The first date was just recorded by hand; the schedule carries on from the next one.
+					if (values.repeat) {
+						await schedule(true);
+						await Promise.all([
+							queryClient.invalidateQueries({ queryKey: getRecurringListRulesQueryKey(book.id) }),
+							queryClient.invalidateQueries({
+								queryKey: getRecurringListPendingEverywhereQueryKey(),
+							}),
+						]);
+					}
 					await refreshMoney(queryClient, book.id);
-					toast.success(t.transactions.saved);
+					toast.success(values.repeat ? t.repeat.savedNow : t.transactions.saved);
 					// The transaction is saved either way; a file that did not go is said plainly, and can be added by editing.
 					if (unsent) toast.danger(t.attach.someUnsent);
 					onDone();
@@ -139,6 +207,34 @@ function Fields({
 				/>
 				<TextField name="description" label={t.transactions.note} />
 				<AttachmentsField bookId={book.id} queue={files} onQueue={setFiles} />
+				<SwitchField name="repeat" label={t.repeat.toggle} description={t.repeat.toggleHint} />
+				{repeat ? (
+					<div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3">
+						<SelectField
+							name="period"
+							label={t.repeat.period}
+							options={[
+								{ value: "monthly", label: t.repeat.periods.monthly },
+								{ value: "weekly", label: t.repeat.periods.weekly },
+								{ value: "daily", label: t.repeat.periods.daily },
+							]}
+						/>
+						<RadioGroupField
+							name="mode"
+							label={t.repeat.mode}
+							options={[
+								{ value: "ask", label: t.repeat.modeAsk },
+								{ value: "auto", label: t.repeat.modeAuto },
+							]}
+						/>
+						<p className="text-xs text-muted">
+							{mode === "auto" ? t.repeat.modeAutoHint : t.repeat.modeAskHint}
+						</p>
+						{pickedDay(day) > todayIso() ? (
+							<p className="text-xs text-muted">{t.repeat.futureNote}</p>
+						) : null}
+					</div>
+				) : null}
 			</div>
 			<div className="md:col-span-2">
 				<SubmitButton>{t.common.save}</SubmitButton>

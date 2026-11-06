@@ -20,7 +20,7 @@ from .modules.identity.models import (
     WebLoginChallenge,
 )
 from .modules.loans.models import Loan, LoanPayment
-from .modules.recurring.models import RecurringRule
+from .modules.recurring.models import RecurringOccurrence, RecurringRule
 from .modules.ledger.models import (
     Account,
     Category,

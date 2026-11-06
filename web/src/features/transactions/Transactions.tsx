@@ -1,5 +1,4 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -22,6 +21,8 @@ import type { BookedTransactionResponse, BookResponse } from "@/api/generated/mo
 import { useTransactionsListAllTransactions } from "@/api/generated/transactions/transactions";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { openQuick } from "@/features/quick/quickBus";
+import { PendingRecurring } from "@/features/recurring/PendingRecurring";
+import { RulesDialog } from "@/features/recurring/RulesDialog";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
 import { formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
@@ -188,6 +189,7 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 	const [removing, setRemoving] = useState<BookedTransactionResponse | null>(null);
 	const [filters, setFilters] = useState<Filters>(NO_FILTERS);
 	const queryClient = useQueryClient();
+	const [rulesOpen, setRulesOpen] = useState(false);
 	// One chosen book narrows the list to it; otherwise it is every book's.
 	const scope = book ? [book] : books;
 	const dates = rangeDates(filters);
@@ -228,11 +230,12 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 				title={t.nav.transactions}
 				description={book ? book.name : t.scope.allBooks}
 				actions={
-					<Link to="/recurring" className="text-sm text-accent">
-						{t.nav3.recurring}
-					</Link>
+					<Button size="sm" variant="ghost" onPress={() => setRulesOpen(true)}>
+						{t.repeat.rules}
+					</Button>
 				}
 			/>
+			<PendingRecurring book={book} />
 			<FilterBar
 				books={scope}
 				leading={
@@ -409,6 +412,7 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 					pagination={{ page, pageCount: pages, onPageChange: setPage }}
 				/>
 			)}
+			<RulesDialog books={scope} isOpen={rulesOpen} onOpenChange={setRulesOpen} />
 			<TransactionDetail
 				row={opened}
 				onClose={() => setOpened(null)}
