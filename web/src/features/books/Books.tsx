@@ -13,7 +13,6 @@ import {
 	PageSkeleton,
 	SectionCard,
 	SelectField,
-	StatusChip,
 	SubmitButton,
 	TextField,
 	toast,
@@ -23,10 +22,9 @@ import {
 	getBooksListBooksQueryKey,
 	useBooksCreateBook,
 	useBooksSetCalendar,
-	useBooksWallet,
 } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
-import { currencyName, formatMoney } from "@/shared/format";
+import { currencyName } from "@/shared/format";
 import { t } from "@/strings";
 import { Categories } from "./Categories";
 import { CurrencyPicker } from "@/features/currencies/CurrencyPicker";
@@ -92,18 +90,6 @@ function CalendarSwitch({ book }: { book: BookResponse }) {
 	);
 }
 
-function Wallet({ book }: { book: BookResponse }) {
-	const { data = [] } = useBooksWallet(book.id);
-	if (!data.length) return null;
-	return (
-		<ul className="flex flex-wrap gap-2 text-sm text-muted">
-			{data.map((row) => (
-				<li key={row.code}>{formatMoney(row.amount, row.code)}</li>
-			))}
-		</ul>
-	);
-}
-
 export function Books({ presetCurrency }: { presetCurrency?: string | undefined }) {
 	const queryClient = useQueryClient();
 	const { books, book: active, isLoading } = useActiveBook();
@@ -134,37 +120,20 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader
-				title={t.nav.books}
+				title={t.manage.books}
 				actions={<Button onPress={() => setAddingOpen(true)}>{t.books.add}</Button>}
 			/>
 			{books.length === 0 ? (
 				<EmptyState title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />
-			) : (
-				<div className="grid gap-4 md:grid-cols-2">
-					{books.map((book) => (
-						<SectionCard
-							key={book.id}
-							title={book.name}
-							actions={
-								book.id === active?.id ? (
-									<StatusChip tone="success" label={t.books.active} />
-								) : (
-									<Button size="sm" variant="secondary" onPress={() => selectBook(book.id)}>
-										{t.books.use}
-									</Button>
-								)
-							}
-						>
-							<p className="text-sm text-muted">
-								{TYPES.find((type) => type.value === book.type)?.label ?? book.type} ·{" "}
-								{currencyName(book.currency)}
-							</p>
-							<CalendarSwitch book={book} />
-							<Wallet book={book} />
-						</SectionCard>
-					))}
-				</div>
-			)}
+			) : active ? (
+				<SectionCard title={active.name}>
+					<p className="text-sm text-muted">
+						{TYPES.find((type) => type.value === active.type)?.label ?? active.type} ·{" "}
+						{currencyName(active.currency)}
+					</p>
+					<CalendarSwitch book={active} />
+				</SectionCard>
+			) : null}
 			{active ? (
 				<Categories book={active} />
 			) : (

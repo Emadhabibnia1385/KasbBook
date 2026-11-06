@@ -3,6 +3,10 @@ import { useState } from "react";
 import { tv } from "tailwind-variants";
 import { BottomSheet, Modal, useMediaQuery } from "@nyxon/nasim";
 import { useAuthMe } from "@/api/generated/auth/auth";
+import { useBooksWallet } from "@/api/generated/books/books";
+import { useReportsSummary } from "@/api/generated/reports/reports";
+import type { BookResponse } from "@/api/generated/model";
+import { formatMoney } from "@/shared/format";
 import { ALL, selectBook, useActiveBook } from "@/features/books/useActiveBook";
 import { BookIcon, BooksIcon, CheckIcon, ChevronDownIcon, PlusIcon } from "@/shared/icons";
 import { t } from "@/strings";
@@ -12,9 +16,45 @@ const trigger = tv({
 });
 
 const option = tv({
-	base: "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-start text-base transition-colors hover:bg-surface-secondary",
+	base: "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-base transition-colors hover:bg-surface-secondary",
 	variants: { active: { true: "bg-accent-soft text-accent-soft-foreground font-semibold" } },
 });
+
+/** A book's whole life in three figures and what its wallet holds, so choosing a book is choosing with the numbers in view. */
+function BookStats({ book }: { book: BookResponse }) {
+	const summary = useReportsSummary(book.id).data;
+	const wallet = useBooksWallet(book.id).data ?? [];
+	if (!summary) return null;
+	const figures = [
+		{ label: t.manage.totalIncome, value: summary.income, tone: "text-success" },
+		{ label: t.manage.totalExpense, value: summary.expense, tone: "" },
+		{
+			label: t.manage.totalSaving,
+			value: summary.net,
+			tone: Number(summary.net) < 0 ? "text-danger" : "",
+		},
+	];
+	return (
+		<span className="mt-1 flex flex-col gap-1 text-xs font-normal">
+			<span className="flex flex-col gap-0.5">
+				{figures.map((figure) => (
+					<span key={figure.label} className="flex items-baseline justify-between gap-3">
+						<span className="text-muted">{figure.label}</span>
+						<span dir="ltr" className={`font-medium ${figure.tone}`}>
+							{formatMoney(figure.value, book.currency)}
+						</span>
+					</span>
+				))}
+			</span>
+			{wallet.length ? (
+				<span className="text-muted">
+					{t.manage.balancesNow}:{" "}
+					{wallet.map((row) => formatMoney(row.amount, row.code)).join(" · ")}
+				</span>
+			) : null}
+		</span>
+	);
+}
 
 // Every screen is about one book; this is where the person changes which. A pill that opens a sheet on
 // a phone and a dialog on a desktop: the platform's own picker looked foreign next to the rest of the bar.
@@ -62,8 +102,11 @@ export function BookSwitcher() {
 							setOpen(false);
 						}}
 					>
-						<BookIcon aria-hidden className="size-5 shrink-0" />
-						<span className="min-w-0 flex-1 truncate">{item.name}</span>
+						<BookIcon aria-hidden className="mt-0.5 size-5 shrink-0 self-start" />
+						<span className="min-w-0 flex-1">
+							<span className="block truncate">{item.name}</span>
+							<BookStats book={item} />
+						</span>
 						{item.id === book?.id ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
 					</button>
 				</li>

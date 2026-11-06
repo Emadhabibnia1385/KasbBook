@@ -20,12 +20,12 @@ export function ManageTabs() {
 			label={t.manage.label}
 			items={[
 				tab("/manage", t.manage.overview),
-				tab("/books", t.manage.books),
 				tab("/wallet", t.manage.wallet),
 				tab("/planning", t.nav.planning),
 				tab("/portfolio", t.portfolio.tab),
 				tab("/capital", t.capital.tab),
 				...(book?.type === "personal" ? [] : [tab("/team", t.manage.team)]),
+				tab("/books", t.manage.books),
 			]}
 		/>
 	);

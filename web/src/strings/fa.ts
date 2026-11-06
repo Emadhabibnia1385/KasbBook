@@ -43,7 +43,7 @@ export const t = {
 		reports: "گزارش‌ها",
 		planning: "برنامه‌ریزی",
 		more: "بیشتر",
-		manage: "مدیریت",
+		manage: "مدیریت دفتر",
 		team: "تیم و حقوق",
 		books: "دفترها",
 		account: "حساب من",
