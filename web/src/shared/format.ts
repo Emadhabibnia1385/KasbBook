@@ -142,14 +142,24 @@ export function toAscii(text: string): string {
 		.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
 }
 
-const periodParts = new Intl.DateTimeFormat("en-u-ca-persian-nu-latn", {
-	year: "numeric",
-	month: "numeric",
-});
+/** Which calendar a book counts its months by. */
+export type CalendarName = "jalali" | "gregorian";
 
-/** The current Jalali month in the form the reports API takes: 1405-08. */
-export function currentPeriod(now = new Date()): string {
-	const parts = periodParts.formatToParts(now);
+/** A book's calendar from what the API sent; the Jalali one when it said nothing. */
+export const calendarOf = (value: string | null | undefined): CalendarName =>
+	value === "gregorian" ? "gregorian" : "jalali";
+
+const periodParts: Record<CalendarName, Intl.DateTimeFormat> = {
+	jalali: new Intl.DateTimeFormat("en-u-ca-persian-nu-latn", { year: "numeric", month: "numeric" }),
+	gregorian: new Intl.DateTimeFormat("en-u-ca-gregory-nu-latn", {
+		year: "numeric",
+		month: "numeric",
+	}),
+};
+
+/** The current month by the given calendar, in the form the reports API takes: 1405-08. */
+export function currentPeriod(cal: CalendarName = "jalali", now = new Date()): string {
+	const parts = periodParts[cal].formatToParts(now);
 	const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
 	return `${pick("year")}-${pick("month").padStart(2, "0")}`;
 }
@@ -169,16 +179,40 @@ export const MONTHS = [
 	"اسفند",
 ];
 
-/** The last `count` Jalali months, newest first, as the API's period and a label to show. */
-export function recentPeriods(count: number, now = new Date()): { value: string; label: string }[] {
-	const [year = 0, month = 1] = currentPeriod(now).split("-").map(Number);
+export const GREGORIAN_MONTH_NAMES = [
+	"ژانویه",
+	"فوریه",
+	"مارس",
+	"آوریل",
+	"مه",
+	"ژوئن",
+	"ژوئیه",
+	"اوت",
+	"سپتامبر",
+	"اکتبر",
+	"نوامبر",
+	"دسامبر",
+];
+
+/** The twelve month names of a calendar, as Persian readers say them. */
+export const monthNames = (cal: CalendarName = "jalali"): string[] =>
+	cal === "gregorian" ? GREGORIAN_MONTH_NAMES : MONTHS;
+
+/** The last `count` months of the calendar, newest first, as the API's period and a label to show. */
+export function recentPeriods(
+	count: number,
+	cal: CalendarName = "jalali",
+	now = new Date(),
+): { value: string; label: string }[] {
+	const [year = 0, month = 1] = currentPeriod(cal, now).split("-").map(Number);
+	const names = monthNames(cal);
 	return Array.from({ length: count }, (_, back) => {
 		const index = year * 12 + (month - 1) - back;
 		const y = Math.floor(index / 12);
 		const m = (index % 12) + 1;
 		return {
 			value: `${y}-${String(m).padStart(2, "0")}`,
-			label: `${MONTHS[m - 1]} ${formatAmount(y).replace(/[٬,]/g, "")}`,
+			label: `${names[m - 1]} ${formatAmount(y).replace(/[٬,]/g, "")}`,
 		};
 	});
 }

@@ -39,6 +39,7 @@ import type {
 	BooksListCategoriesParams,
 	BooksListConversionsParams,
 	BooksListTransactionsParams,
+	CalendarRequest,
 	CategoryRequest,
 	CategoryResponse,
 	CategoryUpdate,
@@ -537,6 +538,113 @@ export const useBooksSetBaseCurrency = <
 	TContext
 > => {
 	return useMutation(getBooksSetBaseCurrencyMutationOptions(options), queryClient);
+};
+export const getBooksSetCalendarUrl = (bookId: string) => {
+	return `/api/v1/books/${bookId}/calendar`;
+};
+
+/**
+ * Choose whether this book's months and years follow the Jalali or the Gregorian calendar.
+ * @summary Set Calendar
+ */
+export const booksSetCalendar = async (
+	bookId: string,
+	calendarRequest: CalendarRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<BookResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<BookResponse>(getBooksSetCalendarUrl(bookId), {
+		...options,
+		method: "PUT",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(calendarRequest),
+	});
+};
+
+export const getBooksSetCalendarMutationKey = () => ["booksSetCalendar"] as const;
+
+export const getBooksSetCalendarMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksSetCalendar>>,
+		TError,
+		BooksSetCalendarMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksSetCalendar>>,
+	TError,
+	BooksSetCalendarMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksSetCalendarMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksSetCalendar>>,
+		BooksSetCalendarMutationVariables
+	> = (props) => {
+		const { bookId, data } = props ?? {};
+
+		return booksSetCalendar(bookId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksSetCalendarMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksSetCalendar>>
+>;
+export type BooksSetCalendarMutationBody = CalendarRequest;
+export type BooksSetCalendarMutationError = ErrorType<HTTPValidationError>;
+export type BooksSetCalendarMutationVariables = { bookId: string; data: CalendarRequest };
+
+/**
+ * @summary Set Calendar
+ */
+export const useBooksSetCalendar = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksSetCalendar>>,
+			TError,
+			BooksSetCalendarMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksSetCalendar>>,
+	TError,
+	BooksSetCalendarMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksSetCalendarMutationOptions(options), queryClient);
 };
 export const getBooksListCategoriesUrl = (bookId: string, params?: BooksListCategoriesParams) => {
 	const normalizedParams = new URLSearchParams();

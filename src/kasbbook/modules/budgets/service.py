@@ -11,7 +11,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import jalali
+from ...shared import calendars, jalali
 from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
@@ -116,14 +116,15 @@ class BudgetService:
         month: Optional[int] = None,
         today: Optional[date] = None,
     ) -> List[BudgetStatus]:
-        """How much of each ceiling this Jalali month has used."""
+        """How much of each ceiling this month, by the book's calendar, has used."""
         budgets = await self.list_budgets(book_id, user_id)
         if not budgets:
             return []
 
+        cal = calendars.of(await self.books.get_book(book_id))
         if year is None or month is None:
-            year, month, _ = jalali.to_parts(today or date.today())
-        starts_on, ends_on = jalali.month_range(year, month)
+            year, month, _ = cal.to_parts(today or date.today())
+        starts_on, ends_on = cal.month_range(year, month)
 
         rows = (
             await self.session.execute(
@@ -165,7 +166,8 @@ class BudgetService:
         on: date,
     ) -> Optional[str]:
         """A one-line nudge when a just-recorded amount crosses a ceiling."""
-        year, month, _ = jalali.to_parts(on)
+        cal = calendars.of(await self.books.get_book(book_id))
+        year, month, _ = cal.to_parts(on)
         for status in await self.status(book_id, user_id, year, month):
             hits = (
                 status.budget.kind is BudgetKind.CATEGORY

@@ -25,7 +25,7 @@ import {
 	WeekdayBars,
 } from "@/shared/charts";
 import { addMoney, negateMoney, subtractMoney } from "@/shared/decimal";
-import { formatAmount, formatCompact, formatDay, formatMoney } from "@/shared/format";
+import { calendarOf, formatAmount, formatCompact, formatDay, formatMoney } from "@/shared/format";
 import { monthOfDay, type PeriodKind, periodLabel } from "@/shared/periods";
 import { t } from "@/strings";
 import { Loaded } from "./Loaded";
@@ -34,6 +34,7 @@ const money = (book: BookResponse) => (value: string) => formatMoney(value, book
 
 /** Twelve months of income and expense side by side, with the net as a line across them. */
 export function CashflowPanel({ book }: { book: BookResponse }) {
+	const cal = calendarOf(book.calendar);
 	const query = useAnalyticsCashflow(book.id, { months: 12 });
 	const s = t.analytics.series;
 	return (
@@ -49,7 +50,7 @@ export function CashflowPanel({ book }: { book: BookResponse }) {
 						rows={points.map((point) => ({
 							key: point.period,
 							label: point.label,
-							title: periodLabel(point.period),
+							title: periodLabel(point.period, cal),
 							values: { income: point.income, expense: point.expense, net: point.net },
 						}))}
 						bars={[
@@ -74,13 +75,14 @@ export function CumulativePanel({
 	period: string;
 	title: string;
 }) {
+	const cal = calendarOf(book.calendar);
 	const query = useAnalyticsCumulative(book.id, { period });
 	return (
 		<SectionCard title={title}>
 			<Loaded query={query}>
 				{(data) => {
-					const now = periodLabel(data.period);
-					const before = periodLabel(data.previous_period);
+					const now = periodLabel(data.period, cal);
+					const before = periodLabel(data.previous_period, cal);
 					const latest = (key: "net" | "previous_net") =>
 						[...data.days].reverse().find((day) => day[key] != null)?.[key];
 					const lastNow = latest("net");
@@ -130,6 +132,7 @@ export function FlowPanel({
 	period: string;
 	kind: PeriodKind;
 }) {
+	const cal = calendarOf(book.calendar);
 	const query = useAnalyticsCumulative(book.id, { period });
 	const title = kind === "year" ? t.analytics.reports.monthlyTitle : t.analytics.reports.dailyTitle;
 	const s = t.analytics.series;
@@ -150,7 +153,7 @@ export function FlowPanel({
 						const expense = subtractMoney(day.expense, seenExpense);
 						seenIncome = day.income;
 						seenExpense = day.expense;
-						const month = monthOfDay(day.on);
+						const month = monthOfDay(day.on, cal);
 						const key = kind === "year" ? month.period : day.on;
 						const label =
 							kind === "year"
@@ -160,7 +163,7 @@ export function FlowPanel({
 									: formatDay(day.on);
 						const bucket = buckets.get(key) ?? {
 							label,
-							title: kind === "year" ? periodLabel(month.period) : formatDay(day.on),
+							title: kind === "year" ? periodLabel(month.period, cal) : formatDay(day.on),
 							income: "0.0000",
 							expense: "0.0000",
 						};
@@ -172,7 +175,7 @@ export function FlowPanel({
 						<GroupedColumns
 							title={title}
 							hideTitle
-							summary={`${t.analytics.reports.dailySummary}: ${periodLabel(data.period)}`}
+							summary={`${t.analytics.reports.dailySummary}: ${periodLabel(data.period, cal)}`}
 							rowHeader={kind === "year" ? t.analytics.chart.month : t.transactions.date}
 							formatValue={money(book)}
 							rows={[...buckets.entries()].map(([key, bucket]) => ({
@@ -396,6 +399,7 @@ export function BridgePanel({ book, period }: { book: BookResponse; period: stri
 /** Each month cut into the categories that made it up: which cost grew, and which one only looked big. */
 export function CategoryMonthlyPanel({ book }: { book: BookResponse }) {
 	const [flow, setFlow] = useState<"expense" | "income">("expense");
+	const cal = calendarOf(book.calendar);
 	const query = useAnalyticsCategoryMonthly(book.id, { months: 6, flow, top: 5 });
 	const a = t.analytics.dashboard;
 	return (
@@ -436,7 +440,7 @@ export function CategoryMonthlyPanel({ book }: { book: BookResponse }) {
 							rows={data.months.map((month) => ({
 								key: month.period,
 								label: month.label,
-								title: periodLabel(month.period),
+								title: periodLabel(month.period, cal),
 								values: {
 									...Object.fromEntries(
 										month.segments.map((segment) => [segment.category, segment.amount]),

@@ -37,6 +37,7 @@ from ..schemas import (
     CurrencyOptionResponse,
     CurrencyToggleRequest,
     BookResponse,
+    CalendarRequest,
     InviteRequest,
     MemberResponse,
     TransactionPage,
@@ -69,15 +70,20 @@ def _as_enum(enum_class, value: str, field: str):
         raise ValidationError(f"{field} must be one of: {allowed}") from None
 
 
+def _book_response(book) -> BookResponse:
+    return BookResponse(
+        id=book.id, name=book.name, type=book.type.value, currency=book.base_currency,
+        cost_policy=book.cost_policy.value, calendar=book.calendar, created_at=book.created_at,
+    )
+
+
 @router.get("", response_model=List[BookResponse])
 async def list_books(user: CurrentUser, session: SessionDep) -> List[BookResponse]:
     # An account made before every one started with a book gets its personal one now.
     await IdentityService(session).ensure_default_book(user.id)
     books = await BookService(session).books_for_user(user.id)
     return [
-        BookResponse(id=b.id, name=b.name, type=b.type.value,
-                     currency=b.base_currency, cost_policy=b.cost_policy.value,
-                     created_at=b.created_at)
+        _book_response(b)
         for b in books
     ]
 
@@ -91,11 +97,9 @@ async def create_book(
         body.currency or "IRT",
         _as_enum(CostPolicy, body.cost_policy, "cost_policy")
         if body.cost_policy else CostPolicy.BEFORE_SPLIT,
+        body.calendar or "jalali",
     )
-    return BookResponse(id=book.id, name=book.name, type=book.type.value,
-                        currency=book.base_currency,
-                        cost_policy=book.cost_policy.value,
-                        created_at=book.created_at)
+    return _book_response(book)
 
 
 @router.get("/{book_id}", response_model=BookResponse)
@@ -107,10 +111,16 @@ async def get_book(
     books = BookService(session)
     await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
     book = await books.get_book(book_id)
-    return BookResponse(id=book.id, name=book.name, type=book.type.value,
-                        currency=book.base_currency,
-                        cost_policy=book.cost_policy.value,
-                        created_at=book.created_at)
+    return _book_response(book)
+
+
+@router.put("/{book_id}/calendar", response_model=BookResponse)
+async def set_calendar(
+    book_id: uuid.UUID, body: CalendarRequest, user: CurrentUser, session: SessionDep
+) -> BookResponse:
+    """Choose whether this book's months and years follow the Jalali or the Gregorian calendar."""
+    book = await BookService(session).set_calendar(user.id, book_id, body.calendar)
+    return _book_response(book)
 
 
 @router.put("/{book_id}/cost-policy", response_model=BookResponse)
@@ -121,10 +131,7 @@ async def set_cost_policy(
     book = await BookService(session).set_cost_policy(
         user.id, book_id, _as_enum(CostPolicy, body.cost_policy, "cost_policy")
     )
-    return BookResponse(id=book.id, name=book.name, type=book.type.value,
-                        currency=book.base_currency,
-                        cost_policy=book.cost_policy.value,
-                        created_at=book.created_at)
+    return _book_response(book)
 
 
 # ------------------------------------------------------ wallet & currencies
@@ -160,9 +167,7 @@ async def set_base_currency(
     """Choose the unit the book is kept in. Refused once the book has history."""
     await ExchangeService(session).set_base(user.id, book_id, body.code)
     book = await BookService(session).get_book(book_id)
-    return BookResponse(id=book.id, name=book.name, type=book.type.value,
-                        currency=book.base_currency, cost_policy=book.cost_policy.value,
-                        created_at=book.created_at)
+    return _book_response(book)
 
 
 @router.get("/{book_id}/wallet", response_model=List[CurrencyBalanceResponse])

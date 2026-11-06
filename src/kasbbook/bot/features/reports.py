@@ -10,6 +10,7 @@ import uuid
 
 from ...adapters.base import OutgoingFile
 from ...modules.reports import service as reports_service
+from ...shared import calendars
 from .. import screens
 from .base import Feature
 
@@ -37,7 +38,7 @@ class ReportsFeature(Feature):
         """rp / rb / rc all name a book and a period the same way."""
         book = await self.ctx.books.get_book(uuid.UUID(parts[1]))
         spec = ":".join(parts[2:])
-        period = reports_service.parse_spec(spec)
+        period = reports_service.parse_spec(spec, self.ctx.today(user), calendars.of(book))
         if period is None:
             years = await self.ctx.reports.years_with_data(book.id, user.id)
             return screens.period_menu(book, years, self.ctx.today(user))

@@ -470,6 +470,17 @@
       },
       "BookRequest": {
         "properties": {
+          "calendar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calendar"
+          },
           "cost_policy": {
             "anyOf": [
               {
@@ -512,6 +523,11 @@
       },
       "BookResponse": {
         "properties": {
+          "calendar": {
+            "default": "jalali",
+            "title": "Calendar",
+            "type": "string"
+          },
           "cost_policy": {
             "title": "Cost Policy",
             "type": "string"
@@ -834,6 +850,19 @@
           "percent_used"
         ],
         "title": "BudgetResponse",
+        "type": "object"
+      },
+      "CalendarRequest": {
+        "properties": {
+          "calendar": {
+            "title": "Calendar",
+            "type": "string"
+          }
+        },
+        "required": [
+          "calendar"
+        ],
+        "title": "CalendarRequest",
         "type": "object"
       },
       "CashflowPoint": {
@@ -4533,6 +4562,16 @@
             "title": "Reminder Days",
             "type": "integer"
           },
+          "suggested_calendar": {
+            "default": "jalali",
+            "title": "Suggested Calendar",
+            "type": "string"
+          },
+          "suggested_currency": {
+            "default": "IRT",
+            "title": "Suggested Currency",
+            "type": "string"
+          },
           "timezone": {
             "title": "Timezone",
             "type": "string"
@@ -7304,6 +7343,92 @@
         "summary": "Delete Budget",
         "tags": [
           "planning"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/calendar": {
+      "put": {
+        "description": "Choose whether this book's months and years follow the Jalali or the Gregorian calendar.",
+        "operationId": "books_set_calendar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Calendar",
+        "tags": [
+          "books"
         ]
       }
     },
@@ -12130,7 +12255,7 @@
     },
     "/api/v1/books/{book_id}/reports/monthly": {
       "get": {
-        "description": "Income and expense for each of the last N Jalali months, oldest first.",
+        "description": "Income and expense for each of the last N months of the book's calendar, oldest first.",
         "operationId": "reports_monthly",
         "parameters": [
           {

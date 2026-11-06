@@ -51,10 +51,12 @@ def _as_spec(text: str) -> str:
     return text
 
 
-def _period(spec: Optional[str]):
+async def _period(session, book_id, spec: Optional[str]):
+    """The period asked for, with its months counted by the book's own calendar."""
     if not spec:
         return None
-    period = reports.parse_spec(_as_spec(spec.strip()))
+    cal = await reports.ReportService(session).calendar_of(book_id)
+    period = reports.parse_spec(_as_spec(spec.strip()), None, cal)
     if period is None:
         raise ValidationError(
             "period should look like 1403-05 for a month, 1403 for a year, "
@@ -71,7 +73,7 @@ async def summary(
     period: Optional[str] = Query(default=None, description="1403-05, 1403, or week"),
 ) -> SummaryResponse:
     totals = await reports.ReportService(session).summary(
-        book_id, user.id, _period(period)
+        book_id, user.id, await _period(session, book_id, period)
     )
     return SummaryResponse(
         income=totals.income, expense=totals.expense, net=totals.net,
@@ -143,7 +145,7 @@ async def by_category(
         raise ValidationError("flow must be income or expense") from None
 
     buckets = await reports.ReportService(session).by_category(
-        book_id, user.id, _period(period)
+        book_id, user.id, await _period(session, book_id, period)
     )
     lines = buckets.get(direction, [])
     total = sum((amount for _, amount, _ in lines), ZERO)
@@ -166,11 +168,13 @@ async def monthly(
     session: SessionDep,
     months: int = Query(default=6, ge=1, le=24),
 ) -> List[MonthlyPoint]:
-    """Income and expense for each of the last N Jalali months, oldest first."""
-    rows = await reports.ReportService(session).monthly(book_id, user.id, months)
+    """Income and expense for each of the last N months of the book's calendar, oldest first."""
+    service = reports.ReportService(session)
+    cal = await service.calendar_of(book_id)
+    rows = await service.monthly(book_id, user.id, months)
     return [
         MonthlyPoint(
-            period=f"{y}-{m:02d}", label=jalali.month_name(m), income=t.income,
+            period=f"{y}-{m:02d}", label=cal.month_name(m), income=t.income,
             expense=t.expense, net=t.net, transaction_count=t.count,
         )
         for y, m, t in rows
@@ -185,7 +189,7 @@ async def daily(
     period: str = Query(description="1403-05, 1403, or week"),
 ) -> List[DailyPoint]:
     """Per-day income and expense inside one period, for a chart."""
-    rows = await reports.ReportService(session).daily(book_id, user.id, _period(period))
+    rows = await reports.ReportService(session).daily(book_id, user.id, await _period(session, book_id, period))
     return [DailyPoint(on=d, income=i, expense=e) for d, i, e in rows]
 
 
@@ -197,7 +201,7 @@ async def export_csv(
     period: Optional[str] = None,
 ) -> Response:
     """The whole period as a file, for anyone who would rather use a spreadsheet."""
-    content = await reports.ReportService(session).to_csv(book_id, user.id, _period(period))
+    content = await reports.ReportService(session).to_csv(book_id, user.id, await _period(session, book_id, period))
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",

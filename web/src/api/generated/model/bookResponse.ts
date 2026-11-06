@@ -16,6 +16,7 @@
  */
 
 export interface BookResponse {
+	calendar?: string;
 	cost_policy: string;
 	created_at: string;
 	currency: string;

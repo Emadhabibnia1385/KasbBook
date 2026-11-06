@@ -23,7 +23,7 @@ import { KpiRow, OverviewRow } from "@/features/analytics/kpis";
 import { BudgetGauges, TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { AllBooksDashboard } from "./AllBooks";
-import { currentPeriod, formatDay, formatMoney } from "@/shared/format";
+import { calendarOf, currentPeriod, formatDay, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 
 function Recent({ book }: { book: BookResponse }) {
@@ -77,7 +77,7 @@ export function Dashboard() {
 	const { books, book, all, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton stats={4} />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
-	const period = currentPeriod();
+	const period = currentPeriod(calendarOf(book?.calendar));
 	// Every book together, unless one is chosen: the dashboard is about all of someone's money.
 	if (all)
 		return (
@@ -91,7 +91,7 @@ export function Dashboard() {
 						</Link>
 					}
 				/>
-				<AllBooksDashboard books={books} period={period} />
+				<AllBooksDashboard books={books} />
 			</div>
 		);
 	if (!book)

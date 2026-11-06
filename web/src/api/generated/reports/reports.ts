@@ -669,7 +669,7 @@ export const getReportsMonthlyUrl = (bookId: string, params?: ReportsMonthlyPara
 };
 
 /**
- * Income and expense for each of the last N Jalali months, oldest first.
+ * Income and expense for each of the last N months of the book's calendar, oldest first.
  * @summary Monthly
  */
 export const reportsMonthly = async (

@@ -7,7 +7,7 @@ import {
 } from "@/api/generated/analytics/analytics";
 import type { BookResponse } from "@/api/generated/model";
 import { color, DeltaChip, Sparkline } from "@/shared/charts";
-import { formatAmount, formatMoney } from "@/shared/format";
+import { calendarOf, formatAmount, formatMoney } from "@/shared/format";
 import { periodLabel } from "@/shared/periods";
 import { t } from "@/strings";
 
@@ -58,7 +58,7 @@ export function KpiRow({ book, period }: { book: BookResponse; period: string })
 	const compare = useAnalyticsCompare(book.id, { period }).data;
 	const cashflow = useAnalyticsCashflow(book.id, { months: 12 }).data ?? [];
 	const money = (value?: string) => (value === undefined ? "…" : formatMoney(value, book.currency));
-	const before = compare ? periodLabel(compare.previous_period) : "";
+	const before = compare ? periodLabel(compare.previous_period, calendarOf(book.calendar)) : "";
 	const previous = (value?: string) =>
 		value === undefined ? undefined : `${before}: ${money(value)}`;
 	const spark = (key: "income" | "expense" | "net", tone: string, label: string) => (
@@ -196,7 +196,7 @@ export function OverviewRow({ book, period }: { book: BookResponse; period: stri
 export function CompareCards({ book, period }: { book: BookResponse; period: string }) {
 	const { data } = useAnalyticsCompare(book.id, { period });
 	const money = (value?: string) => (value === undefined ? "…" : formatMoney(value, book.currency));
-	const before = data ? periodLabel(data.previous_period) : "";
+	const before = data ? periodLabel(data.previous_period, calendarOf(book.calendar)) : "";
 	const previous = (value?: string) =>
 		value === undefined ? undefined : `${before}: ${money(value)}`;
 	return (

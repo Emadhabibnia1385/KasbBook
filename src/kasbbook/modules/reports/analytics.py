@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import jalali
+from ...shared import calendars, jalali
 from ...shared.errors import ValidationError
 from ...shared.money import ZERO, quantize
 from ..books.models import Permission
@@ -81,13 +81,14 @@ def change(current: Decimal, previous: Decimal) -> Change:
 def previous_period(period: Period, today: date) -> Period:
     """The period of the same kind immediately before this one."""
     parts = period.spec.split(":")
+    cal = calendars.named(period.calendar)
     if parts[0] == "m":
         y, m = int(parts[1]), int(parts[2])
-        return month(y - 1, 12) if m == 1 else month(y, m - 1)
+        return month(y - 1, 12, cal) if m == 1 else month(y, m - 1, cal)
     if parts[0] == "y":
-        return year(int(parts[1]) - 1)
+        return year(int(parts[1]) - 1, cal)
     if parts[0] == "w":
-        return week(today, int(parts[1]) + 1)
+        return week(today, int(parts[1]) + 1, cal)
     raise ValidationError("this period has no earlier period to compare with")
 
 
@@ -292,15 +293,17 @@ class AnalyticsService:
         income = [ZERO] * 7
         expense = [ZERO] * 7
         counts = [0] * 7
+        # The week starts where the book's calendar starts it: Saturday, or Monday.
+        cal = await self.reports.calendar_of(book_id)
         for tx in await self._rows(book_id, user_id, period):
-            i = weekday_index(tx.occurred_on)
+            i = cal.weekday_index(tx.occurred_on)
             if tx.flow is Flow.INCOME:
                 income[i] += tx.converted_amount
             else:
                 expense[i] += tx.converted_amount
             counts[i] += 1
         return [
-            WeekdayRow(i, WEEKDAYS[i], quantize(income[i]), quantize(expense[i]), counts[i])
+            WeekdayRow(i, cal.weekday_names[i], quantize(income[i]), quantize(expense[i]), counts[i])
             for i in range(7)
         ]
 
@@ -385,18 +388,19 @@ class AnalyticsService:
         outside the top is folded into one «سایر» segment, present only when
         something was folded. Months with no activity are still listed.
         """
-        wanted = jalali.recent_months(months, today)
-        start = jalali.month_range(*wanted[0])[0]
-        end = jalali.month_range(*wanted[-1])[1]
+        cal = await self.reports.calendar_of(book_id)
+        wanted = cal.recent_months(months, today)
+        start = cal.month_range(*wanted[0])[0]
+        end = cal.month_range(*wanted[-1])[1]
         # `Period` wants a spec and a label, which a window of loose months has none of.
-        window = Period("", start, end, "")
+        window = Period("", start, end, "", cal.name)
 
         per_month: Dict[Tuple[int, int], Dict[str, Decimal]] = {key: {} for key in wanted}
         overall: Dict[str, Decimal] = {}
         for tx in await self._rows(book_id, user_id, window):
             if tx.flow is not flow:
                 continue
-            y, m, _ = jalali.to_parts(tx.occurred_on)
+            y, m, _ = cal.to_parts(tx.occurred_on)
             bucket = per_month.get((y, m))
             if bucket is None:
                 continue

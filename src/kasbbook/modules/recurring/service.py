@@ -10,7 +10,8 @@ from typing import List, Optional, Sequence, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import jalali
+from ...shared import calendars
+from ...shared.calendars import Calendar
 from ...shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Book, BookType, Permission
@@ -31,13 +32,13 @@ SCOPE_FOR_BOOK = {
 }
 
 
-def next_run_after(period: Period, current: date) -> date:
+def next_run_after(period: Period, current: date, cal: Calendar = calendars.JALALI) -> date:
     if period is Period.DAILY:
         return current + timedelta(days=1)
     if period is Period.WEEKLY:
         return current + timedelta(days=7)
-    # A month means a Jalali month, so "the 5th of every month" stays the 5th.
-    return jalali.add_months(current, 1)
+    # A month means a month of the book's own calendar, so "the 5th of every month" stays the 5th.
+    return cal.add_months(current, 1)
 
 
 class RecurringService:
@@ -203,7 +204,7 @@ class RecurringService:
                 else:
                     run.booked.append((rule, tx))
                 fired += 1
-                when = next_run_after(rule.period, when)
+                when = next_run_after(rule.period, when, calendars.of(book))
 
             rule.next_run_on = when
             rule.last_run_on = cutoff

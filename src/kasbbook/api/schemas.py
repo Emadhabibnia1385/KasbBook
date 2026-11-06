@@ -56,6 +56,9 @@ class UserResponse(Model):
     display_name: str
     username: Optional[str] = None
     is_guest: bool = False
+    # What a new book would start with, from where this account's time zone says it is.
+    suggested_currency: str = "IRT"
+    suggested_calendar: str = "jalali"
     # Whether a secret is set for the web login; the hash itself never leaves the server.
     web_login_ready: bool = False
     email: Optional[str] = None
@@ -188,10 +191,16 @@ class BookRequest(Model):
     # made toman ones, and nothing ever compared the two.
     currency: Optional[str] = None
     cost_policy: Optional[str] = None
+    # "jalali" or "gregorian": where this book's months, years and weeks begin. None keeps the Jalali default.
+    calendar: Optional[str] = None
 
 
 class CostPolicyRequest(Model):
     cost_policy: str
+
+
+class CalendarRequest(Model):
+    calendar: str
 
 
 class BookResponse(Model):
@@ -200,6 +209,7 @@ class BookResponse(Model):
     type: str
     currency: str
     cost_policy: str
+    calendar: str = "jalali"
     created_at: datetime
 
 

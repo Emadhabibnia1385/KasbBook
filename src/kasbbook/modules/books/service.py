@@ -33,16 +33,19 @@ class BookService:
         book_type: BookType,
         base_currency: str = "IRT",
         cost_policy: CostPolicy = CostPolicy.BEFORE_SPLIT,
+        calendar: str = "jalali",
     ) -> Book:
         # Checked here, not in a route, so the bot and the API refuse the same codes.
         if base_currency.upper() not in BY_CODE:
             raise ValidationError(f"ارز {base_currency} پشتیبانی نمی‌شود.")
+        calendar = self._valid_calendar(calendar)
         book = Book(
             name=name.strip(),
             type=book_type,
             owner_user_id=owner_user_id,
             base_currency=base_currency.upper(),
             cost_policy=cost_policy,
+            calendar=calendar,
         )
         self.session.add(book)
         await self.session.flush()
@@ -59,6 +62,38 @@ class BookService:
         )
         self.session.add(
             AuditEvent(user_id=owner_user_id, action="book.created", subject=name)
+        )
+        await self.session.flush()
+        return book
+
+    @staticmethod
+    def _valid_calendar(calendar: str) -> str:
+        from ...shared.calendars import CALENDAR_NAMES
+
+        value = (calendar or "").strip().lower()
+        if value not in CALENDAR_NAMES:
+            raise ValidationError("تقویم باید شمسی یا میلادی باشد.")
+        return value
+
+    async def set_calendar(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, calendar: str
+    ) -> Book:
+        """Change which calendar this book's months and years are counted by.
+
+        Every date is stored as a Gregorian day, so nothing recorded moves: the
+        same days are simply grouped into different months from now on. That is
+        why it is allowed on a book with history, unlike the currency.
+        """
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        book = await self.get_book(book_id)
+        book.calendar = self._valid_calendar(calendar)
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="book.calendar_changed",
+                subject=str(book_id),
+                detail=book.calendar,
+            )
         )
         await self.session.flush()
         return book

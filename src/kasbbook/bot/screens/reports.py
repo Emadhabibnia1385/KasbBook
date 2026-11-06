@@ -8,7 +8,7 @@ from typing import List, Optional, Sequence
 
 from ...adapters.base import Button
 from ...modules.books.models import Book
-from ...shared import jalali
+from ...shared import calendars, jalali
 from .common import (
     Screen,
     _book_buttons,
@@ -46,12 +46,13 @@ def period_menu(book: Book, years: Sequence[int], today: Optional[date] = None) 
     ]
 
 
-    this_year, this_month, _ = jalali.to_parts(today or date.today())
+    cal = calendars.of(book)
+    this_year, this_month, _ = cal.to_parts(today or date.today())
     last_year, last_month = (this_year, this_month - 1) if this_month > 1 else (this_year - 1, 12)
     rows.append([
-        Button(f"{jalali.month_name(this_month)} {this_year}",
+        Button(f"{cal.month_name(this_month)} {this_year}",
                data=f"rp:{book.id}:m:{this_year}:{this_month:02d}"),
-        Button(f"{jalali.month_name(last_month)} {last_year}",
+        Button(f"{cal.month_name(last_month)} {last_year}",
                data=f"rp:{book.id}:m:{last_year}:{last_month:02d}"),
     ])
 

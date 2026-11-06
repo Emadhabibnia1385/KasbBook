@@ -33,6 +33,15 @@ describe("calendar", () => {
 		expect(monthWindow("1403-12").starts_on).toBe("2025-02-19");
 	});
 
+	it("counts a Gregorian month by the usual days", () => {
+		expect(monthWindow("2026-02", "gregorian")).toEqual({
+			starts_on: "2026-02-01",
+			ends_on: "2026-02-28",
+		});
+		expect(monthWindow("2028-02", "gregorian").ends_on).toBe("2028-02-29");
+		expect(monthWindow("2026-12", "gregorian").ends_on).toBe("2026-12-31");
+	});
+
 	it("finds the end of the month a day falls in", () => {
 		expect(monthEndOf("2026-11-05")).toBe("2026-11-21");
 	});

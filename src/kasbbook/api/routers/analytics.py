@@ -49,12 +49,13 @@ def _today(user) -> date:
     return jalali.today_in(user.timezone)
 
 
-def _period(spec: Optional[str], today: date) -> Period:
-    """The period asked for, or the current month when none was."""
+async def _period(session, book_id, spec: Optional[str], today: date) -> Period:
+    """The period asked for, or the current month when none was, by the book's calendar."""
+    cal = await analytics_service.ReportService(session).calendar_of(book_id)
     if not spec:
-        y, m, _ = jalali.to_parts(today)
-        return month(y, m)
-    period = parse_spec(_as_spec(spec.strip()), today)
+        y, m, _ = cal.to_parts(today)
+        return month(y, m, cal)
+    period = parse_spec(_as_spec(spec.strip()), today, cal)
     if period is None:
         raise ValidationError(
             "period should look like 1405-08 for a month, 1405 for a year, "
@@ -103,12 +104,12 @@ async def cashflow(
     months: int = Query(default=12, ge=1, le=24),
 ) -> List[CashflowPoint]:
     """Income, expense, net, savings rate and a running net for each of the last N months."""
-    rows = await analytics_service.AnalyticsService(session).cashflow(
-        book_id, user.id, months, _today(user)
-    )
+    service = analytics_service.AnalyticsService(session)
+    cal = await service.reports.calendar_of(book_id)
+    rows = await service.cashflow(book_id, user.id, months, _today(user))
     return [
         CashflowPoint(
-            period=f"{r.year}-{r.month:02d}", label=jalali.month_name(r.month),
+            period=f"{r.year}-{r.month:02d}", label=cal.month_name(r.month),
             income=r.income, expense=r.expense, net=r.net,
             savings_rate_percent=r.savings_rate_percent,
             cumulative_net=r.cumulative_net, transaction_count=r.count,
@@ -125,7 +126,7 @@ async def weekday(
     period: Optional[str] = Query(default=None, description="1405-08, 1405, or week; default this month"),
 ) -> List[WeekdayPoint]:
     """Income and expense by day of the week, Saturday first."""
-    resolved = _period(period, _today(user))
+    resolved = await _period(session, book_id, period, _today(user))
     rows = await analytics_service.AnalyticsService(session).weekday(book_id, user.id, resolved)
     return [
         WeekdayPoint(
@@ -144,7 +145,7 @@ async def scope_split(
     period: Optional[str] = Query(default=None, description="1405-08, 1405, or week; default this month"),
 ) -> List[ScopePoint]:
     """Totals per scope (work, personal, team); all three are always listed."""
-    resolved = _period(period, _today(user))
+    resolved = await _period(session, book_id, period, _today(user))
     rows = await analytics_service.AnalyticsService(session).scope_split(book_id, user.id, resolved)
     return [
         ScopePoint(
@@ -164,7 +165,7 @@ async def compare(
 ) -> CompareResponse:
     """This period against the one before it, overall and for the biggest categories."""
     today = _today(user)
-    resolved = _period(period, today)
+    resolved = await _period(session, book_id, period, today)
     result = await analytics_service.AnalyticsService(session).compare(
         book_id, user.id, resolved, today
     )
@@ -190,7 +191,7 @@ async def top_categories(
     """The biggest categories this period, each with its change since the last."""
     today = _today(user)
     moves = await analytics_service.AnalyticsService(session).top_categories(
-        book_id, user.id, _period(period, today), _flow(flow), limit, today
+        book_id, user.id, await _period(session, book_id, period, today), _flow(flow), limit, today
     )
     return [
         TopCategory(**_category_delta(m).model_dump(), share_percent=m.share_percent)
@@ -209,14 +210,14 @@ async def category_monthly(
 ) -> CategoryMonthlyResponse:
     """The last N months, each split by category: the biggest few and «سایر» for the rest."""
     direction = _flow(flow)
-    rows = await analytics_service.AnalyticsService(session).category_monthly(
-        book_id, user.id, months, direction, top, _today(user)
-    )
+    service = analytics_service.AnalyticsService(session)
+    cal = await service.reports.calendar_of(book_id)
+    rows = await service.category_monthly(book_id, user.id, months, direction, top, _today(user))
     return CategoryMonthlyResponse(
         flow=direction.value,
         months=[
             CategoryMonthPoint(
-                period=f"{r.year}-{r.month:02d}", label=jalali.month_name(r.month), total=r.total,
+                period=f"{r.year}-{r.month:02d}", label=cal.month_name(r.month), total=r.total,
                 segments=[
                     CategorySegment(category=s.category, amount=s.amount, is_other=s.is_other)
                     for s in r.segments
@@ -236,7 +237,7 @@ async def cumulative(
 ) -> CumulativeResponse:
     """Running income, expense and net by day, with last period's net aligned by day number."""
     today = _today(user)
-    resolved = _period(period, today)
+    resolved = await _period(session, book_id, period, today)
     previous, points = await analytics_service.AnalyticsService(session).cumulative(
         book_id, user.id, resolved, today
     )
@@ -262,7 +263,7 @@ async def overview_kpis(
 ) -> OverviewResponse:
     """Balance, savings rate, average daily spending, biggest expense and runway."""
     today = _today(user)
-    resolved = _period(period, today)
+    resolved = await _period(session, book_id, period, today)
     result = await analytics_service.AnalyticsService(session).overview(
         book_id, user.id, resolved, today
     )
@@ -291,7 +292,7 @@ async def budget_vs_actual(
 ) -> BudgetActualResponse:
     """Each budget's ceiling against what the month has spent, and how much of the month is gone."""
     today = _today(user)
-    resolved = _period(period, today)
+    resolved = await _period(session, book_id, period, today)
     result = await analytics_service.AnalyticsService(session).budget_vs_actual(
         book_id, user.id, resolved, today
     )

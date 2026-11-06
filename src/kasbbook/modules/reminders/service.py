@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import jalali
+from ...shared import calendars, jalali
 from ...shared.money import ZERO
 from ..books.models import Book, Membership
 from ..budgets.service import WARN_AT_PERCENT, BudgetService
@@ -134,9 +134,10 @@ class ReminderService:
         rather than restated, so the nudge shown when a transaction is recorded
         and this line never start disagreeing about what "close" means.
         """
-        # Jalali first, Gregorian bounds after — `status` runs the query.
-        year, month, _ = jalali.to_parts(when)
-        _, ends_on = jalali.month_range(year, month)
+        # The book's calendar first, Gregorian bounds after — `status` runs the query.
+        cal = calendars.of(book)
+        year, month, _ = cal.to_parts(when)
+        _, ends_on = cal.month_range(year, month)
         left = (ends_on - when).days
 
         lines: List[str] = []

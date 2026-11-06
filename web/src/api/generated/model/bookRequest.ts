@@ -16,6 +16,7 @@
  */
 
 export interface BookRequest {
+	calendar?: string | null;
 	cost_policy?: string | null;
 	currency?: string | null;
 	/**

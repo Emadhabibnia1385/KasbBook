@@ -15,11 +15,9 @@ import {
 import { CompareCards } from "@/features/analytics/kpis";
 import { TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { calendarOf } from "@/shared/format";
 import { kindOf, monthOptions, type PeriodKind, yearOptions } from "@/shared/periods";
 import { t } from "@/strings";
-
-const MONTHS = monthOptions(12);
-const YEARS = yearOptions(4);
 
 function Body({ book, period }: { book: BookResponse; period: string }) {
 	const r = t.analytics.reports;
@@ -60,13 +58,23 @@ async function download(book: BookResponse, period: string) {
 export function Reports() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	const [kind, setKind] = useState<PeriodKind>("month");
-	const [month, setMonth] = useState(MONTHS[0]?.value ?? "");
-	const [year, setYear] = useState(YEARS[0]?.value ?? "");
+	// Months and years are the book's own: a Gregorian book lists Gregorian ones.
+	const cal = calendarOf(book?.calendar);
+	const months = monthOptions(12, cal);
+	const years = yearOptions(4, cal);
+	const [chosenMonth, setMonth] = useState("");
+	const [chosenYear, setYear] = useState("");
+	const month = months.some((option) => option.value === chosenMonth)
+		? chosenMonth
+		: (months[0]?.value ?? "");
+	const year = years.some((option) => option.value === chosenYear)
+		? chosenYear
+		: (years[0]?.value ?? "");
 	if (isLoading) return <PageSkeleton stats={4} />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
 	if (!book) return <BookRequired />;
 	const period = kind === "week" ? "week" : kind === "month" ? month : year;
-	const options = kind === "month" ? MONTHS : YEARS;
+	const options = kind === "month" ? months : years;
 	const r = t.analytics.reports;
 	return (
 		<div className="flex flex-col gap-5">

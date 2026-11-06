@@ -17,9 +17,11 @@ import {
 	TextField,
 	toast,
 } from "@nyxon/nasim";
+import { useAuthMe } from "@/api/generated/auth/auth";
 import {
 	getBooksListBooksQueryKey,
 	useBooksCreateBook,
+	useBooksSetCalendar,
 	useBooksWallet,
 } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
@@ -50,6 +52,45 @@ const schema = z.object({
 });
 type Values = z.input<typeof schema>;
 
+const CALENDARS = [
+	{ value: "jalali", label: t.books.calendarJalali },
+	{ value: "gregorian", label: t.books.calendarGregorian },
+];
+
+/** The calendar this book counts its months by, with a way to change it: the recorded days do not move. */
+function CalendarSwitch({ book }: { book: BookResponse }) {
+	const queryClient = useQueryClient();
+	const set = useBooksSetCalendar();
+	const current = book.calendar === "gregorian" ? "gregorian" : "jalali";
+	return (
+		<div className="flex flex-col gap-1.5">
+			<div className="flex items-center gap-2">
+				<span className="text-sm text-muted">{t.books.calendar}</span>
+				{CALENDARS.map((option) => (
+					<Button
+						key={option.value}
+						size="sm"
+						variant={option.value === current ? "primary" : "ghost"}
+						isDisabled={set.isPending}
+						onPress={async () => {
+							if (option.value === current) return;
+							try {
+								await set.mutateAsync({ bookId: book.id, data: { calendar: option.value } });
+								await queryClient.invalidateQueries();
+								toast.success(t.books.calendarChanged);
+							} catch (error) {
+								toast.danger(error instanceof Error ? error.message : t.errors.unknown);
+							}
+						}}
+					>
+						{option.label}
+					</Button>
+				))}
+			</div>
+		</div>
+	);
+}
+
 function Wallet({ book }: { book: BookResponse }) {
 	const { data = [] } = useBooksWallet(book.id);
 	if (!data.length) return null;
@@ -67,7 +108,12 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 	const { books, book: active, isLoading } = useActiveBook();
 	// Arriving from a refused base-currency change opens the form with that unit already chosen.
 	const [adding, setAdding] = useState(Boolean(presetCurrency));
-	const [currency, setCurrency] = useState(presetCurrency ?? "IRT");
+	// The money and the calendar start from where this account's time zone says the person is; they may change both.
+	const me = useAuthMe().data;
+	const [chosenCurrency, setCurrency] = useState<string | null>(presetCurrency ?? null);
+	const [chosenCalendar, setCalendar] = useState<string | null>(null);
+	const currency = chosenCurrency ?? me?.suggested_currency ?? "IRT";
+	const calendar = chosenCalendar ?? me?.suggested_calendar ?? "jalali";
 	const [pickingCurrency, setPickingCurrency] = useState(false);
 	const create = useBooksCreateBook();
 	const form = useForm<Values>({
@@ -104,6 +150,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 								{TYPES.find((type) => type.value === book.type)?.label ?? book.type} ·{" "}
 								{currencyName(book.currency)}
 							</p>
+							<CalendarSwitch book={book} />
 							<Wallet book={book} />
 						</SectionCard>
 					))}
@@ -121,12 +168,14 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 					onSubmit={async (values) => {
 						try {
 							const made = await create.mutateAsync({
-								data: { name: values.name, type: values.type, currency },
+								data: { name: values.name, type: values.type, currency, calendar },
 							});
 							await queryClient.invalidateQueries({ queryKey: getBooksListBooksQueryKey() });
 							selectBook(made.id);
 							toast.success(t.books.created);
 							form.reset();
+							setCurrency(null);
+							setCalendar(null);
 							setAdding(false);
 						} catch (error) {
 							toast.danger(error instanceof Error ? error.message : t.errors.unknown);
@@ -152,6 +201,16 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 						</Button>
 						<p className="text-sm text-muted">{t.books.baseCurrencyHint}</p>
 					</div>
+					<div className="flex flex-col gap-1.5">
+						<SelectField
+							label={t.books.calendar}
+							options={CALENDARS}
+							value={calendar}
+							onChange={(value) => setCalendar(value)}
+						/>
+						<p className="text-sm text-muted">{t.books.calendarHint}</p>
+					</div>
+					<p className="text-xs text-muted">{t.books.suggestedNote}</p>
 					<SubmitButton>{t.common.save}</SubmitButton>
 				</FormRoot>
 			</Modal>

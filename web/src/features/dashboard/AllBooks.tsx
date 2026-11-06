@@ -23,7 +23,15 @@ import {
 	OTHER_COLOR,
 	type Slice,
 } from "@/shared/charts";
-import { currencyName, formatAmount, formatCompact, formatDay, formatMoney } from "@/shared/format";
+import {
+	calendarOf,
+	currencyName,
+	currentPeriod,
+	formatAmount,
+	formatCompact,
+	formatDay,
+	formatMoney,
+} from "@/shared/format";
 import { periodLabel } from "@/shared/periods";
 import { t } from "@/strings";
 
@@ -43,8 +51,12 @@ function useUnits(books: BookResponse[]) {
 
 type Row = { book: BookResponse; rate: number | null };
 
-export function AllBooksDashboard({ books, period }: { books: BookResponse[]; period: string }) {
+// Each book's current month is by its own calendar, so a Jalali and a Gregorian book are each asked about theirs.
+const periodFor = (book: BookResponse) => currentPeriod(calendarOf(book.calendar));
+
+export function AllBooksDashboard({ books }: { books: BookResponse[] }) {
 	const { unit, factor, converted } = useUnits(books);
+	const sameCalendar = new Set(books.map((book) => calendarOf(book.calendar))).size <= 1;
 	const rows: Row[] = books.map((book) => ({ book, rate: factor(book.currency) }));
 	const skipped = rows.filter((row) => row.rate === null);
 	const money = (value: number) => formatMoney(String(Math.round(value)), unit);
@@ -52,8 +64,8 @@ export function AllBooksDashboard({ books, period }: { books: BookResponse[]; pe
 
 	const compares = useQueries({
 		queries: books.map((book) => ({
-			queryKey: getAnalyticsCompareQueryKey(book.id, { period }),
-			queryFn: () => analyticsCompare(book.id, { period }),
+			queryKey: getAnalyticsCompareQueryKey(book.id, { period: periodFor(book) }),
+			queryFn: () => analyticsCompare(book.id, { period: periodFor(book) }),
 		})),
 	});
 	const cashflows = useQueries({
@@ -64,8 +76,8 @@ export function AllBooksDashboard({ books, period }: { books: BookResponse[]; pe
 	});
 	const categories = useQueries({
 		queries: books.map((book) => ({
-			queryKey: getReportsByCategoryQueryKey(book.id, { flow: "expense", period }),
-			queryFn: () => reportsByCategory(book.id, { flow: "expense", period }),
+			queryKey: getReportsByCategoryQueryKey(book.id, { flow: "expense", period: periodFor(book) }),
+			queryFn: () => reportsByCategory(book.id, { flow: "expense", period: periodFor(book) }),
 		})),
 	});
 	const recent = useTransactionsListAllTransactions({ per_page: 6, sort: "newest" });
@@ -94,11 +106,19 @@ export function AllBooksDashboard({ books, period }: { books: BookResponse[]; pe
 	const here = (value: number) => (ready ? money(value) : "…");
 
 	// Twelve months, every book's added into the same month.
-	const months = new Map<string, { label: string; income: number; expense: number }>();
+	const months = new Map<
+		string,
+		{ label: string; cal: ReturnType<typeof calendarOf>; income: number; expense: number }
+	>();
 	rows.forEach((row, index) => {
 		if (row.rate === null) return;
 		for (const point of cashflows[index]?.data ?? []) {
-			const month = months.get(point.period) ?? { label: point.label, income: 0, expense: 0 };
+			const month = months.get(point.period) ?? {
+				label: point.label,
+				cal: calendarOf(row.book.calendar),
+				income: 0,
+				expense: 0,
+			};
 			month.income += scale(row, point.income);
 			month.expense += scale(row, point.expense);
 			months.set(point.period, month);
@@ -109,7 +129,7 @@ export function AllBooksDashboard({ books, period }: { books: BookResponse[]; pe
 		.map(([key, month]) => ({
 			key,
 			label: month.label,
-			title: periodLabel(key),
+			title: periodLabel(key, month.cal),
 			values: {
 				income: String(month.income),
 				expense: String(month.expense),
@@ -194,7 +214,13 @@ export function AllBooksDashboard({ books, period }: { books: BookResponse[]; pe
 				<StatCard
 					label={t.dashboard.countUnit}
 					value={<span className="text-lg sm:text-2xl">{ready ? formatAmount(count) : "…"}</span>}
-					hint={previousLabel ? periodLabel(period) : undefined}
+					hint={
+						previousLabel
+							? sameCalendar
+								? periodLabel(periodFor(books[0] as BookResponse), calendarOf(books[0]?.calendar))
+								: t.scope.eachBooksMonth
+							: undefined
+					}
 				/>
 			</div>
 

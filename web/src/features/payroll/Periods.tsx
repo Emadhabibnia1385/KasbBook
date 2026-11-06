@@ -18,14 +18,13 @@ import {
 } from "@nyxon/nasim";
 import type { BookResponse, PeriodResponse } from "@/api/generated/model";
 import { usePayrollListPeriods, usePayrollOpenPeriod } from "@/api/generated/payroll/payroll";
-import { formatFullDate, recentPeriods, toAscii } from "@/shared/format";
+import { calendarOf, formatFullDate, recentPeriods, toAscii } from "@/shared/format";
 import { t } from "@/strings";
 import { monthWindow } from "./calendar";
 import { PayrollPage } from "./PayrollPage";
 import { periodStatusLabel, refreshPayroll, reportError } from "./shared";
 import { periodTone } from "./status";
 
-const MONTHS = recentPeriods(12);
 const schema = z.object({
 	month: z
 		.string({ error: t.payroll.periods.needMonth })
@@ -42,6 +41,7 @@ function OpenForm({
 }) {
 	const queryClient = useQueryClient();
 	const open = usePayrollOpenPeriod();
+	const MONTHS = recentPeriods(12, calendarOf(book.calendar));
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
 		defaultValues: { month: MONTHS[0]?.value ?? "" },
@@ -57,7 +57,10 @@ function OpenForm({
 					// The same label the bot writes for a month, so the two never open it twice under different names.
 					const period = await open.mutateAsync({
 						bookId: book.id,
-						data: { label: toAscii(month.label), ...monthWindow(month.value) },
+						data: {
+							label: toAscii(month.label),
+							...monthWindow(month.value, calendarOf(book.calendar)),
+						},
 					});
 					await refreshPayroll(queryClient, book.id);
 					toast.success(t.payroll.periods.opened);

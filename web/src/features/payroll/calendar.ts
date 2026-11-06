@@ -33,9 +33,20 @@ function monthStart(year: number, month: number): Date {
 	return guess;
 }
 
-/** First and last day of a Jalali month given as "1405-08". */
-export function monthWindow(period: string): { starts_on: string; ends_on: string } {
+/** First and last day of a month given as "1405-08", counted by the Jalali calendar or, when asked, the Gregorian one. */
+export function monthWindow(
+	period: string,
+	cal: "jalali" | "gregorian" = "jalali",
+): { starts_on: string; ends_on: string } {
 	const [year = 0, month = 1] = period.split("-").map(Number);
+	if (cal === "gregorian") {
+		const pad = (n: number) => String(n).padStart(2, "0");
+		return {
+			starts_on: `${year}-${pad(month)}-01`,
+			// Day zero of the next month is the last day of this one.
+			ends_on: toIso(new Date(Date.UTC(year, month, 0, 12))),
+		};
+	}
 	const next = month === 12 ? monthStart(year + 1, 1) : monthStart(year, month + 1);
 	return {
 		starts_on: toIso(monthStart(year, month)),

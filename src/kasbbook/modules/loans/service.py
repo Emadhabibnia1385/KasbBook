@@ -11,7 +11,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import jalali
+from ...shared import calendars, jalali
 from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
@@ -28,6 +28,8 @@ class LoanProgress:
     loan: Loan
     paid_count: int
     paid_amount: Decimal
+    # Whose months the installments fall in: the book's own calendar.
+    calendar: calendars.Calendar = calendars.JALALI
 
     @property
     def total_count(self) -> int:
@@ -52,7 +54,7 @@ class LoanProgress:
     @property
     def due_dates(self) -> List[date]:
         return [
-            jalali.add_months(self.loan.starts_on, offset)
+            self.calendar.add_months(self.loan.starts_on, offset)
             for offset in range(self.total_count)
         ]
 
@@ -142,7 +144,8 @@ class LoanService:
             )
         ).one()
 
-        return LoanProgress(loan, int(row[0]), quantize(to_decimal(row[1])))
+        cal = calendars.of(await self.books.get_book(book_id))
+        return LoanProgress(loan, int(row[0]), quantize(to_decimal(row[1])), cal)
 
     async def _paid_count(self, loan: Loan) -> int:
         return int(await self.session.scalar(

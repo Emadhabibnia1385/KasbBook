@@ -104,6 +104,20 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     def web_login_ready(self) -> bool:
         return bool(self.password_hash)
 
+    @property
+    def suggested_currency(self) -> str:
+        """The money people in this account's time zone usually keep books in."""
+        from ...shared.regions import region_for_zone
+
+        return region_for_zone(self.timezone).currency
+
+    @property
+    def suggested_calendar(self) -> str:
+        """The calendar people in this account's time zone usually count months by."""
+        from ...shared.regions import region_for_zone
+
+        return region_for_zone(self.timezone).calendar
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<User {self.id} {self.display_name!r}>"
 

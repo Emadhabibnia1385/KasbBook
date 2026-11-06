@@ -25,6 +25,8 @@ export interface UserResponse {
 	locale: string;
 	phone?: string | null;
 	reminder_days: number;
+	suggested_calendar?: string;
+	suggested_currency?: string;
 	timezone: string;
 	username?: string | null;
 	web_login_ready?: boolean;

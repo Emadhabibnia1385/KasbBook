@@ -20,15 +20,22 @@ Never a JSON number. JSON has one numeric type and it is a float;
 your side — `Decimal` in Python, `BigDecimal` in Java, a decimal library in
 JavaScript. Do **not** parse it into a `Number`.
 
-### Dates are ISO, periods are Jalali
+### Dates are ISO, periods follow the book's calendar
 
 `occurred_on` is `2026-08-25`. But a report period is `1403-05` — Mordad of
-1403 — converted to a Gregorian range before the query runs.
+1403 on a Jalali book, May of the year 1403 on a Gregorian one — converted to a
+Gregorian range before the query runs. Each book has a `calendar` (`jalali`, the
+default, or `gregorian`), chosen when it is made (`POST /books`, field
+`calendar`) and changeable with `PUT /books/{id}/calendar`. Changing it moves
+nothing that was recorded: the same days are grouped into different months from
+then on. The Gregorian week runs Monday to Sunday, the Jalali one Saturday to
+Friday. `GET /auth/me` carries `suggested_currency` and `suggested_calendar`,
+what a new book would start with for the time zone the account is in.
 
 | Period | Means |
 |---|---|
-| `1403-05` | one Jalali month |
-| `1403` | one Jalali year |
+| `1403-05` | one month of the book's calendar |
+| `1403` | one year of the book's calendar |
 | `week` | the current week |
 | *(omitted)* | everything |
 

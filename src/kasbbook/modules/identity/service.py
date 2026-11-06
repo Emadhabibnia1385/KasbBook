@@ -36,6 +36,7 @@ from ...shared.security import (
     verify_password,
 )
 from ...shared.parsing import to_ascii_digits
+from ...shared.regions import region_for_zone
 from .models import AuditEvent, Identity, LinkDirection, LinkToken, Provider, User
 
 # Long enough to switch apps and paste, short enough that a leaked link is dead
@@ -148,7 +149,37 @@ class IdentityService:
         books = BookService(self.session)
         if await books.books_for_user(user_id):
             return
-        await books.create_book(user_id, DEFAULT_BOOK_NAME, BookType.PERSONAL)
+        # The money and the calendar of wherever this person's time zone says they are.
+        region = region_for_zone((await self.get_user(user_id)).timezone)
+        await books.create_book(
+            user_id, DEFAULT_BOOK_NAME, BookType.PERSONAL, region.currency, calendar=region.calendar
+        )
+
+    async def adopt_region(self, user_id: uuid.UUID) -> None:
+        """Re-suggest the default book's money and calendar after the person's zone changed.
+
+        Only the untouched default book is ever changed: the one account made for
+        them, still holding nothing. A book with any history keeps what it has,
+        since its figures already mean something.
+        """
+        from ..books.models import BookType
+        from ..books.service import BookService
+        from ..exchange.service import ExchangeService
+
+        books = BookService(self.session)
+        mine = list(await books.books_for_user(user_id))
+        if len(mine) != 1:
+            return
+        book = mine[0]
+        if book.name != DEFAULT_BOOK_NAME or book.type is not BookType.PERSONAL:
+            return
+        region = region_for_zone((await self.get_user(user_id)).timezone)
+        try:
+            await ExchangeService(self.session).set_base(user_id, book.id, region.currency)
+        except ValidationError:
+            # It has history after all; leave the money as it is, and the calendar with it.
+            return
+        await books.set_calendar(user_id, book.id, region.calendar)
 
     async def create_account_from_messenger(
         self,
@@ -314,7 +345,11 @@ class IdentityService:
                 # A bad zone would make the digest arrive at the wrong hour and
                 # nobody would connect the two.
                 raise ValidationError("این منطقهٔ زمانی شناخته نشد") from None
+            changed = timezone != user.timezone
             user.timezone = timezone
+            if changed:
+                await self.session.flush()
+                await self.adopt_region(user_id)
 
         if locale is not None:
             user.locale = locale.strip()[:8] or "fa"

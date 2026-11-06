@@ -18,7 +18,8 @@ from typing import List, Optional, Sequence, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import jalali
+from ...shared import calendars, jalali
+from ...shared.calendars import Calendar
 from ...shared.money import ZERO, quantize
 from ...shared.errors import PermissionDenied
 from ..books.models import Book, Permission
@@ -35,36 +36,43 @@ class Period:
     starts_on: date
     ends_on: date
     spec: str  # what a button carries to reopen this exact period
+    calendar: str = "jalali"  # whose months and years these are
 
 
-def month(year: int, number: int) -> Period:
-    start, end = jalali.month_range(year, number)
-    return Period(f"{jalali.month_name(number)} {year}", start, end, f"m:{year}:{number:02d}")
+def month(year: int, number: int, cal: Calendar = calendars.JALALI) -> Period:
+    start, end = cal.month_range(year, number)
+    return Period(
+        f"{cal.month_name(number)} {year}", start, end, f"m:{year}:{number:02d}", cal.name
+    )
 
 
-def year(number: int) -> Period:
-    start, end = jalali.year_range(number)
-    return Period(f"سال {number}", start, end, f"y:{number}")
+def year(number: int, cal: Calendar = calendars.JALALI) -> Period:
+    start, end = cal.year_range(number)
+    return Period(f"سال {number}", start, end, f"y:{number}", cal.name)
 
 
-def week(today: Optional[date] = None, offset: int = 0) -> Period:
-    start, end = jalali.week_range(today, offset)
+def week(
+    today: Optional[date] = None, offset: int = 0, cal: Calendar = calendars.JALALI
+) -> Period:
+    start, end = cal.week_range(today, offset)
     label = "این هفته" if offset == 0 else "هفتهٔ گذشته"
-    return Period(label, start, end, f"w:{offset}")
+    return Period(label, start, end, f"w:{offset}", cal.name)
 
 
-def parse_spec(spec: str, today: Optional[date] = None) -> Optional[Period]:
-    """Turn a button's payload back into the period it names."""
+def parse_spec(
+    spec: str, today: Optional[date] = None, cal: Calendar = calendars.JALALI
+) -> Optional[Period]:
+    """Turn a button's payload back into the period it names, by the book's calendar."""
     parts = (spec or "").split(":")
     kind = parts[0] if parts else ""
 
     try:
         if kind == "m" and len(parts) >= 3:
-            return month(int(parts[1]), int(parts[2]))
+            return month(int(parts[1]), int(parts[2]), cal)
         if kind == "y" and len(parts) >= 2:
-            return year(int(parts[1]))
+            return year(int(parts[1]), cal)
         if kind == "w":
-            return week(today, int(parts[1]) if len(parts) > 1 else 0)
+            return week(today, int(parts[1]) if len(parts) > 1 else 0, cal)
     except (ValueError, TypeError):
         return None
     return None
@@ -220,15 +228,20 @@ class ReportService:
             for flow, totals in buckets.items()
         }
 
+    async def calendar_of(self, book_id: uuid.UUID) -> Calendar:
+        """The calendar this book counts its months by."""
+        return calendars.of(await self.books.get_book(book_id))
+
     async def years_with_data(
         self, book_id: uuid.UUID, user_id: uuid.UUID
     ) -> List[int]:
-        """Jalali years that actually contain something, newest first."""
+        """Years, by the book's calendar, that actually contain something, newest first."""
         rows = await self._rows(book_id, user_id, None)
         if not rows:
             return []
 
-        years = {jalali.to_parts(tx.occurred_on)[0] for tx in rows}
+        cal = await self.calendar_of(book_id)
+        years = {cal.to_parts(tx.occurred_on)[0] for tx in rows}
         return sorted(years, reverse=True)
 
     async def trend(
@@ -238,11 +251,12 @@ class ReportService:
         months: int = 6,
         today: Optional[date] = None,
     ) -> List[Tuple[str, Decimal]]:
-        """Net figure per Jalali month, oldest first."""
+        """Net figure per month, by the book's calendar, oldest first."""
+        cal = await self.calendar_of(book_id)
         out: List[Tuple[str, Decimal]] = []
-        for y, m in jalali.recent_months(months, today):
-            summary = await self.summary(book_id, user_id, month(y, m))
-            out.append((f"{jalali.month_name(m)} {y}", summary.net))
+        for y, m in cal.recent_months(months, today):
+            summary = await self.summary(book_id, user_id, month(y, m, cal))
+            out.append((f"{cal.month_name(m)} {y}", summary.net))
         return out
 
     async def monthly(
@@ -258,13 +272,14 @@ class ReportService:
         last year should not be twelve round trips, and it must still go
         through the same permission gate as every other report.
         """
-        wanted = jalali.recent_months(months, today)
-        start = jalali.month_range(*wanted[0])[0]
-        end = jalali.month_range(*wanted[-1])[1]
-        window = Period("", start, end, "")
+        cal = await self.calendar_of(book_id)
+        wanted = cal.recent_months(months, today)
+        start = cal.month_range(*wanted[0])[0]
+        end = cal.month_range(*wanted[-1])[1]
+        window = Period("", start, end, "", cal.name)
         totals = {key: Summary() for key in wanted}
         for tx in await self._rows(book_id, user_id, window):
-            y, m, _ = jalali.to_parts(tx.occurred_on)
+            y, m, _ = cal.to_parts(tx.occurred_on)
             bucket = totals.get((y, m))
             if bucket is None:
                 continue
@@ -308,13 +323,14 @@ class ReportService:
 
     def _previous(self, period: Period) -> Optional[Period]:
         parts = period.spec.split(":")
+        cal = calendars.named(period.calendar)
         if parts[0] == "m":
             y, m = int(parts[1]), int(parts[2])
-            return month(y - 1, 12) if m == 1 else month(y, m - 1)
+            return month(y - 1, 12, cal) if m == 1 else month(y, m - 1, cal)
         if parts[0] == "y":
-            return year(int(parts[1]) - 1)
+            return year(int(parts[1]) - 1, cal)
         if parts[0] == "w":
-            return week(offset=int(parts[1]) + 1)
+            return week(offset=int(parts[1]) + 1, cal=cal)
         return None
 
     async def search(
