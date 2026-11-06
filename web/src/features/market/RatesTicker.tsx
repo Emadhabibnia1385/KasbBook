@@ -1,5 +1,6 @@
 import { currencyName, formatAmount } from "@/shared/format";
 import { t } from "@/strings";
+import { useHeaderPrefs } from "./headerPrefs";
 import { useTickerCodes } from "./tickerPrefs";
 import { useQuotes } from "./useQuotes";
 
@@ -8,8 +9,10 @@ import { useQuotes } from "./useQuotes";
 // announce that a price service is down.
 export function RatesTicker() {
 	const codes = useTickerCodes();
-	const { data } = useQuotes(codes, "IRT");
-	if (!data?.length) return null;
+	const show = useHeaderPrefs().prices;
+	// Switched off: nothing is shown, and nothing is asked of the market for it.
+	const { data } = useQuotes(codes, "IRT", show);
+	if (!show || !data?.length) return null;
 	return (
 		<ul
 			aria-label={t.market.tickerLabel}
