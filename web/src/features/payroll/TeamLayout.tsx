@@ -32,6 +32,8 @@ export function TeamLayout() {
 		<div className="flex flex-col gap-5">
 			<ManageTabs />
 			<NavTabs
+				quiet
+				scrollable
 				label={t.payroll.tabs.label}
 				items={[
 					tab("/team", t.payroll.tabs.members),

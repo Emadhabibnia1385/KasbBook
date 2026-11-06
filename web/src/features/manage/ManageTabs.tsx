@@ -19,6 +19,7 @@ export function ManageTabs() {
 	});
 	return (
 		<NavTabs
+			scrollable
 			label={t.manage.label}
 			items={[
 				tab("/manage", t.manage.overview),

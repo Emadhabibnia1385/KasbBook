@@ -21,12 +21,9 @@ import {
 	useAuthRevokeApiKey,
 } from "@/api/generated/auth/auth";
 import type { ApiKeyResponse } from "@/api/generated/model";
-import { REPO } from "@/features/shell/GithubLink";
 import { formatFullDate } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
-
-const DOCS_URL = `https://github.com/${REPO}/blob/main/docs/api.fa.md`;
 
 const EXPIRY = [
 	{ value: "never", label: t.acct.never },
@@ -142,17 +139,25 @@ export function ApiTab() {
 		}
 	};
 
+	const origin = window.location.origin;
 	return (
 		<div className="flex flex-col gap-5">
 			<SectionCard title={t.acct.resources}>
 				<div className="flex flex-col gap-4">
 					<Status />
-					<CopyField label={t.acct.systemAddress} value={`${window.location.origin}/api/v1`} />
+					{/* Every address is the one this panel itself is served from, so a self-hosted copy on its own
+					    domain or a bare IP points at itself and nothing is written into the code. */}
+					<CopyField label={t.acct.systemAddress} value={`${origin}/api/v1`} />
+					<CopyField label={t.acct.docsAddress} value={`${origin}/docs`} />
+					<CopyField label={t.acct.openapiAddress} value={`${origin}/openapi.json`} />
 					<div className="grid grid-cols-2 gap-3">
-						<Button variant="secondary" onPress={() => window.open(DOCS_URL, "_blank", "noopener")}>
+						<Button variant="secondary" onPress={() => window.open("/docs", "_blank", "noopener")}>
 							{t.acct.docs}
 						</Button>
-						<Button variant="secondary" onPress={() => window.open("/docs", "_blank", "noopener")}>
+						<Button
+							variant="secondary"
+							onPress={() => window.open("/openapi.json", "_blank", "noopener")}
+						>
 							{t.acct.openapi}
 						</Button>
 					</div>
