@@ -19,6 +19,7 @@ class InvitationService:
 
     async def create(self, book_id, actor_user_id, provider, identifier, role=Role.MEMBER):
         await self.books.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        await self.books._refuse_guest(actor_user_id)
         if provider not in (Provider.TELEGRAM, Provider.BALE, Provider.RUBIKA):
             raise ValidationError("این پیام‌رسان برای ارسال دعوت پشتیبانی نمی‌شود.")
         book = await self.session.scalar(select(Book).where(Book.id == book_id).with_for_update())

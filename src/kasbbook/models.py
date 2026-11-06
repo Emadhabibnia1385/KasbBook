@@ -74,6 +74,7 @@ __all__ = [
     "Payslip",
     "PerformanceRecord",
     "RefreshToken",
+    "RecurringOccurrence",
     "RecurringRule",
     "ShareRule",
     "Transaction",

@@ -164,6 +164,14 @@ class BookService:
         )
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def _refuse_guest(self, user_id: uuid.UUID) -> None:
+        """A guest's account is deleted when they leave, so nobody else may be tied to it."""
+        from ..identity.models import User
+
+        actor = await self.session.get(User, user_id)
+        if actor is not None and actor.is_guest:
+            raise PermissionDenied("حساب مهمان نمی‌تواند همکار اضافه کند.")
+
     async def add_member(
         self,
         actor_user_id: uuid.UUID,
@@ -172,6 +180,7 @@ class BookService:
         role: Role,
     ) -> Membership:
         await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        await self._refuse_guest(actor_user_id)
 
         if role is Role.OWNER:
             raise ValidationError("a book has one owner; transfer it instead")

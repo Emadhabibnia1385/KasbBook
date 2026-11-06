@@ -16,12 +16,13 @@ from dataclasses import replace
 from ...modules.identity.auth import AuthError
 from ...modules.identity.service import IdentityService
 from ...shared.security import password_reset_code, verify_password
-from ...shared.errors import NotFound, ValidationError
+from ...shared.errors import ValidationError
 from ..deps import (
     AuthDep,
     CurrentUser,
     LimiterDep,
     Person,
+    Registered,
     SessionDep,
     SettingsDep,
     client_fingerprint,
@@ -204,7 +205,7 @@ async def update_profile(
 
 @router.put("/me/contact", response_model=UserResponse)
 async def set_contact(
-    body: ContactRequest, user: Person, session: SessionDep
+    body: ContactRequest, user: Registered, session: SessionDep
 ) -> UserResponse:
     """The address or number this account can be reached and recovered by."""
     updated = await IdentityService(session).set_contact(
@@ -337,7 +338,7 @@ async def close_account(
 # ------------------------------------------------------------- api keys
 @router.post("/api-keys", response_model=ApiKeyCreated, status_code=201)
 async def create_api_key(
-    body: ApiKeyRequest, user: Person, auth: AuthDep
+    body: ApiKeyRequest, user: Registered, auth: AuthDep
 ) -> ApiKeyCreated:
     """Issue a key for a program. This is the only response that contains it."""
     issued = await auth.issue_api_key(user.id, body.name, body.expires_in_days)

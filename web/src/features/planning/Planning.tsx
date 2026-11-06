@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
 	Button,
+	Collapsible,
 	ConfirmDialog,
 	EmptyState,
 	ErrorState,
@@ -300,6 +301,11 @@ function Loans({ book }: { book: BookResponse }) {
 	return (
 		<>
 			<Intro>{t.plan.loansIntro}</Intro>
+			<div className="mb-4">
+				<Collapsible title={t.plan.buyTitle}>
+					<p className="text-sm leading-relaxed text-muted">{t.plan.buyBody}</p>
+				</Collapsible>
+			</div>
 			<LoansSummary book={book} rows={data} />
 			<AddBar label={t.planningForms.addLoan} onPress={() => setAdding(true)} />
 			{isLoading ? (

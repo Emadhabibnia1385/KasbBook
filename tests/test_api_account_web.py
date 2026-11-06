@@ -247,3 +247,32 @@ async def test_asking_for_codes_is_limited(api, db, sent):
         assert (await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))).status_code == 200
 
     assert (await api.post("/api/v1/auth/me/password/reset-code", headers=bearer(tokens))).status_code == 429
+
+
+async def test_a_guest_cannot_tie_anything_lasting_to_the_account(api):
+    tokens = (await api.post("/api/v1/auth/guest")).json()
+
+    key = await api.post("/api/v1/auth/api-keys", headers=bearer(tokens), json={"name": "k"})
+    link = await api.post("/api/v1/identities/link", headers=bearer(tokens), json={"provider": "telegram"})
+    contact = await api.put("/api/v1/auth/me/contact", headers=bearer(tokens), json={"email": "g@example.com"})
+
+    assert key.status_code == 403 and link.status_code == 403 and contact.status_code == 403
+
+
+async def test_a_guest_cannot_add_people_to_a_book(api, db):
+    import uuid
+
+    from kasbbook.modules.books.models import Role
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.shared.errors import PermissionDenied
+
+    guest = (await api.post("/api/v1/auth/guest")).json()
+    me = (await api.get("/api/v1/auth/me", headers=bearer(guest))).json()
+    book = (await api.get("/api/v1/books", headers=bearer(guest))).json()[0]
+    other = await register(api)
+    other_me = (await api.get("/api/v1/auth/me", headers=bearer(other))).json()
+
+    async for s in db.session():
+        with pytest.raises(PermissionDenied):
+            await BookService(s).add_member(
+                uuid.UUID(me["id"]), uuid.UUID(book["id"]), uuid.UUID(other_me["id"]), Role.MEMBER)

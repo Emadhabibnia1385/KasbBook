@@ -8,7 +8,7 @@ from typing import List, Optional, Sequence
 
 from ...adapters.base import Button
 from ...modules.books.models import Book
-from ...shared import calendars, jalali
+from ...shared import calendars
 from .common import (
     Screen,
     _book_buttons,

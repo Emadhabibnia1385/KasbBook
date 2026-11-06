@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import calendars, jalali
+from ...shared import calendars
 from ...shared.errors import ValidationError
 from ...shared.money import ZERO, quantize
 from ..books.models import Permission

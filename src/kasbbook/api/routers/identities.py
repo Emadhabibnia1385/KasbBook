@@ -17,7 +17,7 @@ from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.identity.login import AccountLoginService
 from ...shared.errors import ValidationError
-from ..deps import CurrentUser, Person, SessionDep, SettingsDep
+from ..deps import CurrentUser, Person, Registered, SessionDep, SettingsDep
 from ..schemas import (
     ClaimLinkRequest,
     IdentityResponse,
@@ -53,7 +53,7 @@ async def list_identities(user: CurrentUser, session: SessionDep) -> List[Identi
 
 @router.post("/link", response_model=StartLinkResponse, status_code=201)
 async def start_link(
-    body: StartLinkRequest, user: Person, session: SessionDep, settings: SettingsDep
+    body: StartLinkRequest, user: Registered, session: SessionDep, settings: SettingsDep
 ) -> StartLinkResponse:
     """Issue a one-time code, and a link that hands it to the bot directly."""
     try:
@@ -81,7 +81,7 @@ async def start_link(
 
 @router.post("/claim", response_model=IdentityResponse, status_code=201)
 async def claim_link(
-    body: ClaimLinkRequest, user: Person, session: SessionDep
+    body: ClaimLinkRequest, user: Registered, session: SessionDep
 ) -> IdentityResponse:
     """Redeem a code the messenger side produced, attaching it to this account."""
     identity = await IdentityService(session).complete_link_from_web(body.code, user.id)

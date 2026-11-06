@@ -24,7 +24,7 @@ import type { BookResponse, DebtResponse } from "@/api/generated/model";
 import { CategoryChips } from "@/features/books/CategoryChips";
 import { pickedDay, todayPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
-import { toAscii } from "@/shared/format";
+import { formatMoney, toAscii } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -269,6 +269,10 @@ export function LoanForm({ book, onDone }: { book: BookResponse; onDone: () => v
 			starts_on: todayPicker(),
 		},
 	});
+	// What the whole loan will have cost by the last instalment, as the two numbers are typed.
+	const each = toAscii(useWatch({ control: form.control, name: "installment_amount" }) ?? "");
+	const count = toAscii(useWatch({ control: form.control, name: "installment_count" }) ?? "");
+	const total = Number(each) * Number(count);
 	return (
 		<FormRoot
 			form={form}
@@ -308,6 +312,12 @@ export function LoanForm({ book, onDone }: { book: BookResponse; onDone: () => v
 				dir="ltr"
 				isRequired
 			/>
+			{Number.isFinite(total) && total > 0 ? (
+				<p className="text-sm text-muted">
+					{t.plan.totalPayable}:{" "}
+					<b className="text-foreground">{formatMoney(String(total), book.currency)}</b>
+				</p>
+			) : null}
 			<DayField name="starts_on" label={t.planningForms.startsOn} isRequired />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>

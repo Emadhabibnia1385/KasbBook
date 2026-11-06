@@ -11,7 +11,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...shared import calendars, jalali
+from ...shared import calendars
 from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
@@ -121,9 +121,11 @@ class BudgetService:
         if not budgets:
             return []
 
-        cal = calendars.of(await self.books.get_book(book_id))
+        book = await self.books.get_book(book_id)
+        cal = calendars.of(book)
         if year is None or month is None:
-            year, month, _ = cal.to_parts(today or date.today())
+            # The book's own day, not the server's: after midnight in Tehran the server still says yesterday.
+            year, month, _ = cal.to_parts(today or cal.today_in(book.timezone))
         starts_on, ends_on = cal.month_range(year, month)
 
         rows = (

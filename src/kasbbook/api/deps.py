@@ -118,6 +118,22 @@ async def current_person(
 Person = Annotated[User, Depends(current_person)]
 
 
+async def current_registered(user: Person) -> User:
+    """A person with a real account: not a guest, whose account is gone the moment they sign out.
+
+    Linking a messenger, minting a key or setting a contact would tie something lasting to an account
+    that is about to be deleted, so a guest is told plainly to sign in properly first.
+    """
+    if user.is_guest:
+        raise PermissionDenied(
+            "حساب مهمان ذخیره نمی‌شود؛ برای این کار با تلگرام یا نام کاربری وارد شو"
+        )
+    return user
+
+
+Registered = Annotated[User, Depends(current_registered)]
+
+
 def client_fingerprint(request: Request) -> str:
     """Who to count rate-limited attempts against.
 
