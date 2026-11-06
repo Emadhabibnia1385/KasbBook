@@ -92,20 +92,54 @@ export function formatCompact(value: number): string {
 	return `${formatAmount(scaled)} ${unit[1]}`;
 }
 
-const dayFormat = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "long" });
-const fullFormat = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
-	year: "numeric",
-	month: "long",
-	day: "numeric",
-});
+/** Which calendar a book counts by. */
+export type CalendarName = "jalali" | "gregorian";
 
-/** An ISO date (2026-11-05) in the Jalali calendar: ۱۴ آبان. */
-export function formatDay(iso: string): string {
-	return dayFormat.format(new Date(`${iso}T12:00:00`));
+// The calendar every date follows when a screen does not name one: the chosen book's, and each book's own
+// for a list that spans several. A Gregorian book is English throughout (month, weekday and digits).
+let activeCalendar: CalendarName = "jalali";
+const bookCalendars = new Map<string, CalendarName>();
+
+export function setActiveCalendar(cal: CalendarName) {
+	activeCalendar = cal;
 }
 
-export function formatFullDate(iso: string): string {
-	return fullFormat.format(new Date(`${iso}T12:00:00`));
+export function registerBookCalendars(books: readonly { id: string; calendar?: string | null }[]) {
+	for (const book of books)
+		bookCalendars.set(book.id, book.calendar === "gregorian" ? "gregorian" : "jalali");
+}
+
+/** The calendar of one book, by id; the active one when the book is not known. */
+export const calendarOfBook = (id: string | null | undefined): CalendarName =>
+	(id ? bookCalendars.get(id) : undefined) ?? activeCalendar;
+
+const dayFormats: Record<CalendarName, Intl.DateTimeFormat> = {
+	jalali: new Intl.DateTimeFormat("fa-IR-u-ca-persian", { day: "numeric", month: "long" }),
+	gregorian: new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
+		day: "numeric",
+		month: "long",
+	}),
+};
+const fullFormats: Record<CalendarName, Intl.DateTimeFormat> = {
+	jalali: new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+	}),
+	gregorian: new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+	}),
+};
+
+/** An ISO date (2026-11-05) in the book's calendar: «۱۴ آبان» or «November 5». */
+export function formatDay(iso: string, cal: CalendarName = activeCalendar): string {
+	return dayFormats[cal].format(new Date(`${iso}T12:00:00`));
+}
+
+export function formatFullDate(iso: string, cal: CalendarName = activeCalendar): string {
+	return fullFormats[cal].format(new Date(`${iso}T12:00:00`));
 }
 
 /**
@@ -142,9 +176,6 @@ export function toAscii(text: string): string {
 		.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
 }
 
-/** Which calendar a book counts its months by. */
-export type CalendarName = "jalali" | "gregorian";
-
 /** A book's calendar from what the API sent; the Jalali one when it said nothing. */
 export const calendarOf = (value: string | null | undefined): CalendarName =>
 	value === "gregorian" ? "gregorian" : "jalali";
@@ -164,6 +195,10 @@ export function currentPeriod(cal: CalendarName = "jalali", now = new Date()): s
 	return `${pick("year")}-${pick("month").padStart(2, "0")}`;
 }
 
+/** A year with no grouping, in the digits of the calendar: ۱۴۰۵ or 2026. */
+export const yearText = (year: number | string, cal: CalendarName): string =>
+	cal === "gregorian" ? String(year) : formatAmount(year).replace(/[٬,]/g, "");
+
 export const MONTHS = [
 	"فروردین",
 	"اردیبهشت",
@@ -180,21 +215,21 @@ export const MONTHS = [
 ];
 
 export const GREGORIAN_MONTH_NAMES = [
-	"ژانویه",
-	"فوریه",
-	"مارس",
-	"آوریل",
-	"مه",
-	"ژوئن",
-	"ژوئیه",
-	"اوت",
-	"سپتامبر",
-	"اکتبر",
-	"نوامبر",
-	"دسامبر",
+	"January",
+	"February",
+	"March",
+	"April",
+	"May",
+	"June",
+	"July",
+	"August",
+	"September",
+	"October",
+	"November",
+	"December",
 ];
 
-/** The twelve month names of a calendar, as Persian readers say them. */
+/** The twelve month names of a calendar: Persian for the Jalali one, English for the Gregorian. */
 export const monthNames = (cal: CalendarName = "jalali"): string[] =>
 	cal === "gregorian" ? GREGORIAN_MONTH_NAMES : MONTHS;
 
@@ -212,7 +247,7 @@ export function recentPeriods(
 		const m = (index % 12) + 1;
 		return {
 			value: `${y}-${String(m).padStart(2, "0")}`,
-			label: `${names[m - 1]} ${formatAmount(y).replace(/[٬,]/g, "")}`,
+			label: `${names[m - 1]} ${yearText(y, cal)}`,
 		};
 	});
 }

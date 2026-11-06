@@ -15,12 +15,8 @@ import { t } from "@/strings";
 import { openQuick } from "./quickBus";
 import { useQuickEnabled } from "./quickPrefs";
 
-// The places, grouped under headings so a long list reads as a few short ones.
-const GROUPS: { title: string; to: string[] }[] = [
-	{ title: t.nav.groupMoney, to: ["/", "/transactions", "/reports"] },
-	{ title: t.nav.groupManage, to: ["/manage"] },
-	{ title: t.nav.groupAccount, to: ["/account"] },
-];
+// The places, in one list with no headings: there are only a handful.
+const PLACES = ["/", "/transactions", "/reports", "/manage", "/account"];
 
 const row =
 	"quick-item flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-start text-sm font-medium transition-colors hover:bg-surface-secondary focus-visible:bg-surface-secondary";
@@ -100,51 +96,37 @@ export function QuickMenu() {
 							<BookIcon aria-hidden className="size-5 text-accent" />
 							{t.quick.addBook}
 						</button>
-						{GROUPS.map((group, groupIndex) => {
-							const offset =
-								3 + GROUPS.slice(0, groupIndex).reduce((sum, g) => sum + g.to.length, 0);
-							return (
-								<div
-									key={group.title}
-									className="flex flex-col gap-1 border-t border-separator pt-1"
-								>
-									<p className="px-3 pt-1 pb-0.5 text-xs font-semibold text-muted">{group.title}</p>
-									{group.to.map((to, position) => {
-										const item = SIDE_NAV.find((candidate) => candidate.to === to);
-										if (!item) return null;
-										return (
-											<button
-												key={to}
-												type="button"
-												className={row}
-												style={delay(offset + position)}
-												onClick={act(() => void navigate({ to: item.to }))}
-											>
-												<item.icon aria-hidden className="size-5 text-muted" />
-												{item.label}
-											</button>
-										);
-									})}
-									{group.title === t.nav.groupAccount ? (
-										<>
-											<button
-												type="button"
-												className={row}
-												style={delay(offset + group.to.length)}
-												onClick={act(() => setMode(dark ? "light" : "dark"))}
-											>
-												{dark ? (
-													<SunIcon aria-hidden className="size-5 text-accent" />
-												) : (
-													<MoonIcon aria-hidden className="size-5 text-accent" />
-												)}
-												{dark ? t.quick.toLight : t.quick.toDark}
-											</button>
-										</>
-									) : null}
-								</div>
-							);
-						})}
+						<div className="flex flex-col gap-1 border-t border-separator pt-1">
+							{PLACES.map((to, position) => {
+								const item = SIDE_NAV.find((candidate) => candidate.to === to);
+								if (!item) return null;
+								return (
+									<button
+										key={to}
+										type="button"
+										className={row}
+										style={delay(3 + position)}
+										onClick={act(() => void navigate({ to: item.to }))}
+									>
+										<item.icon aria-hidden className="size-5 text-muted" />
+										{item.label}
+									</button>
+								);
+							})}
+							<button
+								type="button"
+								className={row}
+								style={delay(3 + PLACES.length)}
+								onClick={act(() => setMode(dark ? "light" : "dark"))}
+							>
+								{dark ? (
+									<SunIcon aria-hidden className="size-5 text-accent" />
+								) : (
+									<MoonIcon aria-hidden className="size-5 text-accent" />
+								)}
+								{dark ? t.quick.toLight : t.quick.toDark}
+							</button>
+						</div>
 					</section>
 				) : null}
 				<button

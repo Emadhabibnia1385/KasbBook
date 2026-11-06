@@ -202,6 +202,7 @@ export function DataTable<T>({
             pageCount={pagination.pageCount}
             onPrevious={() => pagination.onPageChange(pagination.page - 1)}
             onNext={() => pagination.onPageChange(pagination.page + 1)}
+            onPage={pagination.onPageChange}
           />
         ) : null}
       </div>
@@ -262,6 +263,7 @@ export function DataTable<T>({
             pageCount={pagination.pageCount}
             onPrevious={() => pagination.onPageChange(pagination.page - 1)}
             onNext={() => pagination.onPageChange(pagination.page + 1)}
+            onPage={pagination.onPageChange}
           />
         </Table.Footer>
       ) : null}

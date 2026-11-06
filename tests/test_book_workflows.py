@@ -235,6 +235,42 @@ async def test_receipt_and_category_rename_record_editor_but_preserve_creator(se
     assert await ledger.trial_balance(book.id) == (Decimal("5"), Decimal("5"))
 
 
+async def test_merging_categories_moves_every_transaction_and_keeps_the_books_balanced(session):
+    owner, _ = await account(session)
+    outsider, _ = await account(session, "200")
+    book = await BookService(session).create_book(owner.id, "دفتر", BookType.BUSINESS)
+    other = await BookService(session).create_book(outsider.id, "دیگر", BookType.BUSINESS)
+    ledger, categories = LedgerService(session), CategoryService(session)
+    a = await ledger.record(book.id, owner.id, Flow.INCOME, Scope.WORK, "تمدید", "5", occurred_on=DAY)
+    b = await ledger.record(book.id, owner.id, Flow.INCOME, Scope.WORK, "فروش", "7", occurred_on=DAY)
+    cost = await ledger.record(book.id, owner.id, Flow.EXPENSE, Scope.WORK, "سرور", "3", occurred_on=DAY)
+    foreign = await ledger.record(other.id, outsider.id, Flow.INCOME, Scope.WORK, "تمدید", "9", occurred_on=DAY)
+    budget = await BudgetService(session).set_budget(
+        book.id, owner.id, BudgetKind.CATEGORY, "تمدید", "100")
+    source, target, expense = a.category_id, b.category_id, cost.category_id
+    foreign_category = foreign.category_id
+
+    with pytest.raises(ValidationError):  # an expense cannot be folded into income
+        await categories.merge(book.id, owner.id, source, expense)
+    with pytest.raises(ValidationError):
+        await categories.merge(book.id, owner.id, source, source)
+    with pytest.raises(NotFound):  # another book's category is not reachable by id
+        await categories.merge(book.id, owner.id, source, foreign_category)
+    with pytest.raises(NotFound):  # nor can a stranger merge anything here
+        await categories.merge(book.id, outsider.id, source, target)
+
+    await categories.merge(book.id, owner.id, source, target)
+    await session.refresh(a)
+    assert (a.category, a.category_id) == ("فروش", target)
+    entry = await session.scalar(select(JournalEntry).where(JournalEntry.transaction_id == a.id))
+    assert entry.memo == "income: فروش"
+    assert sorted(c.name for c in await categories.list(book.id, owner.id)) == ["سرور", "فروش"]
+    await session.refresh(budget)
+    assert budget.target == "فروش"  # a planning rule follows its category
+    assert [c.name for c in await categories.list(other.id, outsider.id)] == ["تمدید"]  # untouched
+    assert await ledger.trial_balance(book.id) == (Decimal("15"), Decimal("15"))
+
+
 async def test_api_transaction_activity_matches_create_edit_and_list_without_leaks(api, session):
     creator, creator_id = await api_user(api, "creator@example.com")
     editor, editor_id = await api_user(api, "editor@example.com")

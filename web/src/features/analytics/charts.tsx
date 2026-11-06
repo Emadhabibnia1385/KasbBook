@@ -103,8 +103,8 @@ export function CumulativePanel({
 							formatValue={money(book)}
 							rows={data.days.map((day) => ({
 								key: String(day.day_index),
-								label: formatAmount(day.day_index),
-								title: `${t.analytics.chart.day} ${formatAmount(day.day_index)}`,
+								label: dayNumber(day.day_index, cal),
+								title: `${t.analytics.chart.day} ${dayNumber(day.day_index, cal)}`,
 								values: { net: day.net, previous_net: day.previous_net },
 							}))}
 							series={[
@@ -159,11 +159,11 @@ export function FlowPanel({
 							kind === "year"
 								? month.label
 								: kind === "month"
-									? formatAmount(day.day_index)
-									: formatDay(day.on);
+									? dayNumber(day.day_index, cal)
+									: formatDay(day.on, cal);
 						const bucket = buckets.get(key) ?? {
 							label,
-							title: kind === "year" ? periodLabel(month.period, cal) : formatDay(day.on),
+							title: kind === "year" ? periodLabel(month.period, cal) : formatDay(day.on, cal),
 							income: "0.0000",
 							expense: "0.0000",
 						};
@@ -286,6 +286,10 @@ export function ScopeDonutPanel({
 		</SectionCard>
 	);
 }
+
+// A day's number in the digits of the book's calendar.
+const dayNumber = (n: number, cal: ReturnType<typeof calendarOf>) =>
+	cal === "gregorian" ? String(n) : formatAmount(n);
 
 /** Which days of the week the money moves on. Saturday first, as the week runs here. */
 export function WeekdayPanel({

@@ -36,9 +36,6 @@ export const t = {
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",
 	nav: {
-		groupMoney: "مالی",
-		groupManage: "مدیریت",
-		groupAccount: "حساب",
 		label: "منوی اصلی",
 		skip: "رفتن به محتوا",
 		dashboard: "داشبورد",

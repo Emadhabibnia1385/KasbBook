@@ -5,12 +5,14 @@ import {
 	formatAmount,
 	monthNames,
 	recentPeriods,
+	yearText,
 } from "@/shared/format";
 import { t } from "@/strings";
 
 export type PeriodKind = "week" | "month" | "year" | "custom";
 
-const plain = (year: number | string) => formatAmount(year).replace(/[٬,]/g, "");
+const plain = (year: number | string, cal: CalendarName = "jalali") => yearText(year, cal);
+const num = (n: number, cal: CalendarName) => (cal === "gregorian" ? String(n) : formatAmount(n));
 
 const ORDINALS = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم"];
 
@@ -60,14 +62,14 @@ const dayFormats: Record<CalendarName, Intl.DateTimeFormat> = {
 		month: "long",
 		year: "numeric",
 	}),
-	gregorian: new Intl.DateTimeFormat("fa-IR-u-ca-gregory", {
+	gregorian: new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
 		day: "numeric",
 		month: "long",
 		year: "numeric",
 	}),
 };
 
-/** A day written out in the book's calendar: «۱۵ آبان ۱۴۰۵» or «۶ نوامبر ۲۰۲۶». */
+/** A day written out in the book's calendar: «۱۵ آبان ۱۴۰۵» or «November 6, 2026». */
 export function formatDayIn(iso: string, cal: CalendarName = "jalali"): string {
 	return dayFormats[cal].format(new Date(`${iso}T12:00:00`));
 }
@@ -86,10 +88,10 @@ function weekSpan(back: number, cal: CalendarName, now = new Date()): string {
 	const a = partsOfDay(from, cal);
 	const b = partsOfDay(to, cal);
 	const names = monthNames(cal);
-	const end = `${formatAmount(b.day)} ${names[b.month - 1] ?? ""}`;
+	const end = `${num(b.day, cal)} ${names[b.month - 1] ?? ""}`;
 	return a.month === b.month
-		? `${formatAmount(a.day)} ${t.analytics.reports.to} ${end}`
-		: `${formatAmount(a.day)} ${names[a.month - 1] ?? ""} ${t.analytics.reports.to} ${end}`;
+		? `${num(a.day, cal)} ${t.analytics.reports.to} ${end}`
+		: `${num(a.day, cal)} ${names[a.month - 1] ?? ""} ${t.analytics.reports.to} ${end}`;
 }
 
 /** The weeks to choose from, this one first: each named for its place in its month, with its days. */
@@ -120,8 +122,8 @@ export function periodLabel(spec: string, cal: CalendarName = "jalali"): string 
 			: weekName(Number(weeksBack), cal);
 	}
 	const [year = "", month] = spec.split("-");
-	if (month === undefined) return `${t.analytics.reports.yearWord} ${plain(year)}`;
-	return `${monthNames(cal)[Number(month) - 1] ?? month} ${plain(year)}`;
+	if (month === undefined) return `${t.analytics.reports.yearWord} ${plain(year, cal)}`;
+	return `${monthNames(cal)[Number(month) - 1] ?? month} ${plain(year, cal)}`;
 }
 
 /** What a period is, for the charts that show days in a week or month and months in a year. */
@@ -146,7 +148,7 @@ export function yearOptions(count = 4, cal: CalendarName = "jalali") {
 	const year = Number(currentPeriod(cal).split("-")[0]);
 	return Array.from({ length: count }, (_, back) => ({
 		value: String(year - back),
-		label: `${t.analytics.reports.yearWord} ${plain(year - back)}`,
+		label: `${t.analytics.reports.yearWord} ${plain(year - back, cal)}`,
 	}));
 }
 

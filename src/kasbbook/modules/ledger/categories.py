@@ -146,6 +146,54 @@ class CategoryService:
         await self.session.flush()
         return row
 
+    async def merge(self, book_id, actor_user_id, source_id, target_id):
+        """Move everything from ``source`` into ``target`` and drop ``source``.
+
+        This is the way to fold two categories that mean the same thing into one
+        without losing or re-typing a single transaction. It reuses what rename
+        keeps in step: the name stored on each transaction, the journal memo,
+        and the names planning rules hold. Both categories must be the same
+        kind of money: folding an expense into an income would silently change
+        what the profit figure means.
+        """
+        await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
+        if source_id == target_id:
+            raise ValidationError("دستهٔ مبدأ و مقصد یکی است.")
+        await self.lock_book(book_id)
+        source = await self.get(book_id, actor_user_id, source_id)
+        target = await self.get(book_id, actor_user_id, target_id)
+        if source.flow is not target.flow:
+            raise ValidationError("فقط دسته‌های هم‌نوع (هر دو درآمد یا هر دو هزینه) را می‌شود یکی کرد.")
+        # A category budget is unique per target; two budgets for what becomes
+        # one category would have to be added together, which is a decision for
+        # the owner, not for a merge.
+        names = (source.name, target.name)
+        budgets = (await self.session.scalars(select(Budget).where(
+            Budget.book_id == book_id, Budget.kind == BudgetKind.CATEGORY, Budget.target.in_(names)
+        ))).all()
+        if len(budgets) > 1:
+            raise ValidationError("هر دو دسته بودجه دارند؛ ابتدا یکی را حذف کن.")
+        moved = select(Transaction.id).where(
+            Transaction.book_id == book_id, Transaction.category_id == source.id
+        )
+        memo_prefix = "income" if target.flow is Flow.INCOME else "expense"
+        await self.session.execute(update(JournalEntry).where(
+            JournalEntry.book_id == book_id, JournalEntry.transaction_id.in_(moved)
+        ).values(memo=f"{memo_prefix}: {target.name}"))
+        await self.session.execute(update(Transaction).where(
+            Transaction.book_id == book_id, Transaction.category_id == source.id
+        ).values(category=target.name, category_id=target.id,
+                 last_edited_by_id=actor_user_id, last_edited_at=utcnow()))
+        for model, column in ((Budget, Budget.target), (RecurringRule, RecurringRule.category),
+                              (TreasuryRule, TreasuryRule.category)):
+            conditions = [model.book_id == book_id, column == source.name]
+            if model is Budget:
+                conditions.append(Budget.kind == BudgetKind.CATEGORY)
+            await self.session.execute(update(model).where(*conditions).values({column.key: target.name}))
+        await self.session.delete(source)
+        await self.session.flush()
+        return target
+
     async def delete(self, book_id, actor_user_id, category_id):
         await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
         await self.lock_book(book_id)

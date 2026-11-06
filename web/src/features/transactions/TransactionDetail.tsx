@@ -6,7 +6,13 @@ import type { BookedTransactionResponse } from "@/api/generated/model";
 import type { BookRef } from "./Amount";
 import { useQuotes } from "@/features/market/useQuotes";
 import { multiply } from "@/features/payroll/decimal";
-import { currencyName, formatAmount, formatFullDate, formatMoney } from "@/shared/format";
+import {
+	calendarOfBook,
+	currencyName,
+	formatAmount,
+	formatFullDate,
+	formatMoney,
+} from "@/shared/format";
 import { t } from "@/strings";
 import { AttachmentItem } from "./AttachmentsField";
 
@@ -103,7 +109,10 @@ function Body({ row }: { row: BookedTransactionResponse }) {
 						: null,
 					{ label: t.scope.book, value: row.book_name },
 					{ label: t.transactions.kind, value: income ? t.common.income : t.common.expense },
-					{ label: t.transactions.date, value: formatFullDate(row.occurred_on) },
+					{
+						label: t.transactions.date,
+						value: formatFullDate(row.occurred_on, calendarOfBook(row.book_id)),
+					},
 					// The whole note, wrapped: the list only shows its first line.
 					row.description
 						? {

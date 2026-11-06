@@ -21,8 +21,8 @@ from zoneinfo import ZoneInfo
 from . import jalali
 
 GREGORIAN_MONTHS = (
-    "ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن",
-    "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
 )
 
 CALENDAR_NAMES = ("jalali", "gregorian")
@@ -99,7 +99,8 @@ class Calendar:
         except Exception:
             zone = ZoneInfo(jalali.DEFAULT_TIMEZONE)
         local = value.astimezone(zone)
-        return f"{self.to_text(local.date())} ساعت {local:%H:%M:%S}"
+        at = "at" if self.name == "gregorian" else "ساعت"
+        return f"{self.to_text(local.date())} {at} {local:%H:%M:%S}"
 
 
 class _Jalali(Calendar):
@@ -126,7 +127,7 @@ class _Jalali(Calendar):
 
 class _Gregorian(Calendar):
     name = "gregorian"
-    weekday_names = ("دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه")
+    weekday_names = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
     def weekday_index(self, value: date) -> int:
         """0 for Monday through 6 for Sunday."""

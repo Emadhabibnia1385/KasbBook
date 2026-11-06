@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useBooksListBooks } from "@/api/generated/books/books";
+import { calendarOf, registerBookCalendars, setActiveCalendar } from "@/shared/format";
 
 // «scope»: a book id, or "all" (the default). The old key held only a book, and everyone began on it.
 const KEY = "kasbbook.scope";
@@ -43,6 +44,9 @@ export function useActiveBook() {
 	const chosen = books.find((candidate) => candidate.id === saved);
 	// A saved id for a book that is gone (left, deleted) falls back to all of them.
 	const book = chosen ?? (books.length === 1 ? books[0] : undefined);
+	// Every date drawn from here on follows the book's calendar (see formatDay).
+	registerBookCalendars(books);
+	setActiveCalendar(calendarOf(book?.calendar));
 	return {
 		books,
 		book,

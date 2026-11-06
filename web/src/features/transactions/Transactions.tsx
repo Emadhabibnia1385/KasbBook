@@ -25,7 +25,7 @@ import { PendingRecurring } from "@/features/recurring/PendingRecurring";
 import { RulesDialog } from "@/features/recurring/RulesDialog";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
-import { formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
+import { calendarOfBook, formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
 import { PlusIcon } from "@/shared/icons";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
@@ -370,7 +370,7 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 							header: t.transactions.date,
 							align: "center",
 							className: "w-24 whitespace-nowrap",
-							cell: (row) => formatDay(row.occurred_on),
+							cell: (row) => formatDay(row.occurred_on, calendarOfBook(row.book_id)),
 						},
 						{
 							// One line of the note; the rest is a click away, so the table never grows sideways.

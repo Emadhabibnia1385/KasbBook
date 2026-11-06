@@ -2,7 +2,7 @@ import { tv } from "tailwind-variants";
 import { EmptyState, ErrorState, Pager, TableSkeleton } from "@nyxon/nasim";
 import type { BookedTransactionResponse } from "@/api/generated/model";
 import { DownIcon, UpIcon } from "@/shared/icons";
-import { formatDay } from "@/shared/format";
+import { calendarOfBook, formatDay } from "@/shared/format";
 import { Amount } from "./Amount";
 import { t } from "@/strings";
 
@@ -73,7 +73,9 @@ export function CompactRows({
 												{item.book_name}
 											</bdi>
 										) : null}
-										<span className="shrink-0">{formatDay(item.occurred_on)}</span>
+										<span className="shrink-0">
+											{formatDay(item.occurred_on, calendarOfBook(item.book_id))}
+										</span>
 										{item.description ? (
 											<bdi className="min-w-0 truncate">{item.description}</bdi>
 										) : null}
@@ -91,6 +93,7 @@ export function CompactRows({
 					pageCount={pageCount}
 					onPrevious={() => onPageChange(page - 1)}
 					onNext={() => onPageChange(page + 1)}
+					onPage={onPageChange}
 				/>
 			) : null}
 		</div>

@@ -15,8 +15,8 @@ describe("weeks", () => {
 	});
 
 	it("are named for their place in their month", () => {
-		expect(weekName(0, "gregorian", NOW)).toBe("هفتهٔ اول نوامبر");
-		expect(weekName(1, "gregorian", NOW)).toBe("هفتهٔ چهارم اکتبر");
+		expect(weekName(0, "gregorian", NOW)).toBe("هفتهٔ اول November");
+		expect(weekName(1, "gregorian", NOW)).toBe("هفتهٔ چهارم October");
 		expect(weekName(0, "jalali", NOW)).toBe("هفتهٔ دوم آبان");
 	});
 
@@ -36,7 +36,7 @@ describe("custom ranges", () => {
 	});
 
 	it("are labelled in the book's calendar", () => {
-		expect(periodLabel("2026-10-01..2026-10-31", "gregorian")).toContain("اکتبر ۲۰۲۶");
+		expect(periodLabel("2026-10-01..2026-10-31", "gregorian")).toContain("October 1, 2026");
 		expect(periodLabel("2026-10-01..2026-10-31", "jalali")).toContain("مهر ۱۴۰۵");
 	});
 

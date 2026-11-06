@@ -38,7 +38,7 @@ def test_the_week_starts_where_the_calendar_starts_it():
 
     assert calendars.GREGORIAN.week_range(friday)[0] == date(2026, 11, 2)  # a Monday
     assert calendars.JALALI.week_range(friday)[0] == date(2026, 10, 31)  # a Saturday
-    assert calendars.GREGORIAN.weekday_names[0] == "دوشنبه"
+    assert calendars.GREGORIAN.weekday_names[0] == "Monday"
     assert calendars.JALALI.weekday_names[0] == "شنبه"
 
 
