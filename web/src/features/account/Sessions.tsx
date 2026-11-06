@@ -41,16 +41,8 @@ export function Sessions() {
 				{(sessions.data ?? []).map((session) => (
 					<li
 						key={session.id}
-						className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
+						className="flex items-center gap-3 rounded-xl border border-border p-3"
 					>
-						<span className="flex min-w-0 flex-col">
-							<span dir="ltr" className="truncate text-start font-medium">
-								{describeAgent(session.user_agent, t.acct.unknownBrowser)}
-							</span>
-							<span className="text-sm text-muted">
-								{t.acct.lastActive}: <bdi dir="ltr">{formatStamp(session.created_at, zone)}</bdi>
-							</span>
-						</span>
 						<Button
 							size="sm"
 							variant="danger-soft"
@@ -59,6 +51,14 @@ export function Sessions() {
 						>
 							{t.acct.signOutOne}
 						</Button>
+						<span className="flex min-w-0 flex-1 flex-col text-left">
+							<span dir="ltr" className="truncate font-medium">
+								{describeAgent(session.user_agent, t.acct.unknownBrowser)}
+							</span>
+							<span className="text-sm text-muted">
+								{t.acct.lastActive}: <bdi dir="ltr">{formatStamp(session.created_at, zone)}</bdi>
+							</span>
+						</span>
 					</li>
 				))}
 			</ul>
