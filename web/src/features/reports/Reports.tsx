@@ -28,7 +28,6 @@ function Body({ book, period }: { book: BookResponse; period: string }) {
 	return (
 		<div className="flex flex-col gap-5">
 			<CompareCards book={book} period={period} />
-			<ForeignPanel book={book} period={period} />
 			<FlowPanel book={book} period={period} kind={kind} />
 			<CategoryMonthlyPanel book={book} />
 			<div className="grid gap-5 lg:grid-cols-2">
@@ -59,11 +58,12 @@ async function download(book: BookResponse, period: string) {
 	URL.revokeObjectURL(url);
 }
 
-const CUSTOM = "__custom";
+type View = "money" | "fx";
 
 export function Reports() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	const [kind, setKind] = useState<PeriodKind>("month");
+	const [view, setView] = useState<View>("money");
 	// Weeks, months and years are the book's own: a Gregorian book lists Gregorian ones, its week Monday to Sunday.
 	const cal = calendarOf(book?.calendar);
 	const weeks = weekOptions(7, cal);
@@ -104,6 +104,15 @@ export function Reports() {
 					) : undefined
 				}
 			/>
+			<FilterChips
+				label={r.viewLabel}
+				value={view}
+				onChange={(next) => setView(next as View)}
+				options={[
+					{ value: "money", label: r.viewMoney },
+					{ value: "fx", label: t.foreign.reportTitle },
+				]}
+			/>
 			<div className="flex flex-wrap items-center gap-3">
 				<FilterChips
 					label={r.kind}
@@ -122,8 +131,6 @@ export function Reports() {
 						value={value}
 						onChange={(event) => {
 							const next = event.target.value;
-							// The last choice of every list opens the range of one's own.
-							if (next === CUSTOM) return setKind("custom");
 							if (kind === "week") setWeek(next);
 							else if (kind === "month") setMonth(next);
 							else setYear(next);
@@ -135,7 +142,6 @@ export function Reports() {
 								{item.label}
 							</option>
 						))}
-						<option value={CUSTOM}>{r.customEllipsis}</option>
 					</select>
 				)}
 			</div>
@@ -148,7 +154,13 @@ export function Reports() {
 					{range ? null : <p className="text-sm text-muted">{r.pickRange}</p>}
 				</div>
 			) : null}
-			{period ? <Body book={book} period={period} /> : null}
+			{period ? (
+				view === "fx" ? (
+					<ForeignPanel book={book} period={period} asReport />
+				) : (
+					<Body book={book} period={period} />
+				)
+			) : null}
 		</div>
 	);
 }

@@ -20,6 +20,17 @@ function Difference({ now, then, goodWhenUp }: { now: number; then: number; good
 	);
 }
 
+/** What holding a currency's net amount from the day it was recorded until now has gained or lost. */
+function Result({ value, base }: { value: number; base: string }) {
+	const good = value >= 0;
+	return (
+		<b dir="ltr" className={good ? "text-success" : "text-danger"}>
+			{good ? "+" : "−"}
+			{formatMoney(String(Math.abs(Math.round(value))), base)}
+		</b>
+	);
+}
+
 type Line = {
 	key: string;
 	label: string;
@@ -34,7 +45,16 @@ type Line = {
  * was worth in the book's currency when it was recorded, and what it would be worth now. The book's
  * own figures stay at the recorded rate; this only shows how far the market has moved since.
  */
-export function ForeignPanel({ book, period }: { book: BookResponse; period: string }) {
+export function ForeignPanel({
+	book,
+	period,
+	asReport = false,
+}: {
+	book: BookResponse;
+	period: string;
+	/** The full report: a profit-and-loss summary on top, and an explanation when there is nothing to show. */
+	asReport?: boolean;
+}) {
 	const flows = useAnalyticsForeignFlows(book.id, { period });
 	const rows = flows.data ?? [];
 	const quotes = useQuotes(
@@ -42,14 +62,66 @@ export function ForeignPanel({ book, period }: { book: BookResponse; period: str
 		book.currency,
 		rows.length > 0,
 	);
-	if (rows.length === 0) return null;
+	if (rows.length === 0) {
+		return asReport && !flows.isLoading ? (
+			<SectionCard title={t.foreign.reportTitle}>
+				<p className="text-sm text-muted">{t.foreign.noForeign}</p>
+			</SectionCard>
+		) : null;
+	}
 	const rateOf = (code: string) => {
 		const found = quotes.data?.find((quote) => quote.code === code);
 		return found ? Number(found.value) : null;
 	};
+	// The net amount held, as recorded and as worth now: its difference is the profit or loss.
+	const positions = rows.map((row) => {
+		const rate = rateOf(row.currency);
+		const net = Number(row.income) - Number(row.expense);
+		const recorded = Number(row.income_recorded) - Number(row.expense_recorded);
+		return { row, net, recorded, now: rate === null ? null : net * rate };
+	});
+	const known = positions.every((position) => position.now !== null);
+	const total = positions.reduce((sum, p) => sum + (p.now === null ? 0 : p.now - p.recorded), 0);
 	return (
-		<SectionCard title={t.foreign.title} description={t.foreign.lead}>
+		<SectionCard
+			title={asReport ? t.foreign.reportTitle : t.foreign.title}
+			description={asReport ? t.foreign.reportLead : t.foreign.lead}
+		>
 			<div className="flex flex-col gap-4">
+				{asReport ? (
+					<div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3">
+						<ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+							{positions.map(({ row, net, recorded, now }) => (
+								<li key={row.currency} className="flex flex-col gap-1 text-sm">
+									<span className="font-medium">
+										{currencyName(row.currency)}{" "}
+										<span className="text-xs text-muted">{t.foreign.netPosition}</span>
+									</span>
+									<b>{formatMoney(String(net), row.currency)}</b>
+									<span className="text-xs text-muted">
+										{t.foreign.valueRecorded}:{" "}
+										{formatMoney(String(Math.round(recorded)), book.currency)}
+									</span>
+									<span className="text-xs text-muted">
+										{t.foreign.valueNow}:{" "}
+										{now === null ? "—" : formatMoney(String(Math.round(now)), book.currency)}
+									</span>
+									{now === null ? null : (
+										<span>
+											{now - recorded >= 0 ? t.foreign.profit : t.foreign.loss}:{" "}
+											<Result value={now - recorded} base={book.currency} />
+										</span>
+									)}
+								</li>
+							))}
+						</ul>
+						<p className="border-t border-separator pt-2 text-sm">
+							<span className="text-muted">{t.foreign.totalResult}: </span>
+							<Result value={total} base={book.currency} />
+							{known ? null : <span className="text-xs text-muted"> — {t.foreign.partial}</span>}
+						</p>
+					</div>
+				) : null}
 				{rows.map((row) => {
 					const rate = rateOf(row.currency);
 					const lines: Line[] = [

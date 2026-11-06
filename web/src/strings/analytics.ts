@@ -85,10 +85,11 @@ export const analyticsStrings = {
 			empty: "در این دوره هزینه‌ای ثبت نشده است.",
 		},
 		reports: {
+			viewLabel: "نوع گزارش",
+			viewMoney: "درآمد و هزینه",
 			kind: "نوع دوره",
 			week: "هفته",
 			custom: "بازه دلخواه",
-			customEllipsis: "بازه دلخواه…",
 			weekWord: "هفتهٔ",
 			to: "تا",
 			from: "از تاریخ",

@@ -22,6 +22,7 @@ export function ManageTabs() {
 				tab("/manage", t.manage.overview),
 				tab("/books", t.manage.books),
 				tab("/wallet", t.manage.wallet),
+				tab("/planning", t.nav.planning),
 				...(book?.type === "personal" ? [] : [tab("/team", t.manage.team)]),
 			]}
 		/>

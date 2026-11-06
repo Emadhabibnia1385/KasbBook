@@ -1,5 +1,10 @@
-import { Notice, PageHeader, PageSkeleton, SectionCard, Tabs } from "@nyxon/nasim";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button, Notice, PageHeader, PageSkeleton, SectionCard, Tabs } from "@nyxon/nasim";
 import { useAuthMe } from "@/api/generated/auth/auth";
+import { signOut } from "@/app/shell/signOut";
+import { InstallButton } from "@/features/pwa/InstallButton";
+import { useInstallState } from "@/features/pwa/install";
+import { LogoutIcon } from "@/shared/icons";
 import { t } from "@/strings";
 import { ApiTab } from "./ApiTab";
 import { Customize } from "./Customize";
@@ -9,7 +14,23 @@ import { Messengers } from "./Messengers";
 import { ProfileForm } from "./ProfileForm";
 import { Sessions } from "./Sessions";
 
+/** Putting the app on the home screen: why, how, and the button where the browser allows one. */
+function InstallCard() {
+	const state = useInstallState();
+	return (
+		<SectionCard title={t.acct.installTitle}>
+			<div className="flex flex-col items-start gap-3">
+				<p className="text-sm text-muted">{t.acct.installLead}</p>
+				{state === "installed" ? <p className="text-sm font-medium">{t.acct.installDone}</p> : null}
+				{state === "none" ? <p className="text-sm text-muted">{t.acct.installNone}</p> : null}
+				<InstallButton />
+			</div>
+		</SectionCard>
+	);
+}
+
 export function Account() {
+	const queryClient = useQueryClient();
 	const me = useAuthMe();
 	if (me.isLoading) return <PageSkeleton />;
 	const user = me.data;
@@ -58,6 +79,18 @@ export function Account() {
 								)}
 								<SectionCard title={t.acct.sessions}>
 									<Sessions />
+								</SectionCard>
+								<InstallCard />
+								<SectionCard title={t.acct.signOutTitle}>
+									<div className="flex flex-col items-start gap-3">
+										<p className="text-sm text-muted">
+											{guest ? t.acct.signOutGuest : t.acct.signOutLead}
+										</p>
+										<Button variant="outline" onPress={() => void signOut(queryClient)}>
+											<LogoutIcon aria-hidden />
+											{t.common.logout}
+										</Button>
+									</div>
 								</SectionCard>
 							</div>
 						),

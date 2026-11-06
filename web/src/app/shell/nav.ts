@@ -8,8 +8,6 @@ import {
 	HomeIcon,
 	ListActiveIcon,
 	ListIcon,
-	MoreIcon,
-	PlanIcon,
 } from "@/shared/icons";
 import { t } from "@/strings";
 
@@ -41,36 +39,18 @@ const REPORTS: NavItem = {
 	icon: ChartIcon,
 	activeIcon: ChartActiveIcon,
 };
-const PLANNING: NavItem = { to: "/planning", label: t.nav.planning, icon: PlanIcon };
+// Planning, books, wallet and team are all pages of «مدیریت»: one entry that stays lit on each.
+const MANAGE: NavItem = {
+	to: "/manage",
+	label: t.nav.manage,
+	icon: BookIcon,
+	also: ["/books", "/wallet", "/team", "/planning"],
+};
+const ACCOUNT: NavItem = { to: "/account", label: t.nav.account, icon: AccountIcon };
 
 // What a phone keeps one tap away, with the dashboard in the middle: it is home, so it sits where the
 // thumb rests and is drawn raised above the rest (see PhoneTabBar).
-export const TAB_NAV: NavItem[] = [
-	TRANSACTIONS,
-	REPORTS,
-	DASHBOARD,
-	PLANNING,
-	// «بیشتر» holds the management section and the account, so it stays lit while either is open.
-	{
-		to: "/more",
-		label: t.nav.more,
-		icon: MoreIcon,
-		also: ["/manage", "/books", "/wallet", "/team", "/account"],
-	},
-];
+export const TAB_NAV: NavItem[] = [TRANSACTIONS, REPORTS, DASHBOARD, MANAGE, ACCOUNT];
 
-// Everything, for the sidebar and the «بیشتر» page. The first four are the daily ones, home first;
-// the «بیشتر» page lists what comes after them.
-export const SIDE_NAV: NavItem[] = [
-	DASHBOARD,
-	TRANSACTIONS,
-	REPORTS,
-	PLANNING,
-	{
-		to: "/manage",
-		label: t.nav.manage,
-		icon: BookIcon,
-		also: ["/books", "/wallet", "/team"],
-	},
-	{ to: "/account", label: t.nav.account, icon: AccountIcon },
-];
+// Everything, for the sidebar and the quick menu: the same five.
+export const SIDE_NAV: NavItem[] = [DASHBOARD, TRANSACTIONS, REPORTS, MANAGE, ACCOUNT];
