@@ -72,6 +72,17 @@ class Figures(MoneyModel):
     transaction_count: int
 
 
+class ForeignFlowResponse(MoneyModel):
+    """Income and expense in one foreign currency over a period, as paid and as recorded in the book's currency."""
+
+    currency: str
+    income: Decimal
+    expense: Decimal
+    income_recorded: Decimal
+    expense_recorded: Decimal
+    transaction_count: int
+
+
 class Delta(MoneyModel):
     absolute: Decimal
     # Null when the earlier figure was zero: growth from nothing has no percentage.

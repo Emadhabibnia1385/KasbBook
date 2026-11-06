@@ -104,6 +104,18 @@ def days_in(period: Period) -> int:
 
 
 # --------------------------------------------------------------- results
+@dataclass
+class ForeignFlow:
+    """One foreign currency's income and expense in a period, in that currency and as recorded."""
+
+    code: str
+    income: Decimal = ZERO
+    expense: Decimal = ZERO
+    income_recorded: Decimal = ZERO
+    expense_recorded: Decimal = ZERO
+    count: int = 0
+
+
 @dataclass(frozen=True)
 class CashflowRow:
     year: int
@@ -271,6 +283,39 @@ class AnalyticsService:
                 .order_by(Transaction.occurred_on, Transaction.created_at)
             )
         ).scalars().all()
+
+    # ---------------------------------------------------------- foreign money
+    async def foreign_flows(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, period: Period
+    ) -> List["ForeignFlow"]:
+        """What came in and went out of the book in other currencies, as paid and as recorded.
+
+        Each transaction keeps the rate it was recorded at, so the book's own
+        figures never move. This gives the other side of that: the amounts in
+        the currency they were really paid in, beside what they were worth in
+        the book's currency when recorded, so the panel can set them against
+        today's price. The price itself is the caller's to fetch.
+        """
+        book = await self.books.get_book(book_id)
+        rows: Dict[str, ForeignFlow] = {}
+        for tx in await self._rows(book_id, user_id, period):
+            if tx.original_currency == book.base_currency:
+                continue
+            row = rows.setdefault(tx.original_currency, ForeignFlow(tx.original_currency))
+            if tx.flow is Flow.INCOME:
+                row.income += tx.original_amount
+                row.income_recorded += tx.converted_amount
+            else:
+                row.expense += tx.original_amount
+                row.expense_recorded += tx.converted_amount
+            row.count += 1
+        return [
+            ForeignFlow(
+                r.code, quantize(r.income), quantize(r.expense),
+                quantize(r.income_recorded), quantize(r.expense_recorded), r.count,
+            )
+            for r in sorted(rows.values(), key=lambda row: row.code)
+        ]
 
     # -------------------------------------------------------------- cashflow
     async def cashflow(

@@ -6,6 +6,7 @@ import { usePayrollListPayslips, usePayrollListPeriods } from "@/api/generated/p
 import type { BookResponse } from "@/api/generated/model";
 import { Loaded } from "@/features/analytics/Loaded";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { useQuotes } from "@/features/market/useQuotes";
 import { isPayrollBook } from "@/features/payroll/shared";
 import { GroupedColumns } from "@/shared/charts";
 import { color } from "@/shared/charts";
@@ -18,26 +19,64 @@ const money = (book: BookResponse) => (value: string) => formatMoney(value, book
 
 function Balances({ book }: { book: BookResponse }) {
 	const wallet = useBooksWallet(book.id);
+	const held = (wallet.data ?? []).filter((row) => !row.is_base && Number(row.amount) !== 0);
+	const quotes = useQuotes(
+		held.map((row) => row.code),
+		book.currency,
+		held.length > 0,
+	);
+	const rateOf = (code: string) => {
+		const found = quotes.data?.find((quote) => quote.code === code);
+		return found ? Number(found.value) : null;
+	};
 	return (
 		<SectionCard title={t.manage.balances} description={t.manage.balancesHint}>
 			<Loaded query={wallet}>
-				{(rows) =>
-					rows.length === 0 ? (
-						<p className="text-sm text-muted">{t.manage.noBalances}</p>
-					) : (
-						<ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-							{rows.map((row) => (
-								<li
-									key={row.code}
-									className="flex flex-col gap-0.5 rounded-xl border border-border bg-surface p-3"
-								>
-									<span className="text-xs text-muted">{row.code}</span>
-									<span className="font-semibold">{formatMoney(row.amount, row.code)}</span>
-								</li>
-							))}
-						</ul>
-					)
-				}
+				{(rows) => {
+					if (rows.length === 0) return <p className="text-sm text-muted">{t.manage.noBalances}</p>;
+					// Each currency in the money it is held in, and — when there is a price — what it is worth now.
+					const worth = rows.map((row) =>
+						row.is_base
+							? Number(row.amount)
+							: rateOf(row.code) === null
+								? null
+								: Number(row.amount) * (rateOf(row.code) ?? 0),
+					);
+					const known = worth.every((value) => value !== null);
+					const total = worth.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+					return (
+						<div className="flex flex-col gap-3">
+							<ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+								{rows.map((row, index) => (
+									<li
+										key={row.code}
+										className="flex flex-col gap-0.5 rounded-xl border border-border bg-surface p-3"
+									>
+										<span className="text-xs text-muted">{row.code}</span>
+										<span className="font-semibold">{formatMoney(row.amount, row.code)}</span>
+										{row.is_base || Number(row.amount) === 0 ? null : (
+											<span className="text-xs text-muted">
+												{t.foreign.holdingsNow}:{" "}
+												{worth[index] === null
+													? t.foreign.noRate
+													: formatMoney(String(Math.round(worth[index] ?? 0)), book.currency)}
+											</span>
+										)}
+									</li>
+								))}
+							</ul>
+							{rows.some((row) => !row.is_base && Number(row.amount) !== 0) ? (
+								<p className="text-sm">
+									<span className="text-muted">{t.foreign.total}: </span>
+									<b>{formatMoney(String(Math.round(total)), book.currency)}</b>
+									{known ? null : (
+										<span className="text-xs text-muted"> — {t.foreign.partial}</span>
+									)}
+								</p>
+							) : null}
+						</div>
+					);
+				}}
 			</Loaded>
 		</SectionCard>
 	);

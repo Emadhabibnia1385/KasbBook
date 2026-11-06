@@ -19,6 +19,7 @@ import {
 	ScopeDonutPanel,
 	WeekdayPanel,
 } from "@/features/analytics/charts";
+import { ForeignPanel } from "@/features/analytics/ForeignPanel";
 import { KpiRow, OverviewRow } from "@/features/analytics/kpis";
 import { BudgetGauges, TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
@@ -110,6 +111,7 @@ export function Dashboard() {
 			/>
 			<KpiRow book={book} period={period} />
 			<OverviewRow book={book} period={period} />
+			<ForeignPanel book={book} period={period} />
 			<CashflowPanel book={book} />
 			<div className="grid gap-5 lg:grid-cols-2">
 				<CumulativePanel book={book} period={period} title={a.cumulativeTitle} />

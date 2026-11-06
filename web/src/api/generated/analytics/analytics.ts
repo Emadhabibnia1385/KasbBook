@@ -33,6 +33,7 @@ import type {
 	AnalyticsCategoryMonthlyParams,
 	AnalyticsCompareParams,
 	AnalyticsCumulativeParams,
+	AnalyticsForeignFlowsParams,
 	AnalyticsOverviewKpisParams,
 	AnalyticsScopeSplitParams,
 	AnalyticsTopCategoriesParams,
@@ -42,6 +43,7 @@ import type {
 	CategoryMonthlyResponse,
 	CompareResponse,
 	CumulativeResponse,
+	ForeignFlowResponse,
 	HTTPValidationError,
 	OverviewResponse,
 	ScopePoint,
@@ -858,6 +860,174 @@ export function useAnalyticsCumulative<
 	queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 	const queryOptions = useAnalyticsCumulativeQueryOptions(bookId, params, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAnalyticsForeignFlowsUrl = (
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+) => {
+	const normalizedParams = new URLSearchParams();
+
+	Object.entries(params || {}).forEach(([key, value]) => {
+		if (value !== undefined) {
+			normalizedParams.append(key, value === null ? "null" : String(value));
+		}
+	});
+
+	const stringifiedParams = normalizedParams.toString();
+
+	return stringifiedParams.length > 0
+		? `/api/v1/books/${bookId}/analytics/foreign-flows?${stringifiedParams}`
+		: `/api/v1/books/${bookId}/analytics/foreign-flows`;
+};
+
+/**
+ * Income and expense in currencies other than the book's, as paid and at the recorded rate.
+ *
+ * Set against today's price (`GET /market/quotes`), this shows what a month's foreign money
+ * is worth now compared with what it was worth when it was recorded.
+ * @summary Foreign Flows
+ */
+export const analyticsForeignFlows = async (
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<ForeignFlowResponse[]> => {
+	return apiFetch<ForeignFlowResponse[]>(getAnalyticsForeignFlowsUrl(bookId, params), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getAnalyticsForeignFlowsQueryKey = (
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+) => {
+	return [`/api/v1/books/${bookId}/analytics/foreign-flows`, ...(params ? [params] : [])] as const;
+};
+
+export const useAnalyticsForeignFlowsQueryOptions = <
+	TData = Awaited<ReturnType<typeof analyticsForeignFlows>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof analyticsForeignFlows>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getAnalyticsForeignFlowsQueryKey(bookId, params);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof analyticsForeignFlows>>> = ({ signal }) =>
+		analyticsForeignFlows(bookId, params, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled: bookId !== null && bookId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof analyticsForeignFlows>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AnalyticsForeignFlowsQueryResult = NonNullable<
+	Awaited<ReturnType<typeof analyticsForeignFlows>>
+>;
+export type AnalyticsForeignFlowsQueryError = ErrorType<HTTPValidationError>;
+
+export function useAnalyticsForeignFlows<
+	TData = Awaited<ReturnType<typeof analyticsForeignFlows>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params: undefined | AnalyticsForeignFlowsParams,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof analyticsForeignFlows>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof analyticsForeignFlows>>,
+					TError,
+					Awaited<ReturnType<typeof analyticsForeignFlows>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAnalyticsForeignFlows<
+	TData = Awaited<ReturnType<typeof analyticsForeignFlows>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof analyticsForeignFlows>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof analyticsForeignFlows>>,
+					TError,
+					Awaited<ReturnType<typeof analyticsForeignFlows>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAnalyticsForeignFlows<
+	TData = Awaited<ReturnType<typeof analyticsForeignFlows>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof analyticsForeignFlows>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Foreign Flows
+ */
+
+export function useAnalyticsForeignFlows<
+	TData = Awaited<ReturnType<typeof analyticsForeignFlows>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	params?: AnalyticsForeignFlowsParams,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof analyticsForeignFlows>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useAnalyticsForeignFlowsQueryOptions(bookId, params, options);
 
 	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
 		queryKey: DataTag<QueryKey, TData, TError>;

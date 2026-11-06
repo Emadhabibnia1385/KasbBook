@@ -12,6 +12,7 @@ import {
 	ScopeDonutPanel,
 	WeekdayPanel,
 } from "@/features/analytics/charts";
+import { ForeignPanel } from "@/features/analytics/ForeignPanel";
 import { CompareCards } from "@/features/analytics/kpis";
 import { TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
@@ -27,6 +28,7 @@ function Body({ book, period }: { book: BookResponse; period: string }) {
 	return (
 		<div className="flex flex-col gap-5">
 			<CompareCards book={book} period={period} />
+			<ForeignPanel book={book} period={period} />
 			<FlowPanel book={book} period={period} kind={kind} />
 			<CategoryMonthlyPanel book={book} />
 			<div className="grid gap-5 lg:grid-cols-2">

@@ -33,6 +33,7 @@ from ..schemas_analytics import (
     CumulativeResponse,
     Delta,
     Figures,
+    ForeignFlowResponse,
     OverviewResponse,
     ScopePoint,
     TopCategory,
@@ -308,3 +309,29 @@ async def budget_vs_actual(
             for s in result.items
         ],
     )
+
+
+@router.get("/foreign-flows", response_model=List[ForeignFlowResponse])
+async def foreign_flows(
+    book_id: uuid.UUID,
+    user: CurrentUser,
+    session: SessionDep,
+    period: Optional[str] = Query(default=None, description="1405-08, 1405, week, or 2026-10-01..2026-10-31; default this month"),
+) -> List[ForeignFlowResponse]:
+    """Income and expense in currencies other than the book's, as paid and at the recorded rate.
+
+    Set against today's price (`GET /market/quotes`), this shows what a month's foreign money
+    is worth now compared with what it was worth when it was recorded.
+    """
+    resolved = await _period(session, book_id, period, _today(user))
+    rows = await analytics_service.AnalyticsService(session).foreign_flows(
+        book_id, user.id, resolved
+    )
+    return [
+        ForeignFlowResponse(
+            currency=r.code, income=r.income, expense=r.expense,
+            income_recorded=r.income_recorded, expense_recorded=r.expense_recorded,
+            transaction_count=r.count,
+        )
+        for r in rows
+    ]

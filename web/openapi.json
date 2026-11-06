@@ -2145,6 +2145,49 @@
         "title": "Figures",
         "type": "object"
       },
+      "ForeignFlowResponse": {
+        "description": "Income and expense in one foreign currency over a period, as paid and as recorded in the book's currency.",
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "expense": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense",
+            "type": "string"
+          },
+          "expense_recorded": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Expense Recorded",
+            "type": "string"
+          },
+          "income": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income",
+            "type": "string"
+          },
+          "income_recorded": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Income Recorded",
+            "type": "string"
+          },
+          "transaction_count": {
+            "title": "Transaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "currency",
+          "income",
+          "expense",
+          "income_recorded",
+          "expense_recorded",
+          "transaction_count"
+        ],
+        "title": "ForeignFlowResponse",
+        "type": "object"
+      },
       "FundRequest": {
         "properties": {
           "kind": {
@@ -6888,6 +6931,104 @@
           }
         },
         "summary": "Cumulative",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/analytics/foreign-flows": {
+      "get": {
+        "description": "Income and expense in currencies other than the book's, as paid and at the recorded rate.\n\nSet against today's price (`GET /market/quotes`), this shows what a month's foreign money\nis worth now compared with what it was worth when it was recorded.",
+        "operationId": "analytics_foreign_flows",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1405-08, 1405, week, or 2026-10-01..2026-10-31; default this month",
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1405-08, 1405, week, or 2026-10-01..2026-10-31; default this month",
+              "title": "Period"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ForeignFlowResponse"
+                  },
+                  "title": "Response Analytics Foreign Flows",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Foreign Flows",
         "tags": [
           "analytics"
         ]

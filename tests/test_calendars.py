@@ -225,3 +225,26 @@ async def test_a_bad_range_is_refused(api):
                              headers=bearer(tokens), params={"period": "soon..later"})
 
     assert backwards.status_code == 422 and nonsense.status_code == 422
+
+
+# ----------------------------------------------- foreign money in a period
+async def test_foreign_flows_keep_the_paid_amount_and_the_recorded_value(api):
+    tokens = await register(api)
+    book = (await make_book(api, tokens, currency="IRT", calendar="gregorian")).json()
+    await api.put(f"/api/v1/books/{book['id']}/currencies/USDT", headers=bearer(tokens),
+                  json={"enabled": True})
+    made = await api.post(
+        f"/api/v1/books/{book['id']}/transactions", headers=bearer(tokens),
+        json={"flow": "income", "scope": "work", "category": "فروش", "amount": "100",
+              "occurred_on": "2026-11-02", "currency": "USDT", "conversion_rate": "60000"})
+    assert made.status_code == 201, made.text
+    await record(api, tokens, book["id"], "2026-11-03", amount="500000")
+
+    flows = (await api.get(f"/api/v1/books/{book['id']}/analytics/foreign-flows",
+                           headers=bearer(tokens), params={"period": "2026-11"})).json()
+
+    assert len(flows) == 1
+    row = flows[0]
+    assert row["currency"] == "USDT"
+    assert float(row["income"]) == 100 and float(row["income_recorded"]) == 6_000_000
+    assert float(row["expense"]) == 0 and row["transaction_count"] == 1
