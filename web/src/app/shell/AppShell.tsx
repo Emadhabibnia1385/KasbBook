@@ -19,7 +19,9 @@ const shell = tv({
 		column: "flex min-w-0 flex-1 flex-col",
 		main: "min-h-0 flex-1 overflow-y-auto overscroll-contain px-page outline-none",
 		// The room under the content keeps the last rows clear of the round quick-actions button.
-		page: "mx-auto w-full max-w-6xl pt-4 pb-28",
+		page: "mx-auto w-full max-w-6xl flex-1 pt-4 pb-10",
+		// The scrolling content and the credit line after it: the credit is met at the foot of the page, not kept in view.
+		scroll: "flex min-h-full flex-col",
 	},
 });
 
@@ -29,7 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 	const wide = useMediaQuery("(min-width: 1024px)");
 	// Fetched once per visit so every amount can name its currency in Persian.
 	useCatalog();
-	const { root, skip, column, main, page } = shell();
+	const { root, skip, column, main, page, scroll } = shell();
 	return (
 		<div className={root()}>
 			<a href="#main" className={skip()}>
@@ -41,9 +43,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 				<OfflineBanner>{t.common.offline}</OfflineBanner>
 				<GuestBar />
 				<main id="main" tabIndex={-1} className={main()}>
-					<div className={page()}>{children}</div>
+					<div className={scroll()}>
+						<div className={page()}>{children}</div>
+						<DeveloperFooter />
+					</div>
 				</main>
-				<DeveloperFooter />
 				{wide ? null : <PhoneTabBar />}
 			</div>
 			<QuickMenu />
