@@ -29,6 +29,7 @@ export const txFilterStrings = {
 		sortLargest: "بیشترین مبلغ",
 		sortSmallest: "کمترین مبلغ",
 		sortCategory: "نام دسته",
+		manageCategories: "مدیریت همهٔ دسته‌ها",
 		categoryFind: "جست‌وجوی دسته",
 		categoryFindHint: "نام دسته را بنویس؛ اگر نبود، افزوده می‌شود",
 		categoryAdd: "افزودن دستهٔ",

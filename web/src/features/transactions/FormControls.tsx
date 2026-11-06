@@ -1,9 +1,26 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useController } from "react-hook-form";
 import { tv } from "tailwind-variants";
-import { BottomSheet, EmptyState, Modal, SearchBox, useIsNarrow } from "@nyxon/nasim";
-import { useBooksListCategories } from "@/api/generated/books/books";
-import { CheckIcon, ChevronDownIcon } from "@/shared/icons";
+import {
+	BottomSheet,
+	Button,
+	EmptyState,
+	Modal,
+	SearchBox,
+	toast,
+	useIsNarrow,
+} from "@nyxon/nasim";
+import {
+	getBooksListCategoriesQueryKey,
+	useBooksDeleteCategory,
+	useBooksListCategories,
+	useBooksRenameCategory,
+} from "@/api/generated/books/books";
+import type { CategoryResponse } from "@/api/generated/model";
+import { refreshMoney, reportFailure } from "@/shared/mutations";
+import { CheckIcon, ChevronDownIcon, EditIcon, TrashIcon } from "@/shared/icons";
 import { t } from "@/strings";
 
 const segment = tv({
@@ -74,6 +91,48 @@ export function CategoryField({
 	const shown = categories.filter((category) => category.name.includes(typed));
 	const exists = categories.some((category) => category.name === typed);
 
+	const queryClient = useQueryClient();
+	const rename = useBooksRenameCategory();
+	const remove = useBooksDeleteCategory();
+	// The row being renamed in place, and what is typed for it.
+	const [editing, setEditing] = useState<CategoryResponse | null>(null);
+	const [newName, setNewName] = useState("");
+
+	const saveRename = async () => {
+		const name = newName.trim();
+		if (!editing || !name) return;
+		if (name === editing.name) {
+			setEditing(null);
+			return;
+		}
+		try {
+			await rename.mutateAsync({ bookId, categoryId: editing.id, data: { name } });
+			// Transactions, budgets and rules carry the name too, so they are all read again; and if the
+			// renamed one is the one chosen here, the field follows it.
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: getBooksListCategoriesQueryKey(bookId) }),
+				refreshMoney(queryClient, bookId),
+			]);
+			if (value === editing.name) field.onChange(name);
+			toast.success(t.categories.renamed);
+			setEditing(null);
+		} catch (error) {
+			reportFailure(error);
+		}
+	};
+
+	const deleteCategory = async (category: CategoryResponse) => {
+		try {
+			await remove.mutateAsync({ bookId, categoryId: category.id });
+			await queryClient.invalidateQueries({ queryKey: getBooksListCategoriesQueryKey(bookId) });
+			if (value === category.name) field.onChange("");
+			toast.success(t.categories.deleted);
+		} catch (error) {
+			// A category that has transactions is refused with the reason; it is shown, not hidden.
+			reportFailure(error);
+		}
+	};
+
 	const choose = (picked: string) => {
 		field.onChange(picked);
 		setOpen(false);
@@ -106,17 +165,63 @@ export function CategoryField({
 				) : null}
 				{shown.map((category) => (
 					<li key={category.id}>
-						<button
-							type="button"
-							aria-pressed={category.name === value}
-							className={option({ on: category.name === value })}
-							onClick={() => choose(category.name)}
-						>
-							<span className="min-w-0 flex-1 truncate">{category.name}</span>
-							{category.name === value ? (
-								<CheckIcon aria-hidden className="size-5 shrink-0" />
-							) : null}
-						</button>
+						{editing?.id === category.id ? (
+							<div className="flex items-center gap-2 rounded-xl bg-surface-secondary p-1.5">
+								<input
+									// The box was just asked for, so it takes focus as it appears.
+									ref={(element) => element?.focus()}
+									className="min-h-10 min-w-0 flex-1 rounded-field border border-border bg-field px-3 text-sm"
+									value={newName}
+									aria-label={t.categories.renameTitle}
+									onChange={(event) => setNewName(event.target.value)}
+									onKeyDown={(event) => {
+										if (event.key === "Enter") void saveRename();
+										if (event.key === "Escape") setEditing(null);
+									}}
+								/>
+								<Button size="sm" isPending={rename.isPending} onPress={() => void saveRename()}>
+									{t.common.save}
+								</Button>
+								<Button size="sm" variant="ghost" onPress={() => setEditing(null)}>
+									{t.common.cancel}
+								</Button>
+							</div>
+						) : (
+							<div className="flex items-center gap-1">
+								<button
+									type="button"
+									aria-pressed={category.name === value}
+									className={option({ on: category.name === value })}
+									onClick={() => choose(category.name)}
+								>
+									<span className="min-w-0 flex-1 truncate">{category.name}</span>
+									{category.name === value ? (
+										<CheckIcon aria-hidden className="size-5 shrink-0" />
+									) : null}
+								</button>
+								<Button
+									isIconOnly
+									size="sm"
+									variant="ghost"
+									aria-label={`${t.categories.rename}: ${category.name}`}
+									onPress={() => {
+										setEditing(category);
+										setNewName(category.name);
+									}}
+								>
+									<EditIcon aria-hidden />
+								</Button>
+								<Button
+									isIconOnly
+									size="sm"
+									variant="ghost"
+									aria-label={`${t.common.delete}: ${category.name}`}
+									onPress={() => void deleteCategory(category)}
+								>
+									<TrashIcon aria-hidden />
+								</Button>
+							</div>
+						)}
 					</li>
 				))}
 				{!typed && categories.length === 0 ? (
@@ -125,6 +230,9 @@ export function CategoryField({
 					</li>
 				) : null}
 			</ul>
+			<Link to="/books" className="text-sm text-accent" onClick={() => setOpen(false)}>
+				{t.txFilter.manageCategories}
+			</Link>
 		</div>
 	);
 
