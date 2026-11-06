@@ -22,7 +22,6 @@ import {
 } from "@nyxon/nasim";
 import { useEffect, useRef } from "react";
 import { useBooksListCurrencies } from "@/api/generated/books/books";
-import { ageText } from "@/features/market/format";
 import { useRates } from "@/features/market/useRates";
 import type {
 	BookResponse,
@@ -156,13 +155,14 @@ function PayForm({
 					name="rate"
 					label={`${t.payroll.pay.rate} (${currencyName(currency)} → ${currencyName(slip.currency)})`}
 					description={
+						// Only a warning is worth saying: the price is old, or there is none to fill in.
 						quote
-							? `${t.rateNote.source} ${t.market.sources[quote.source] ?? quote.source}، ${ageText(market.ageOf(quote.age_seconds))}. ${quote.stale ? t.rateNote.stale : t.rateNote.editable}`
+							? quote.stale
+								? t.rateNote.stale
+								: undefined
 							: market.isLoading
-								? t.rateNote.loading
-								: foreign
-									? t.rateNote.missing
-									: t.payroll.pay.rateHint
+								? undefined
+								: t.rateNote.missing
 					}
 					inputMode="decimal"
 					dir="ltr"

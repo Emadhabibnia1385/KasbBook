@@ -1,8 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { ageText } from "@/features/market/format";
-import { sourceName, useQuotes } from "@/features/market/useQuotes";
+import { useQuotes } from "@/features/market/useQuotes";
 import { multiply } from "@/features/payroll/decimal";
 import { Amount } from "./Amount";
 import { CategoryField, FlowSwitch } from "./FormControls";
@@ -286,10 +285,14 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 							name="rate"
 							label={`${t.fx.rate} (${currencyName(currency)} → ${currencyName(book.currency)})`}
 							description={
+								// Said only when there is something to be careful about: a rate that is an estimate, or
+								// none at all. A market price is just the number.
 								quote
-									? `${quote.exact ? t.rateNote.source : t.fx.estimateFrom} ${sourceName(quote.source)}، ${ageText(quote.age_seconds ?? 0)}. ${quote.exact ? t.rateNote.editable : t.fx.estimateWarning}`
+									? quote.exact
+										? undefined
+										: t.fx.estimateWarning
 									: market.isLoading
-										? t.rateNote.loading
+										? undefined
 										: t.rateNote.missing
 							}
 							inputMode="decimal"
