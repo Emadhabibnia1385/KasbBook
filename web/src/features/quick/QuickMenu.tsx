@@ -65,7 +65,7 @@ export function QuickMenu() {
 					onClick={() => setOpen(false)}
 				/>
 			) : null}
-			<div className="fixed end-3 bottom-[calc(var(--nasim-bottom-bar,0rem)+6.5rem)] z-40 flex flex-col items-end gap-3 lg:bottom-6">
+			<div className="fixed end-3 bottom-[calc(var(--nasim-bottom-bar,4.5rem)+1rem)] z-40 flex flex-col items-end gap-3 lg:bottom-6">
 				{open ? (
 					<section
 						ref={panel}
@@ -100,42 +100,51 @@ export function QuickMenu() {
 							<BookIcon aria-hidden className="size-5 text-accent" />
 							{t.quick.addBook}
 						</button>
-						<button
-							type="button"
-							className={row}
-							style={delay(3)}
-							onClick={act(() => setMode(dark ? "light" : "dark"))}
-						>
-							{dark ? (
-								<SunIcon aria-hidden className="size-5 text-accent" />
-							) : (
-								<MoonIcon aria-hidden className="size-5 text-accent" />
-							)}
-							{dark ? t.quick.toLight : t.quick.toDark}
-						</button>
-						{GROUPS.map((group, groupIndex) => (
-							<div key={group.title} className="flex flex-col gap-1 border-t border-separator pt-1">
-								<p className="px-3 pt-1 pb-0.5 text-xs font-semibold text-muted">{group.title}</p>
-								{group.to.map((to, position) => {
-									const offset =
-										4 + GROUPS.slice(0, groupIndex).reduce((sum, g) => sum + g.to.length, 0);
-									const item = SIDE_NAV.find((candidate) => candidate.to === to);
-									if (!item) return null;
-									return (
-										<button
-											key={to}
-											type="button"
-											className={row}
-											style={delay(offset + position)}
-											onClick={act(() => void navigate({ to: item.to }))}
-										>
-											<item.icon aria-hidden className="size-5 text-muted" />
-											{item.label}
-										</button>
-									);
-								})}
-							</div>
-						))}
+						{GROUPS.map((group, groupIndex) => {
+							const offset =
+								3 + GROUPS.slice(0, groupIndex).reduce((sum, g) => sum + g.to.length, 0);
+							return (
+								<div
+									key={group.title}
+									className="flex flex-col gap-1 border-t border-separator pt-1"
+								>
+									<p className="px-3 pt-1 pb-0.5 text-xs font-semibold text-muted">{group.title}</p>
+									{group.to.map((to, position) => {
+										const item = SIDE_NAV.find((candidate) => candidate.to === to);
+										if (!item) return null;
+										return (
+											<button
+												key={to}
+												type="button"
+												className={row}
+												style={delay(offset + position)}
+												onClick={act(() => void navigate({ to: item.to }))}
+											>
+												<item.icon aria-hidden className="size-5 text-muted" />
+												{item.label}
+											</button>
+										);
+									})}
+									{group.title === t.nav.groupAccount ? (
+										<>
+											<button
+												type="button"
+												className={row}
+												style={delay(offset + group.to.length)}
+												onClick={act(() => setMode(dark ? "light" : "dark"))}
+											>
+												{dark ? (
+													<SunIcon aria-hidden className="size-5 text-accent" />
+												) : (
+													<MoonIcon aria-hidden className="size-5 text-accent" />
+												)}
+												{dark ? t.quick.toLight : t.quick.toDark}
+											</button>
+										</>
+									) : null}
+								</div>
+							);
+						})}
 					</section>
 				) : null}
 				<button

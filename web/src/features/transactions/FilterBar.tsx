@@ -58,9 +58,15 @@ const SORTS: { value: SortKey; label: string }[] = [
 	{ value: "amount_asc", label: t.txFilter.sortSmallest },
 	{ value: "category", label: t.txFilter.sortCategory },
 ];
-const FLOW_LABEL: Record<FlowKey, string> = {
-	expense: t.txFilter.onlyExpense,
-	income: t.txFilter.onlyIncome,
+type KindKey = "all" | FlowKey;
+const KINDS: { value: KindKey; label: string }[] = [
+	{ value: "all", label: t.common.all },
+	{ value: "expense", label: t.common.expense },
+	{ value: "income", label: t.common.income },
+];
+const FLOW_LABEL_SHORT: Record<FlowKey, string> = {
+	expense: t.common.expense,
+	income: t.common.income,
 };
 
 /** The search box types every keystroke; the list should ask once the person pauses. */
@@ -81,7 +87,9 @@ function Picker({
 	active,
 	title,
 	children,
+	className,
 }: {
+	className?: string;
 	label: string;
 	summary: string;
 	active: boolean;
@@ -94,7 +102,7 @@ function Picker({
 		<>
 			<button
 				type="button"
-				className={trigger({ on: active })}
+				className={`${trigger({ on: active })} ${className ?? ""}`}
 				aria-haspopup="dialog"
 				onClick={() => setOpen(true)}
 			>
@@ -122,12 +130,15 @@ export function FilterBar({
 	value,
 	onChange,
 	leading,
+	below,
 }: {
 	/** The books the list is about: one, or all of them. */
 	books: BookResponse[];
 	value: Filters;
 	onChange: (next: Filters) => void;
 	leading?: React.ReactNode;
+	/** On a phone, under the search box instead of beside it. */
+	below?: React.ReactNode;
 }) {
 	// Across several books the same name is one choice, and a currency is offered if any of them holds it.
 	const categoryLists = useQueries({
@@ -175,7 +186,30 @@ export function FilterBar({
 			value.flows.includes(category.flow as FlowKey),
 	);
 	// Range, kind and sort are always there; categories and a second currency only when there is a choice.
-	const cells = 3 + (offered.length ? 1 : 0) + (currencyOptions.length > 1 ? 1 : 0);
+	const cells = 3 + (currencyOptions.length > 1 ? 1 : 0);
+	const kindPicked: KindKey = value.flows.length === 1 ? (value.flows[0] as FlowKey) : "all";
+	// Choosing a kind drops the categories that do not belong to it.
+	const pickKind = (kind: KindKey) => {
+		const flows: FlowKey[] = kind === "all" ? [] : [kind];
+		const keep = value.categories.filter((name) =>
+			categories.some(
+				(category) =>
+					category.name === name &&
+					(kind === "all" || category.flow === null || category.flow === kind),
+			),
+		);
+		onChange({ ...value, flows, categories: keep });
+	};
+	const kindText = kindPicked === "all" ? "" : FLOW_LABEL_SHORT[kindPicked];
+	const kindSummary =
+		[
+			kindText,
+			value.categories.length
+				? `${formatAmount(value.categories.length)} ${t.txFilter.categoryWord}`
+				: "",
+		]
+			.filter(Boolean)
+			.join(" · ") || t.common.all;
 	const rangeLabel = RANGES.find((item) => item.value === value.range)?.label ?? t.txFilter.all;
 	const wrongRange =
 		value.range === "custom" && value.since && value.until && value.since > value.until;
@@ -199,11 +233,12 @@ export function FilterBar({
 					/>
 				</div>
 			</div>
+			{below ? <div className="md:hidden">{below}</div> : null}
 			<div
 				className={
-					cells >= 5
-						? "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5"
-						: "grid grid-cols-2 gap-2 md:grid-cols-4"
+					cells > 3
+						? "grid grid-cols-2 gap-2 md:grid-cols-4"
+						: "grid grid-cols-2 gap-2 md:grid-cols-3"
 				}
 			>
 				<Picker
@@ -243,55 +278,49 @@ export function FilterBar({
 					</div>
 				</Picker>
 				<Picker
-					label={t.txFilter.kind}
-					summary={
-						value.flows.length ? value.flows.map((f) => FLOW_LABEL[f]).join("، ") : t.common.all
-					}
-					active={value.flows.length > 0}
-					title={t.txFilter.kind}
+					label={t.txFilter.kindAndCategory}
+					summary={kindSummary}
+					active={value.flows.length > 0 || value.categories.length > 0}
+					title={t.txFilter.kindAndCategory}
 				>
-					<div className="flex flex-col gap-1">
-						{(["expense", "income"] as FlowKey[]).map((flow) => (
-							<button
-								key={flow}
-								type="button"
-								aria-pressed={value.flows.includes(flow)}
-								className={row({ on: value.flows.includes(flow) })}
-								onClick={() => onChange({ ...value, flows: toggle(value.flows, flow) })}
-							>
-								{FLOW_LABEL[flow]}
-							</button>
-						))}
-					</div>
-				</Picker>
-				{offered.length ? (
-					<Picker
-						label={t.txFilter.categories}
-						summary={
-							value.categories.length
-								? `${formatAmount(value.categories.length)} ${t.txFilter.picked}`
-								: t.common.all
-						}
-						active={value.categories.length > 0}
-						title={t.txFilter.categories}
-					>
-						<div className="flex max-h-[55dvh] flex-col gap-1 overflow-y-auto overscroll-contain">
-							{offered.map((category) => (
+					<div className="flex flex-col gap-3">
+						<fieldset className="m-0 flex gap-1 rounded-full border-0 bg-surface-secondary p-1">
+							<legend className="sr-only">{t.txFilter.kind}</legend>
+							{KINDS.map((kind) => (
 								<button
-									key={category.id}
+									key={kind.value}
 									type="button"
-									aria-pressed={value.categories.includes(category.name)}
-									className={row({ on: value.categories.includes(category.name) })}
-									onClick={() =>
-										onChange({ ...value, categories: toggle(value.categories, category.name) })
-									}
+									aria-pressed={kindPicked === kind.value}
+									className={`min-h-10 flex-1 rounded-full px-3 text-sm font-medium transition-colors ${
+										kindPicked === kind.value
+											? "bg-accent text-accent-foreground"
+											: "text-muted hover:text-foreground"
+									}`}
+									onClick={() => pickKind(kind.value)}
 								>
-									{category.name}
+									{kind.label}
 								</button>
 							))}
-						</div>
-					</Picker>
-				) : null}
+						</fieldset>
+						{offered.length ? (
+							<div className="flex max-h-[45dvh] flex-col gap-1 overflow-y-auto overscroll-contain">
+								{offered.map((category) => (
+									<button
+										key={category.id}
+										type="button"
+										aria-pressed={value.categories.includes(category.name)}
+										className={row({ on: value.categories.includes(category.name) })}
+										onClick={() =>
+											onChange({ ...value, categories: toggle(value.categories, category.name) })
+										}
+									>
+										{category.name}
+									</button>
+								))}
+							</div>
+						) : null}
+					</div>
+				</Picker>
 				{currencyOptions.length > 1 ? (
 					<Picker
 						label={t.txFilter.currency}
@@ -322,6 +351,7 @@ export function FilterBar({
 					</Picker>
 				) : null}
 				<Picker
+					className={cells % 2 === 1 ? "col-span-2 md:col-span-1" : undefined}
 					label={t.txFilter.sort}
 					summary={SORTS.find((item) => item.value === value.sort)?.label ?? ""}
 					active={value.sort !== "newest"}

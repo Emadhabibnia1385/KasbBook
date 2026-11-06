@@ -235,6 +235,12 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 						{t.transactions.add}
 					</Button>
 				}
+				below={
+					<Button className="w-full" onPress={() => openQuick("transaction")}>
+						<PlusIcon aria-hidden />
+						{t.transactions.add}
+					</Button>
+				}
 				value={filters}
 				onChange={(next) => {
 					setFilters(next);
@@ -369,16 +375,6 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 					pagination={{ page, pageCount: pages, onPageChange: setPage }}
 				/>
 			)}
-			{/* A phone's thumb is at the bottom: the main action floats above the tab bar, at the reading start. */}
-			<button
-				type="button"
-				aria-label={t.transactions.add}
-				className="fixed bottom-[calc(var(--nasim-bottom-bar,4.5rem)+1rem)] start-4 z-20 flex h-14 items-center gap-2 rounded-full bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg md:hidden"
-				onClick={() => openQuick("transaction")}
-			>
-				<PlusIcon aria-hidden className="size-6" />
-				{t.transactions.add}
-			</button>
 			<TransactionDetail
 				row={opened}
 				onClose={() => setOpened(null)}

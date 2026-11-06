@@ -14,6 +14,8 @@ export const txFilterStrings = {
 		year: "سال اخیر",
 		custom: "تاریخ دلخواه",
 		kind: "نوع تراکنش",
+		kindAndCategory: "نوع و دسته",
+		categoryWord: "دسته",
 		onlyExpense: "فقط هزینه‌ها",
 		onlyIncome: "فقط درآمدها",
 		categories: "دسته‌ها",
