@@ -222,10 +222,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 	if (books.length > 0 && !active && !formOpen) return <BookRequired />;
 	return (
 		<div className="flex flex-col gap-5">
-			<PageHeader
-				title={t.manage.books}
-				actions={<Button onPress={() => setAddingOpen(true)}>{t.books.add}</Button>}
-			/>
+			<PageHeader title={t.manage.books} />
 			{books.length === 0 ? (
 				<EmptyState title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />
 			) : active ? (
