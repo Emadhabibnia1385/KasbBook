@@ -8,7 +8,7 @@ import { Amount } from "./Amount";
 import { AttachmentsField } from "./AttachmentsField";
 import { CompactRows } from "./CompactRows";
 import { FilterBar } from "./FilterBar";
-import { type Filters, NO_FILTERS, rangeDates } from "./filters";
+import { type Filters, NO_FILTERS, rangeDates, todayIso } from "./filters";
 import { TransactionDetail } from "./TransactionDetail";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -62,6 +62,8 @@ const schema = z.object({
 	// asked for, and checked, when it is another one.
 	currency: z.string(),
 	rate: z.string().transform(toAscii),
+	// Today unless changed: most entries are made the day they happen.
+	occurred_on: z.string().min(1, { error: t.days.needDate }),
 });
 type Values = z.input<typeof schema>;
 
@@ -102,7 +104,7 @@ function EditForm({
 	return (
 		<FormRoot
 			form={form}
-			className="flex flex-col gap-4"
+			className="grid gap-x-8 gap-y-4 md:grid-cols-2"
 			onSubmit={async (raw) => {
 				const values = editSchema.parse(raw);
 				// Only what changed is sent: an unchanged amount would be re-checked against the wallet for nothing.
@@ -127,30 +129,36 @@ function EditForm({
 				}
 			}}
 		>
-			<TextField
-				name="amount"
-				label={t.transactions.amount}
-				description={
-					row.original_currency === book.currency
-						? undefined
-						: `${t.txExtra.foreignCurrency} ${currencyName(row.original_currency)}`
-				}
-				inputMode="decimal"
-				dir="ltr"
-				isRequired
-			/>
-			<TextField name="category" label={t.transactions.category} isRequired />
-			<CategoryChips
-				bookId={book.id}
-				flow={flow}
-				onPick={(name) =>
-					form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
-				}
-			/>
-			<DayField name="occurred_on" label={t.transactions.date} isRequired />
-			<TextField name="description" label={t.transactions.note} />
-			<AttachmentsField bookId={book.id} transactionId={row.id} queue={[]} onQueue={() => {}} />
-			<SubmitButton>{t.common.save}</SubmitButton>
+			<div className="flex flex-col gap-4">
+				<TextField
+					name="amount"
+					label={t.transactions.amount}
+					description={
+						row.original_currency === book.currency
+							? undefined
+							: `${t.txExtra.foreignCurrency} ${currencyName(row.original_currency)}`
+					}
+					inputMode="decimal"
+					dir="ltr"
+					isRequired
+				/>
+				<TextField name="category" label={t.transactions.category} isRequired />
+				<CategoryChips
+					bookId={book.id}
+					flow={flow}
+					onPick={(name) =>
+						form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
+					}
+				/>
+				<DayField name="occurred_on" label={t.transactions.date} isRequired />
+			</div>
+			<div className="flex flex-col gap-4">
+				<TextField name="description" label={t.transactions.note} />
+				<AttachmentsField bookId={book.id} transactionId={row.id} queue={[]} onQueue={() => {}} />
+			</div>
+			<div className="md:col-span-2">
+				<SubmitButton>{t.common.save}</SubmitButton>
+			</div>
 		</FormRoot>
 	);
 }
@@ -167,6 +175,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 			description: "",
 			currency: book.currency,
 			rate: "",
+			occurred_on: toPicker(todayIso()),
 		},
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
@@ -200,7 +209,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 	return (
 		<FormRoot
 			form={form}
-			className="flex flex-col gap-4"
+			className="grid gap-x-8 gap-y-4 md:grid-cols-2"
 			onSubmit={async (raw) => {
 				const values = schema.parse(raw);
 				const other = values.currency !== book.currency;
@@ -219,6 +228,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 							category: values.category,
 							amount: values.amount,
 							description: values.description || null,
+							occurred_on: pickedDay(values.occurred_on),
 							currency: other ? values.currency : null,
 							conversion_rate: other ? values.rate : null,
 						},
@@ -244,61 +254,68 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 				}
 			}}
 		>
-			<RadioGroupField
-				name="flow"
-				label={t.transactions.kind}
-				options={[
-					{ value: "expense", label: t.common.expense },
-					{ value: "income", label: t.common.income },
-				]}
-			/>
-			{options.length > 1 ? (
-				<SelectField name="currency" label={t.fx.currency} options={options} />
-			) : null}
-			<TextField
-				name="amount"
-				label={
-					foreign ? `${t.transactions.amount} (${currencyName(currency)})` : t.transactions.amount
-				}
-				inputMode="decimal"
-				dir="ltr"
-				isRequired
-			/>
-			{foreign ? (
-				<>
-					<TextField
-						name="rate"
-						label={`${t.fx.rate} (${currencyName(currency)} → ${currencyName(book.currency)})`}
-						description={
-							quote
-								? `${quote.exact ? t.rateNote.source : t.fx.estimateFrom} ${sourceName(quote.source)}، ${ageText(quote.age_seconds ?? 0)}. ${quote.exact ? t.rateNote.editable : t.fx.estimateWarning}`
-								: market.isLoading
-									? t.rateNote.loading
-									: t.rateNote.missing
-						}
-						inputMode="decimal"
-						dir="ltr"
-						isRequired
-					/>
-					{equivalent ? (
-						<p className="text-sm text-muted" aria-live="polite">
-							{t.fx.equivalent}:{" "}
-							<b className="text-foreground">{formatMoney(equivalent, book.currency)}</b>
-						</p>
-					) : null}
-				</>
-			) : null}
-			<TextField name="category" label={t.transactions.category} isRequired />
-			<CategoryChips
-				bookId={book.id}
-				flow={flow}
-				onPick={(name) =>
-					form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
-				}
-			/>
-			<TextField name="description" label={t.transactions.note} />
-			<AttachmentsField bookId={book.id} queue={files} onQueue={setFiles} />
-			<SubmitButton>{t.common.save}</SubmitButton>
+			<div className="flex flex-col gap-4">
+				<RadioGroupField
+					name="flow"
+					label={t.transactions.kind}
+					options={[
+						{ value: "expense", label: t.common.expense },
+						{ value: "income", label: t.common.income },
+					]}
+				/>
+				{options.length > 1 ? (
+					<SelectField name="currency" label={t.fx.currency} options={options} />
+				) : null}
+				<TextField
+					name="amount"
+					label={
+						foreign ? `${t.transactions.amount} (${currencyName(currency)})` : t.transactions.amount
+					}
+					inputMode="decimal"
+					dir="ltr"
+					isRequired
+				/>
+				{foreign ? (
+					<>
+						<TextField
+							name="rate"
+							label={`${t.fx.rate} (${currencyName(currency)} → ${currencyName(book.currency)})`}
+							description={
+								quote
+									? `${quote.exact ? t.rateNote.source : t.fx.estimateFrom} ${sourceName(quote.source)}، ${ageText(quote.age_seconds ?? 0)}. ${quote.exact ? t.rateNote.editable : t.fx.estimateWarning}`
+									: market.isLoading
+										? t.rateNote.loading
+										: t.rateNote.missing
+							}
+							inputMode="decimal"
+							dir="ltr"
+							isRequired
+						/>
+						{equivalent ? (
+							<p className="text-sm text-muted" aria-live="polite">
+								{t.fx.equivalent}:{" "}
+								<b className="text-foreground">{formatMoney(equivalent, book.currency)}</b>
+							</p>
+						) : null}
+					</>
+				) : null}
+				<DayField name="occurred_on" label={t.transactions.date} isRequired />
+			</div>
+			<div className="flex flex-col gap-4">
+				<TextField name="category" label={t.transactions.category} isRequired />
+				<CategoryChips
+					bookId={book.id}
+					flow={flow}
+					onPick={(name) =>
+						form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
+					}
+				/>
+				<TextField name="description" label={t.transactions.note} />
+				<AttachmentsField bookId={book.id} queue={files} onQueue={setFiles} />
+			</div>
+			<div className="md:col-span-2">
+				<SubmitButton>{t.common.save}</SubmitButton>
+			</div>
 		</FormRoot>
 	);
 }
@@ -481,14 +498,14 @@ function List({ book }: { book: BookResponse }) {
 				onEdit={setEditing}
 				onRemove={setRemoving}
 			/>
-			<Modal isOpen={adding} onOpenChange={setAdding} title={t.transactions.add} size="sm">
+			<Modal isOpen={adding} onOpenChange={setAdding} title={t.transactions.add} size="lg">
 				<AddForm book={book} onDone={() => setAdding(false)} />
 			</Modal>
 			<Modal
 				isOpen={editing !== null}
 				onOpenChange={(open) => !open && setEditing(null)}
 				title={t.txExtra.edit}
-				size="sm"
+				size="lg"
 			>
 				{editing ? (
 					<EditForm key={editing.id} book={book} row={editing} onDone={() => setEditing(null)} />
