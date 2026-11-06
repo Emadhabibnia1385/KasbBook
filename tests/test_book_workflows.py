@@ -527,6 +527,9 @@ async def login_setup(session):
     target, _ = await account(session, "200")
     identity = IdentityService(session)
     await identity.set_contact(target.id, email="target@example.com")
+    # The source already owns its default book, so it must be reachable some other way before it can switch.
+    await identity.set_contact(source.id, email="source@example.com")
+    await identity.set_password(source.id, "a-good-password")
     requester = await identity.find_identity(TG, "100")
     return source, target, requester, convo
 
@@ -534,8 +537,6 @@ async def login_setup(session):
 async def test_login_code_is_delivered_only_to_existing_account_and_switches_no_books(session):
     source, target, requester, convo = await login_setup(session)
     identity = IdentityService(session)
-    await identity.set_contact(source.id, email="source@example.com")
-    await identity.set_password(source.id, "a-good-password")
     books = BookService(session)
     source_book = await books.create_book(source.id, "قبلی", BookType.BUSINESS)
     target_book = await books.create_book(target.id, "مقصد", BookType.BUSINESS)
@@ -552,8 +553,11 @@ async def test_login_code_is_delivered_only_to_existing_account_and_switches_no_
     reply = await convo.handle(event(text=code))
     assert "⚠️" not in reply.text and not reply.notifications
     assert requester.user_id == target.id
-    assert [b.id for b in await books.books_for_user(target.id)] == [target_book.id]
-    assert [b.id for b in await books.books_for_user(source.id)] == [source_book.id]
+    # Each account keeps what it had: its default book and the one it made.
+    assert target_book.id in [b.id for b in await books.books_for_user(target.id)]
+    assert source_book.id in [b.id for b in await books.books_for_user(source.id)]
+    assert source_book.id not in [b.id for b in await books.books_for_user(target.id)]
+    assert target_book.id not in [b.id for b in await books.books_for_user(source.id)]
     assert tx.actor_user_id == source.id and tx.converted_amount == Decimal("12.15")
     assert source.token_generation == target.token_generation == 1
     assert await convo.state.get(conversation_key("telegram", "100")) == {}
@@ -594,13 +598,12 @@ async def test_login_unknown_and_cross_provider_destinations_have_identical_resp
 
 async def test_login_refuses_to_strand_source_books_and_limits_requests(session):
     source, _, requester, _ = await login_setup(session)
-    await BookService(session).create_book(source.id, "دفتر", BookType.BUSINESS)
     service = AccountLoginService(session)
+    # An account with books and no other way back in is not let go of them.
+    bare, _ = await account(session, "300")
+    bare_requester = await IdentityService(session).find_identity(TG, "300")
     with pytest.raises(ValidationError, match="قابل دسترسی"):
-        await service.request(source.id, requester.id, "target@example.com")
-    identity = IdentityService(session)
-    await identity.set_contact(source.id, email="source@example.com")
-    await identity.set_password(source.id, "a-good-password")
+        await service.request(bare.id, bare_requester.id, "target@example.com")
     for _ in range(5):
         await service.request(source.id, requester.id, "unknown@example.com")
     with pytest.raises(ValidationError, match="درخواست"):

@@ -16,7 +16,7 @@ export function Amount({
 }: {
 	row: TransactionResponse;
 	book: BookRef;
-	align?: "start" | "end";
+	align?: "start" | "end" | "center";
 }) {
 	const income = row.flow === "income";
 	const foreign = row.original_currency !== book.currency;
@@ -24,7 +24,7 @@ export function Amount({
 	return (
 		<span
 			dir="ltr"
-			className={`flex flex-col ${align === "end" ? "items-end" : "items-start"} leading-tight`}
+			className={`flex flex-col ${align === "end" ? "items-end" : align === "center" ? "items-center" : "items-start"} leading-tight`}
 		>
 			<span className={`whitespace-nowrap font-semibold ${income ? "text-success" : ""}`}>
 				<span className="sr-only">{income ? "درآمد" : "هزینه"} </span>

@@ -542,7 +542,8 @@ async def test_the_preview_says_what_would_go(api):
     preview = (await api.get("/api/v1/auth/me/deletion-preview",
                              headers=bearer(tokens))).json()
 
-    assert preview["books_to_delete"] == ["مغازه"]
+    # The default personal book every account starts with goes too.
+    assert preview["books_to_delete"] == ["حساب\u200cداری شخصی", "مغازه"]
     assert preview["blocked"] is False
 
 

@@ -228,6 +228,14 @@ class AuthService:
         await self.session.flush()
         return pair
 
+    async def owner_of(self, raw: str) -> Optional[User]:
+        """Whose session this refresh token belongs to, or nobody when it is unknown."""
+        try:
+            record = await self._find_refresh(raw)
+        except AuthError:
+            return None
+        return await self.session.get(User, record.user_id)
+
     async def revoke_refresh(self, raw: str) -> None:
         """Sign out one session. An unknown token is not an error — it is signed out."""
         try:
@@ -237,6 +245,14 @@ class AuthService:
         if record.is_open:
             record.revoked_at = utcnow()
             await self.session.flush()
+
+    async def revoke_session(self, user_id: uuid.UUID, session_id: uuid.UUID) -> None:
+        """Sign out one device from the list of where the account is signed in."""
+        record = await self.session.get(RefreshToken, session_id)
+        # Someone else's id answers as an unknown one, like any record that is not yours.
+        if record is None or record.user_id != user_id:
+            raise NotFound("session not found")
+        await self.revoke_family(record.family_id)
 
     async def revoke_family(self, family_id: uuid.UUID) -> int:
         """Kill every token descended from one login."""

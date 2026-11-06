@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
 import { tv } from "tailwind-variants";
 import { OfflineBanner, useMediaQuery } from "@nyxon/nasim";
+import { AutoTimezone } from "@/features/account/AutoTimezone";
 import { useCatalog } from "@/features/currencies/useCatalog";
 import { QuickHost } from "@/features/quick/QuickHost";
 import { QuickMenu } from "@/features/quick/QuickMenu";
+import { DeveloperFooter } from "@/features/shell/DeveloperFooter";
+import { GuestBar } from "@/features/shell/GuestBar";
 import { t } from "@/strings";
 import { DesktopSidebar } from "./DesktopSidebar";
 import { PhoneTabBar } from "./PhoneTabBar";
@@ -36,13 +39,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 			<div className={column()}>
 				<TopBar sidebar={wide} />
 				<OfflineBanner>{t.common.offline}</OfflineBanner>
+				<GuestBar />
 				<main id="main" tabIndex={-1} className={main()}>
 					<div className={page()}>{children}</div>
 				</main>
+				<DeveloperFooter />
 				{wide ? null : <PhoneTabBar />}
 			</div>
 			<QuickMenu />
 			<QuickHost />
+			<AutoTimezone />
 		</div>
 	);
 }

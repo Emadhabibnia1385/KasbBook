@@ -638,7 +638,7 @@ async def test_the_preview_says_what_would_go_and_what_blocks_it(session):
 
     preview = await identity.deletion_preview(user.id)
 
-    assert preview.books_to_delete == ["مغازه"]
+    assert preview.books_to_delete == ["حساب\u200cداری شخصی", "مغازه"]
     assert preview.books_to_hand_over == ["کارگاه"]
     assert preview.blocked is True
 
@@ -650,7 +650,7 @@ async def test_the_preview_of_a_clean_account_blocks_nothing(session):
 
     preview = await identity.deletion_preview(user.id)
 
-    assert preview.books_to_delete == ["مغازه"]
+    assert preview.books_to_delete == ["حساب\u200cداری شخصی", "مغازه"]
     assert preview.books_to_hand_over == []
     assert preview.blocked is False
 

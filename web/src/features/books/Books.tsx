@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
@@ -36,6 +36,14 @@ const TYPES = [
 	{ value: "organization", label: t.book.organization },
 ];
 
+// What each kind of book is for, said under the choice so nobody has to guess.
+const TYPE_HINTS: Record<string, string> = {
+	personal: t.books.personalHint,
+	business: t.books.businessHint,
+	team: t.books.teamHint,
+	organization: t.books.organizationHint,
+};
+
 const schema = z.object({
 	name: z.string().trim().min(1, { error: t.books.needName }).max(120),
 	type: z.string({ error: t.books.needType }),
@@ -66,6 +74,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 		resolver: zodResolver(schema),
 		defaultValues: { name: "", type: "business" },
 	});
+	const chosenType = useWatch({ control: form.control, name: "type" });
 	if (isLoading) return <PageSkeleton />;
 	return (
 		<div className="flex flex-col gap-5">
@@ -125,12 +134,15 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 					}}
 				>
 					<TextField name="name" label={t.books.name} isRequired />
-					<SelectField name="type" label={t.books.type} options={TYPES} />
-					<div className="flex flex-col gap-1">
-						<span className="text-sm font-medium">{t.currencies.createUnit}</span>
+					<div className="flex flex-col gap-1.5">
+						<SelectField name="type" label={t.books.type} options={TYPES} />
+						<p className="text-sm text-muted">{TYPE_HINTS[chosenType ?? ""] ?? ""}</p>
+					</div>
+					<div className="flex flex-col gap-1.5">
+						<span className="text-sm font-medium">{t.books.baseCurrency}</span>
 						<Button
 							variant="outline"
-							className="justify-between"
+							className="w-full justify-between"
 							onPress={() => setPickingCurrency(true)}
 						>
 							<span>{currencyName(currency)}</span>
@@ -138,6 +150,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 								{currency}
 							</span>
 						</Button>
+						<p className="text-sm text-muted">{t.books.baseCurrencyHint}</p>
 					</div>
 					<SubmitButton>{t.common.save}</SubmitButton>
 				</FormRoot>

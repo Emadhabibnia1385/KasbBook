@@ -7,8 +7,10 @@ an identity belongs to.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Sequence
 
@@ -46,6 +48,15 @@ MIN_PASSWORD_LENGTH = 8
 
 # What a closed account is called once its records have to keep an author.
 ANONYMISED_NAME = "حساب حذف‌شده"
+
+# Every account starts with one book, so the first thing a person does is record, not set up.
+DEFAULT_BOOK_NAME = "حساب‌داری شخصی"
+
+GUEST_NAME = "مهمان"
+GUEST_LIFETIME_HOURS = 24
+GUEST_REFUSAL = "حساب مهمان ذخیره نمی‌شود؛ برای نگه‌داشتن اطلاعات با تلگرام یا نام کاربری وارد شو"
+
+USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_.]{2,31}$")
 
 
 # Notification preferences; the bot clamps to the same ceiling.
@@ -86,6 +97,7 @@ class IdentityService:
         email: Optional[str] = None,
         phone: Optional[str] = None,
         password: Optional[str] = None,
+        with_book: bool = False,
     ) -> "User":
 
         user = User(
@@ -97,7 +109,44 @@ class IdentityService:
         self.session.add(user)
         await self.session.flush()
         await self._audit(user.id, "user.created", subject=email or phone or display_name)
+        if with_book:
+            await self.ensure_default_book(user.id)
         return user
+
+    async def create_guest(self) -> "User":
+        """A throwaway account for someone who only wants to look around.
+
+        It has its own personal book so every screen has something to show, and
+        it is removed when they sign out. Guests older than a day are swept here
+        too, so a browser that was simply closed does not leave one behind.
+        """
+        await self.purge_guests()
+        user = User(display_name=GUEST_NAME, is_guest=True)
+        self.session.add(user)
+        await self.session.flush()
+        await self.ensure_default_book(user.id)
+        return user
+
+    async def purge_guests(self) -> None:
+        cutoff = utcnow() - timedelta(hours=GUEST_LIFETIME_HOURS)
+        old = (
+            await self.session.execute(
+                select(User.id).where(User.is_guest.is_(True), User.created_at < cutoff)
+            )
+        ).scalars().all()
+        for user_id in old:
+            await self.delete_account(user_id)
+
+    async def ensure_default_book(self, user_id: uuid.UUID) -> None:
+        """Give an account with no book its personal one; leave any other alone."""
+        # Imported here: the book service reads the identity models, so a top-level import loops.
+        from ..books.models import BookType
+        from ..books.service import BookService
+
+        books = BookService(self.session)
+        if await books.books_for_user(user_id):
+            return
+        await books.create_book(user_id, DEFAULT_BOOK_NAME, BookType.PERSONAL)
 
     async def create_account_from_messenger(
         self,
@@ -123,7 +172,7 @@ class IdentityService:
         if await self.find_identity(provider, external_id) is not None:
             raise AlreadyLinked("this messenger already belongs to an account")
 
-        user = await self.create_user(display_name or "کاربر تازه")
+        user = await self.create_user(display_name or "کاربر تازه", with_book=True)
         await self._attach(
             user_id=user.id,
             provider=provider,
@@ -185,6 +234,26 @@ class IdentityService:
         await self._audit(user_id, "user.contact_changed")
         return user
 
+    async def set_username(self, user_id: uuid.UUID, username: str) -> "User":
+        """The name the web login takes next to the password."""
+        user = await self.get_user(user_id)
+        if user.is_guest:
+            raise ValidationError(GUEST_REFUSAL)
+        value = to_ascii_digits((username or "").strip()).lower()
+        if not USERNAME_PATTERN.match(value):
+            raise ValidationError(
+                "نام کاربری باید 3 تا 32 نویسه باشد: حرف انگلیسی، عدد، نقطه یا زیرخط، و با حرف شروع شود"
+            )
+        taken = await self.session.execute(
+            select(User.id).where(User.username == value, User.id != user_id)
+        )
+        if taken.first() is not None:
+            raise ValidationError("این نام کاربری قابل استفاده نیست")
+        user.username = value
+        await self.session.flush()
+        await self._audit(user_id, "user.username_changed")
+        return user
+
     async def set_password(
         self,
         user_id: uuid.UUID,
@@ -199,6 +268,8 @@ class IdentityService:
         taking the web side too, and it costs one screen.
         """
         user = await self.get_user(user_id)
+        if user.is_guest:
+            raise ValidationError(GUEST_REFUSAL)
 
         if len(new_password or "") < MIN_PASSWORD_LENGTH:
             raise ValidationError(
@@ -268,7 +339,9 @@ class IdentityService:
     async def authenticate(self, identifier: str, password: str) -> Optional["User"]:
 
         needle = identifier.lower().strip()
-        stmt = select(User).where((User.email == needle) | (User.phone == identifier.strip()))
+        stmt = select(User).where(
+            (User.email == needle) | (User.phone == identifier.strip()) | (User.username == needle)
+        )
         user = (await self.session.execute(stmt)).scalar_one_or_none()
 
         if user is None or not user.password_hash or not user.is_active:

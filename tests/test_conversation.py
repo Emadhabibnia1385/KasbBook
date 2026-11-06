@@ -808,7 +808,7 @@ async def test_closing_needs_the_word_typed(session):
     # Anything else cancels, and nothing is touched.
     reply = await convo.handle(says("بله"))
     assert await identity.get_user(user.id) is not None
-    assert len(await BookService(session).books_for_user(user.id)) == 1
+    assert len(await BookService(session).books_for_user(user.id)) == 2
     assert "حساب" in reply.text
 
 

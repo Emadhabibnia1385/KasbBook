@@ -107,6 +107,7 @@ that is theft detection working, not a bug. See [security.md](./security.md).
 |---|---|
 | `PATCH /auth/me` | display name, timezone, locale, and the digest: `digest_enabled`, `digest_hour` (0-23), `reminder_days` (0-60) |
 | `PUT /auth/me/contact` | the email or phone this account is reached and recovered by |
+| `PUT /auth/me/username` | the name the web login takes next to the password (3-32 characters: a-z, 0-9, `.`, `_`; starts with a letter) |
 | `PUT /auth/me/password` | set or change it — **ends every session, including yours** |
 
 Changing a password signs everything out — refresh tokens and already-issued
@@ -134,6 +135,11 @@ blocks it. There is no id to pass: a token can only close its own account.
 | `POST /auth/logout` | ends this session |
 | `POST /auth/logout-everywhere` | ends all of them |
 | `GET /auth/sessions` | where this account is signed in |
+| `DELETE /auth/sessions/{id}` | signs one device out and leaves the others |
+| `POST /auth/guest` | a throwaway account for looking around; signing out (`/auth/logout`) deletes it and everything in it |
+
+Every new account starts with one personal book, «حساب‌داری شخصی». `/auth/login` takes the
+email, the phone **or the username** as its `identifier`.
 
 ### Keys for programs
 

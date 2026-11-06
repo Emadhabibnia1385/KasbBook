@@ -298,9 +298,12 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 									{
 										id: "book",
 										header: t.scope.book,
+										align: "center" as const,
 										className: "w-28",
 										cell: (row: BookedTransactionResponse) => (
-											<bdi className="block truncate text-sm font-medium">{row.book_name}</bdi>
+											<bdi className="block truncate text-center text-sm font-medium">
+												{row.book_name}
+											</bdi>
 										),
 									},
 								]
@@ -308,14 +311,15 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 						{
 							id: "category",
 							header: t.transactions.category,
+							align: "center",
 							isRowHeader: true,
 							className: "w-36",
 							cell: (row) => (
-								<span className="flex min-w-0 flex-col">
-									<span className="flex items-center gap-2">
+								<span className="flex min-w-0 flex-col items-center">
+									<span className="flex items-center justify-center gap-2">
 										<button
 											type="button"
-											className="truncate text-start font-medium hover:underline"
+											className="truncate text-center font-medium hover:underline"
 											onClick={() => setOpened(row)}
 										>
 											{row.category}
@@ -334,15 +338,20 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 						{
 							id: "amount",
 							header: t.transactions.amount,
-							align: "end",
+							align: "center",
 							className: "w-36",
 							cell: (row) => (
-								<Amount row={row} book={{ id: row.book_id, currency: row.book_currency }} />
+								<Amount
+									row={row}
+									book={{ id: row.book_id, currency: row.book_currency }}
+									align="center"
+								/>
 							),
 						},
 						{
 							id: "date",
 							header: t.transactions.date,
+							align: "center",
 							className: "w-24 whitespace-nowrap",
 							cell: (row) => formatDay(row.occurred_on),
 						},
@@ -350,12 +359,13 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 							// One line of the note; the rest is a click away, so the table never grows sideways.
 							id: "note",
 							header: t.transactions.note,
+							align: "center",
 							cell: (row) =>
 								row.description ? (
 									<button
 										type="button"
 										title={row.description}
-										className="block w-full max-w-[11rem] truncate text-start text-muted hover:text-foreground xl:max-w-[22rem]"
+										className="mx-auto block w-full max-w-[11rem] truncate text-center text-muted hover:text-foreground xl:max-w-[22rem]"
 										onClick={() => setOpened(row)}
 									>
 										{row.description}
@@ -367,10 +377,11 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 						{
 							id: "actions",
 							header: "",
+							align: "center",
 							isActions: true,
 							className: "w-32",
 							cell: (row) => (
-								<div className="flex justify-end gap-1">
+								<div className="flex justify-center gap-1">
 									<Button size="sm" variant="ghost" onPress={() => setEditing(row)}>
 										{t.common.edit}
 									</Button>

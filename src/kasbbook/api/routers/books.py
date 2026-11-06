@@ -71,6 +71,8 @@ def _as_enum(enum_class, value: str, field: str):
 
 @router.get("", response_model=List[BookResponse])
 async def list_books(user: CurrentUser, session: SessionDep) -> List[BookResponse]:
+    # An account made before every one started with a book gets its personal one now.
+    await IdentityService(session).ensure_default_book(user.id)
     books = await BookService(session).books_for_user(user.id)
     return [
         BookResponse(id=b.id, name=b.name, type=b.type.value,

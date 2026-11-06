@@ -57,7 +57,13 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     email: Mapped[Optional[str]] = mapped_column(String(320), unique=True, index=True)
     phone: Mapped[Optional[str]] = mapped_column(String(32), unique=True, index=True)
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
+    # What the web login asks for next to the password; chosen by the person, lower-case.
+    username: Mapped[Optional[str]] = mapped_column(String(32), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    # A visitor trying the panel: nothing it holds is kept, and signing out removes the account.
+    is_guest: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     locale: Mapped[str] = mapped_column(String(8), nullable=False, default="fa")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Tehran")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -93,6 +99,10 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     identities: Mapped[list["Identity"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
+
+    @property
+    def web_login_ready(self) -> bool:
+        return bool(self.password_hash)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<User {self.id} {self.display_name!r}>"

@@ -13,8 +13,8 @@ export type DataColumn<T> = {
   id: string;
   header: ReactNode;
   cell: (row: T) => ReactNode;
-  /** Figures and amounts line up at the end. */
-  align?: 'start' | 'end';
+  /** Figures and amounts line up at the end; a column can instead be centred under its heading. */
+  align?: 'start' | 'end' | 'center';
   /** Exactly one column should name the row for a screen reader. */
   isRowHeader?: boolean;
   className?: string;
@@ -223,6 +223,7 @@ export function DataTable<T>({
                 isRowHeader={column.isRowHeader}
                 className={[
                   column.align === 'end' && 'text-end',
+                  column.align === 'center' && 'text-center',
                   column.className,
                 ]
                   .filter(Boolean)
@@ -240,6 +241,7 @@ export function DataTable<T>({
                     key={column.id}
                     className={[
                       column.align === 'end' && 'text-end',
+                      column.align === 'center' && 'text-center',
                       column.className,
                     ]
                       .filter(Boolean)

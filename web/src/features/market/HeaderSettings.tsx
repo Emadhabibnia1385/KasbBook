@@ -1,4 +1,5 @@
-import { Button, SectionCard } from "@nyxon/nasim";
+import { Button } from "@nyxon/nasim";
+import { SettingGroup } from "@/shared/SettingGroup";
 import { t } from "@/strings";
 import { type HeaderPrefs, resetHeaderPrefs, setHeaderPref, useHeaderPrefs } from "./headerPrefs";
 
@@ -14,7 +15,7 @@ const PARTS: { key: keyof HeaderPrefs; label: string; hint?: string }[] = [
 export function HeaderSettings() {
 	const prefs = useHeaderPrefs();
 	return (
-		<SectionCard title={t.headerSettings.title} description={t.headerSettings.description}>
+		<SettingGroup title={t.headerSettings.title} description={t.headerSettings.description}>
 			<ul className="flex flex-col">
 				{PARTS.map((part) => (
 					<li key={part.key} className="border-b border-separator last:border-b-0">
@@ -36,6 +37,6 @@ export function HeaderSettings() {
 			<Button size="sm" variant="ghost" className="mt-2" onPress={resetHeaderPrefs}>
 				{t.headerSettings.reset}
 			</Button>
-		</SectionCard>
+		</SettingGroup>
 	);
 }

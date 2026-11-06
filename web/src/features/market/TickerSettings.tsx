@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, SectionCard } from "@nyxon/nasim";
+import { Button } from "@nyxon/nasim";
+import { SettingGroup } from "@/shared/SettingGroup";
 import { CurrencyPicker } from "@/features/currencies/CurrencyPicker";
 import { currencyName } from "@/shared/format";
 import { t } from "@/strings";
@@ -11,7 +12,7 @@ export function TickerSettings() {
 	const [picking, setPicking] = useState(false);
 	const full = codes.length >= MAX_TICKER;
 	return (
-		<SectionCard title={t.tickerSettings.title} description={t.tickerSettings.description}>
+		<SettingGroup title={t.tickerSettings.title} description={t.tickerSettings.description}>
 			<ul className="flex flex-wrap gap-2" aria-label={t.tickerSettings.title}>
 				{codes.map((code) => (
 					<li
@@ -50,6 +51,6 @@ export function TickerSettings() {
 				disabled={Object.fromEntries(codes.map((code) => [code, t.tickerSettings.already]))}
 				onPick={(code) => setTickerCodes([...codes, code])}
 			/>
-		</SectionCard>
+		</SettingGroup>
 	);
 }

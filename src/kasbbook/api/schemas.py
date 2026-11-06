@@ -54,6 +54,10 @@ class TokenResponse(Model):
 class UserResponse(Model):
     id: uuid.UUID
     display_name: str
+    username: Optional[str] = None
+    is_guest: bool = False
+    # Whether a secret is set for the web login; the hash itself never leaves the server.
+    web_login_ready: bool = False
     email: Optional[str] = None
     phone: Optional[str] = None
     locale: str
@@ -71,6 +75,10 @@ class ProfileRequest(Model):
     digest_enabled: Optional[bool] = None
     digest_hour: Optional[int] = None
     reminder_days: Optional[int] = None
+
+
+class UsernameRequest(Model):
+    username: str = Field(min_length=1, max_length=32)
 
 
 class ContactRequest(Model):

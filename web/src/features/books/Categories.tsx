@@ -7,7 +7,6 @@ import {
 	Button,
 	ConfirmDialog,
 	EmptyState,
-	FilterChips,
 	FormRoot,
 	Modal,
 	PageSkeleton,
@@ -24,7 +23,6 @@ import {
 	useBooksRenameCategory,
 } from "@/api/generated/books/books";
 import type { BookResponse, CategoryResponse } from "@/api/generated/model";
-import { formatAmount } from "@/shared/format";
 import { EditIcon, TrashIcon } from "@/shared/icons";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
@@ -123,93 +121,89 @@ function RenameForm({
 	);
 }
 
-/** The active book's categories: what the transaction form suggests, kept tidy here. */
+function CategoryList({
+	categories,
+	onRename,
+	onRemove,
+}: {
+	categories: CategoryResponse[];
+	onRename: (category: CategoryResponse) => void;
+	onRemove: (category: CategoryResponse) => void;
+}) {
+	return (
+		<ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+			{categories.map((category) => (
+				<li
+					key={category.id}
+					className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-surface py-1.5 ps-3 pe-1.5"
+				>
+					<span className="min-w-0 flex-1 truncate font-medium">{category.name}</span>
+					<Button
+						isIconOnly
+						size="sm"
+						variant="ghost"
+						aria-label={`${t.categories.rename}: ${category.name}`}
+						onPress={() => onRename(category)}
+					>
+						<EditIcon aria-hidden />
+					</Button>
+					<Button
+						isIconOnly
+						size="sm"
+						variant="ghost"
+						aria-label={`${t.common.delete}: ${category.name}`}
+						onPress={() => onRemove(category)}
+					>
+						<TrashIcon aria-hidden />
+					</Button>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+/** The active book's categories, expense ones and income ones apart: what the transaction form suggests, kept tidy here. */
 export function Categories({ book }: { book: BookResponse }) {
 	const queryClient = useQueryClient();
 	const { data = [], isLoading } = useBooksListCategories(book.id);
 	const remove = useBooksDeleteCategory();
 	const [adding, setAdding] = useState<"income" | "expense" | null>(null);
-	// «همه» is the default: the person sees every category first and narrows only if they want to.
-	const [shown, setShown] = useState<"all" | "income" | "expense">("all");
 	const [renaming, setRenaming] = useState<CategoryResponse | null>(null);
 	const [removing, setRemoving] = useState<CategoryResponse | null>(null);
-	const visible = shown === "all" ? data : data.filter((category) => category.flow === shown);
-	const count = (flow: "income" | "expense") =>
-		data.filter((category) => category.flow === flow).length;
-	return (
-		<SectionCard
-			title={t.categories.title}
-			description={t.categories.description}
-			actions={
-				<span className="flex flex-wrap gap-2">
-					<Button size="sm" onPress={() => setAdding("expense")}>
-						{t.categories.addExpense}
+	const section = (flow: "income" | "expense") => {
+		const mine = data.filter((category) => category.flow === flow);
+		const expense = flow === "expense";
+		return (
+			<SectionCard
+				title={expense ? t.categories.expenseTitle : t.categories.incomeTitle}
+				description={expense ? t.categories.expenseHint : t.categories.incomeHint}
+				actions={
+					<Button
+						size="sm"
+						variant={expense ? "primary" : "secondary"}
+						onPress={() => setAdding(flow)}
+					>
+						{expense ? t.categories.addExpense : t.categories.addIncome}
 					</Button>
-					<Button size="sm" variant="secondary" onPress={() => setAdding("income")}>
-						{t.categories.addIncome}
-					</Button>
-				</span>
-			}
-		>
-			{isLoading ? (
-				<PageSkeleton header={false} rows={3} />
-			) : data.length === 0 ? (
-				<EmptyState title={t.categories.emptyTitle} description={t.categories.empty} />
-			) : (
-				<div className="flex flex-col gap-3">
-					<FilterChips
-						label={t.categories.filterLabel}
-						value={shown}
-						onChange={(value) => setShown(value as typeof shown)}
-						options={[
-							{ value: "all", label: `${t.common.all} (${formatAmount(data.length)})` },
-							{
-								value: "expense",
-								label: `${t.common.expense} (${formatAmount(count("expense"))})`,
-							},
-							{ value: "income", label: `${t.common.income} (${formatAmount(count("income"))})` },
-						]}
+				}
+			>
+				{isLoading ? (
+					<PageSkeleton header={false} rows={2} />
+				) : mine.length === 0 ? (
+					<EmptyState
+						title={expense ? t.categories.noExpense : t.categories.noIncome}
+						description={t.categories.empty}
 					/>
-					{visible.length === 0 ? (
-						<p className="text-sm text-muted">{t.categories.noneInFilter}</p>
-					) : null}
-					<ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-						{visible.map((category) => (
-							<li
-								key={category.id}
-								className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-surface py-1.5 ps-3 pe-1.5"
-							>
-								<span
-									aria-hidden
-									className={`size-2 shrink-0 rounded-full ${category.flow === "income" ? "bg-success" : "bg-muted"}`}
-								/>
-								<span className="min-w-0 flex-1 truncate font-medium">{category.name}</span>
-								<span className="sr-only">
-									{category.flow === "income" ? t.common.income : t.common.expense}
-								</span>
-								<Button
-									isIconOnly
-									size="sm"
-									variant="ghost"
-									aria-label={`${t.categories.rename}: ${category.name}`}
-									onPress={() => setRenaming(category)}
-								>
-									<EditIcon aria-hidden />
-								</Button>
-								<Button
-									isIconOnly
-									size="sm"
-									variant="ghost"
-									aria-label={`${t.common.delete}: ${category.name}`}
-									onPress={() => setRemoving(category)}
-								>
-									<TrashIcon aria-hidden />
-								</Button>
-							</li>
-						))}
-					</ul>
-				</div>
-			)}
+				) : (
+					<CategoryList categories={mine} onRename={setRenaming} onRemove={setRemoving} />
+				)}
+			</SectionCard>
+		);
+	};
+	return (
+		<div className="flex flex-col gap-5">
+			{section("expense")}
+			{section("income")}
 			<Modal
 				isOpen={adding !== null}
 				onOpenChange={(open) => !open && setAdding(null)}
@@ -254,6 +248,6 @@ export function Categories({ book }: { book: BookResponse }) {
 					}
 				}}
 			/>
-		</SectionCard>
+		</div>
 	);
 }

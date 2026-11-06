@@ -49,6 +49,7 @@ import type {
 	StartLoginResponse,
 	TokenResponse,
 	UserResponse,
+	UsernameRequest,
 	WebAppRequest,
 } from "../model";
 
@@ -377,6 +378,62 @@ export const useAuthRevokeApiKey = <TError = ErrorType<HTTPValidationError>, TCo
 	TContext
 > => {
 	return useMutation(getAuthRevokeApiKeyMutationOptions(options), queryClient);
+};
+export const getAuthGuestUrl = () => {
+	return `/api/v1/auth/guest`;
+};
+
+/**
+ * Let someone look around without an account. Signing out removes everything.
+ * @summary Guest
+ */
+export const authGuest = async (
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<TokenResponse> => {
+	return apiFetch<TokenResponse>(getAuthGuestUrl(), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getAuthGuestMutationKey = () => ["authGuest"] as const;
+
+export const getAuthGuestMutationOptions = <
+	TError = ErrorType<unknown>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<Awaited<ReturnType<typeof authGuest>>, TError, void, TContext>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<Awaited<ReturnType<typeof authGuest>>, TError, void, TContext> => {
+	const mutationKey = getAuthGuestMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<Awaited<ReturnType<typeof authGuest>>, void> = () => {
+		return authGuest(requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type AuthGuestMutationResult = NonNullable<Awaited<ReturnType<typeof authGuest>>>;
+
+export type AuthGuestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Guest
+ */
+export const useAuthGuest = <TError = ErrorType<unknown>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<Awaited<ReturnType<typeof authGuest>>, TError, void, TContext>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof authGuest>>, TError, void, TContext> => {
+	return useMutation(getAuthGuestMutationOptions(options), queryClient);
 };
 export const getAuthLoginUrl = () => {
 	return `/api/v1/auth/login`;
@@ -1328,6 +1385,112 @@ export const useAuthSetPassword = <TError = ErrorType<HTTPValidationError>, TCon
 > => {
 	return useMutation(getAuthSetPasswordMutationOptions(options), queryClient);
 };
+export const getAuthSetUsernameUrl = () => {
+	return `/api/v1/auth/me/username`;
+};
+
+/**
+ * The name the web login takes next to the password.
+ * @summary Set Username
+ */
+export const authSetUsername = async (
+	usernameRequest: UsernameRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<UserResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<UserResponse>(getAuthSetUsernameUrl(), {
+		...options,
+		method: "PUT",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(usernameRequest),
+	});
+};
+
+export const getAuthSetUsernameMutationKey = () => ["authSetUsername"] as const;
+
+export const getAuthSetUsernameMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof authSetUsername>>,
+		TError,
+		AuthSetUsernameMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof authSetUsername>>,
+	TError,
+	AuthSetUsernameMutationVariables,
+	TContext
+> => {
+	const mutationKey = getAuthSetUsernameMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof authSetUsername>>,
+		AuthSetUsernameMutationVariables
+	> = (props) => {
+		const { data } = props ?? {};
+
+		return authSetUsername(data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type AuthSetUsernameMutationResult = NonNullable<
+	Awaited<ReturnType<typeof authSetUsername>>
+>;
+export type AuthSetUsernameMutationBody = UsernameRequest;
+export type AuthSetUsernameMutationError = ErrorType<HTTPValidationError>;
+export type AuthSetUsernameMutationVariables = { data: UsernameRequest };
+
+/**
+ * @summary Set Username
+ */
+export const useAuthSetUsername = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof authSetUsername>>,
+			TError,
+			AuthSetUsernameMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof authSetUsername>>,
+	TError,
+	AuthSetUsernameMutationVariables,
+	TContext
+> => {
+	return useMutation(getAuthSetUsernameMutationOptions(options), queryClient);
+};
 export const getAuthRefreshUrl = () => {
 	return `/api/v1/auth/refresh`;
 };
@@ -1651,6 +1814,91 @@ export function useAuthSessions<
 	return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getAuthSignOutSessionUrl = (sessionId: string) => {
+	return `/api/v1/auth/sessions/${sessionId}`;
+};
+
+/**
+ * Sign out one device, leaving the others as they are.
+ * @summary Sign Out Session
+ */
+export const authSignOutSession = async (
+	sessionId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+	return apiFetch<void>(getAuthSignOutSessionUrl(sessionId), {
+		...options,
+		method: "DELETE",
+	});
+};
+
+export const getAuthSignOutSessionMutationKey = () => ["authSignOutSession"] as const;
+
+export const getAuthSignOutSessionMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof authSignOutSession>>,
+		TError,
+		AuthSignOutSessionMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof authSignOutSession>>,
+	TError,
+	AuthSignOutSessionMutationVariables,
+	TContext
+> => {
+	const mutationKey = getAuthSignOutSessionMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof authSignOutSession>>,
+		AuthSignOutSessionMutationVariables
+	> = (props) => {
+		const { sessionId } = props ?? {};
+
+		return authSignOutSession(sessionId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type AuthSignOutSessionMutationResult = NonNullable<
+	Awaited<ReturnType<typeof authSignOutSession>>
+>;
+
+export type AuthSignOutSessionMutationError = ErrorType<HTTPValidationError>;
+export type AuthSignOutSessionMutationVariables = { sessionId: string };
+
+/**
+ * @summary Sign Out Session
+ */
+export const useAuthSignOutSession = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof authSignOutSession>>,
+			TError,
+			AuthSignOutSessionMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof authSignOutSession>>,
+	TError,
+	AuthSignOutSessionMutationVariables,
+	TContext
+> => {
+	return useMutation(getAuthSignOutSessionMutationOptions(options), queryClient);
+};
 export const getAuthPollUrl = () => {
 	return `/api/v1/auth/telegram/poll`;
 };

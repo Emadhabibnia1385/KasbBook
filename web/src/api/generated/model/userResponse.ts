@@ -21,8 +21,11 @@ export interface UserResponse {
 	display_name: string;
 	email?: string | null;
 	id: string;
+	is_guest?: boolean;
 	locale: string;
 	phone?: string | null;
 	reminder_days: number;
 	timezone: string;
+	username?: string | null;
+	web_login_ready?: boolean;
 }

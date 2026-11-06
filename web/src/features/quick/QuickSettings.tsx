@@ -1,4 +1,4 @@
-import { SectionCard } from "@nyxon/nasim";
+import { SettingGroup } from "@/shared/SettingGroup";
 import { t } from "@/strings";
 import { setQuickEnabled, useQuickEnabled } from "./quickPrefs";
 
@@ -7,7 +7,7 @@ export function QuickSettings() {
 	const enabled = useQuickEnabled();
 	const { enable, enableHint } = t.quick;
 	return (
-		<SectionCard title={t.quick.open}>
+		<SettingGroup title={t.quick.open}>
 			<label
 				aria-label={enable}
 				className="flex min-h-12 cursor-pointer items-center justify-between gap-3"
@@ -23,6 +23,6 @@ export function QuickSettings() {
 					onChange={(event) => setQuickEnabled(event.target.checked)}
 				/>
 			</label>
-		</SectionCard>
+		</SettingGroup>
 	);
 }

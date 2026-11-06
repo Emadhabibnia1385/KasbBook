@@ -144,6 +144,7 @@ export * from "./transactionsListAllTransactionsParams";
 export * from "./transactionUpdate";
 export * from "./treasuryRuleRequest";
 export * from "./treasuryRuleResponse";
+export * from "./usernameRequest";
 export * from "./userResponse";
 export * from "./validationError";
 export * from "./validationErrorCtx";

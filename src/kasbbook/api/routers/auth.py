@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, status
 from ...modules.identity.auth import AuthError
 from ...modules.identity.service import IdentityService
 from ...shared.security import verify_password
-from ...shared.errors import ValidationError
+from ...shared.errors import NotFound, ValidationError
 from ..deps import AuthDep, CurrentUser, LimiterDep, Person, SessionDep, client_fingerprint
 from ..schemas import (
     ApiKeyCreated,
@@ -30,6 +30,7 @@ from ..schemas import (
     RegisterRequest,
     SessionResponse,
     TokenResponse,
+    UsernameRequest,
     UserResponse,
 )
 
@@ -79,11 +80,29 @@ async def register(
         email=body.email,
         phone=body.phone,
         password=body.password,
+        with_book=True,
     )
     pair = await auth.issue_pair(
         user,
         user_agent=request.headers.get("user-agent"),
         ip_address=client_fingerprint(request),
+    )
+    return TokenResponse(**pair.__dict__)
+
+
+GUEST_LIMIT, GUEST_WINDOW = 10, 3600
+
+
+@router.post("/guest", response_model=TokenResponse, status_code=201)
+async def guest(
+    request: Request, session: SessionDep, auth: AuthDep, limiter: LimiterDep
+) -> TokenResponse:
+    """Let someone look around without an account. Signing out removes everything."""
+    fingerprint = client_fingerprint(request)
+    await _enforce(limiter, f"guest:{fingerprint}", GUEST_LIMIT, GUEST_WINDOW)
+    user = await IdentityService(session).create_guest()
+    pair = await auth.issue_pair(
+        user, user_agent=request.headers.get("user-agent"), ip_address=fingerprint
     )
     return TokenResponse(**pair.__dict__)
 
@@ -126,14 +145,19 @@ async def refresh(body: RefreshRequest, request: Request, auth: AuthDep) -> Toke
 
 
 @router.post("/logout", status_code=204)
-async def logout(body: RefreshRequest, auth: AuthDep) -> None:
+async def logout(body: RefreshRequest, auth: AuthDep, session: SessionDep) -> None:
     """Sign out this session. An unknown token is not an error; it is signed out."""
+    owner = await auth.owner_of(body.refresh_token)
     await auth.revoke_refresh(body.refresh_token)
+    if owner is not None and owner.is_guest:
+        await IdentityService(session).delete_account(owner.id)
 
 
 @router.post("/logout-everywhere", status_code=204)
-async def logout_everywhere(user: Person, auth: AuthDep) -> None:
+async def logout_everywhere(user: Person, auth: AuthDep, session: SessionDep) -> None:
     await auth.revoke_all_for_user(user.id)
+    if user.is_guest:
+        await IdentityService(session).delete_account(user.id)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -145,6 +169,12 @@ async def me(user: CurrentUser) -> UserResponse:
 async def sessions(user: Person, auth: AuthDep) -> List[SessionResponse]:
     """Where this account is currently signed in."""
     return [SessionResponse.model_validate(row) for row in await auth.sessions(user.id)]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def sign_out_session(session_id: uuid.UUID, user: Person, auth: AuthDep) -> None:
+    """Sign out one device, leaving the others as they are."""
+    await auth.revoke_session(user.id, session_id)
 
 
 # -------------------------------------------------------------- account
@@ -169,6 +199,15 @@ async def set_contact(
     updated = await IdentityService(session).set_contact(
         user.id, email=body.email, phone=body.phone
     )
+    return UserResponse.model_validate(updated)
+
+
+@router.put("/me/username", response_model=UserResponse)
+async def set_username(
+    body: UsernameRequest, user: Person, session: SessionDep
+) -> UserResponse:
+    """The name the web login takes next to the password."""
+    updated = await IdentityService(session).set_username(user.id, body.username)
     return UserResponse.model_validate(updated)
 
 

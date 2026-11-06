@@ -1,3 +1,4 @@
+import { accountStrings } from "./account";
 import { analyticsStrings } from "./analytics";
 import { currencyStrings } from "./currencies";
 import { marketStrings } from "./market";
@@ -18,6 +19,7 @@ export const t = {
 	...marketStrings,
 	...currencyStrings,
 	...analyticsStrings,
+	...accountStrings,
 	github: { label: "کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",
@@ -57,7 +59,7 @@ export const t = {
 	money: { toman: "تومان", rial: "ریال" },
 	login: {
 		title: "ورود به کسب‌بوک",
-		lead: "با حساب تلگرام وارد شو؛ رمز و ثبت‌نامی لازم نیست.",
+		lead: "با تلگرام، یا با نام کاربری و رمز وارد شو.",
 		button: "ورود با تلگرام",
 		opening: "در حال باز کردن تلگرام…",
 		waitingTitle: "منتظر تأیید در تلگرام",
@@ -161,8 +163,7 @@ export const t = {
 		since: "از",
 		appearance: "ظاهر و نصب",
 		logoutEverywhere: "خروج از همهٔ دستگاه‌ها",
-		logoutEverywhereBody:
-			"همهٔ دستگاه‌ها، از جمله همین یکی، خارج می‌شوند و باید دوباره با تلگرام وارد شوی.",
+		logoutEverywhereBody: "همهٔ دستگاه‌ها، از جمله همین یکی، خارج می‌شوند و باید دوباره وارد شوی.",
 	},
 	books: {
 		add: "دفتر جدید",
@@ -170,6 +171,16 @@ export const t = {
 		type: "نوع دفتر",
 		needName: "نام دفتر را بنویس",
 		needType: "نوع دفتر را انتخاب کن",
+		personalHint:
+			"برای پول شخصی خودت: حقوق، خرج خانه و پس‌انداز. فقط خودت و کسانی که اضافه کنی آن را می‌بینند.",
+		businessHint:
+			"برای مغازه یا کسب‌وکار: فروش، هزینه‌های کار، سود و زیان. می‌توانی همکار هم اضافه کنی.",
+		teamHint:
+			"برای کار گروهی: درآمد و هزینهٔ تیم یک‌جا ثبت می‌شود و سهم اعضا، خزانه و حقوق حساب می‌شود.",
+		organizationHint: "برای مجموعه‌ای بزرگ‌تر با چند عضو و نقش‌های مختلف، مثل مدیر، حسابدار و ناظر.",
+		baseCurrency: "ارز اصلی دفتر",
+		baseCurrencyHint:
+			"گزارش‌ها و جمع‌های دفتر با همین ارز می‌آیند؛ تراکنش با ارز دیگر هم می‌شود ثبت کرد. بعداً عوض کردنش ساده نیست.",
 		created: "دفتر ساخته شد",
 		active: "فعال",
 		use: "انتخاب",
