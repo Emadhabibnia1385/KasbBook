@@ -28,7 +28,6 @@ import {
 } from "@/api/generated/books/books";
 import type { BookResponse, CurrencyOptionResponse } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
-import { CurrencyMenu } from "@/features/currencies/CurrencyMenu";
 import { currencyName, formatDay, formatMoney, toAscii } from "@/shared/format";
 import { t } from "@/strings";
 
@@ -231,20 +230,10 @@ function Content({ book }: { book: BookResponse }) {
 			<SectionCard title={t.wallet.balances} description={t.wallet.balancesHint}>
 				<Balances book={book} />
 			</SectionCard>
-			<div className="grid gap-5 lg:grid-cols-2">
-				<div className="flex flex-col gap-5">
-					{currencies.isLoading ? (
-						<PageSkeleton header={false} rows={3} />
-					) : currencies.isError ? (
-						<ErrorState onRetry={() => void currencies.refetch()} />
-					) : (
-						<CurrencyMenu book={book} options={options} />
-					)}
-				</div>
-				<SectionCard title={t.wallet.conversions}>
-					<Conversions book={book} options={options} />
-				</SectionCard>
-			</div>
+			<SectionCard title={t.wallet.conversions}>
+				<Conversions book={book} options={options} />
+			</SectionCard>
+			<p className="text-sm text-muted">{t.wallet.unitsMoved}</p>
 		</div>
 	);
 }

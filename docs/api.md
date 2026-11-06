@@ -184,6 +184,7 @@ the ledger or the income and expense reports.
 
 | | |
 |---|---|
+| `PATCH /books/{id}` | rename a book or change its `type` (a personal book cannot have other members) |
 | `GET /portfolio/instruments` | everything that can be held (`gold18`, `gold24`, `mesghal`, the coins, `silver`, the world ounces `XAU` `XAG` `XPT` `XPD`, currencies, crypto, and `other`), each with today's price in toman, whether it is `exact`, its source and when it was fetched |
 | `GET /books/{id}/portfolio` | the holdings with `price`, `value`, `profit` and `profit_percent`, in the book's currency, and the totals; `unpriced` counts holdings nobody could price |
 | `POST /books/{id}/portfolio/holdings`, `PATCH`/`DELETE …/holdings/{id}` | `instrument`, `quantity`, optional `cost` (all of it, in the book's currency; the basis for profit and loss), `acquired_on`, `note`. `instrument` may also be any currency code of `GET /currencies` (it is priced through the quote feed). `other` has no feed: it takes a `label` and the `unit_price` the person gives |

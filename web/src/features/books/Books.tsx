@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
 	Button,
 	EmptyState,
+	ErrorState,
 	FormRoot,
 	Modal,
 	PageHeader,
@@ -21,12 +22,16 @@ import { useAuthMe } from "@/api/generated/auth/auth";
 import {
 	getBooksListBooksQueryKey,
 	useBooksCreateBook,
+	useBooksListCurrencies,
 	useBooksSetCalendar,
+	useBooksUpdateBook,
 } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
 import { currencyName } from "@/shared/format";
 import { t } from "@/strings";
+import { BookRequired } from "./BookRequired";
 import { Categories } from "./Categories";
+import { CurrencyMenu } from "@/features/currencies/CurrencyMenu";
 import { CurrencyPicker } from "@/features/currencies/CurrencyPicker";
 import { selectBook, useActiveBook } from "./useActiveBook";
 
@@ -90,6 +95,103 @@ function CalendarSwitch({ book }: { book: BookResponse }) {
 	);
 }
 
+const TYPE_ORDER = ["personal", "business", "team", "organization"] as const;
+
+/** The book's own particulars: its name and kind, and the calendar it counts by. */
+function BookDetails({ book }: { book: BookResponse }) {
+	const queryClient = useQueryClient();
+	const update = useBooksUpdateBook();
+	const [renaming, setRenaming] = useState(false);
+	const form = useForm<{ name: string }>({
+		resolver: zodResolver(
+			z.object({ name: z.string().trim().min(1, { error: t.books.needName }).max(120) }),
+		),
+		defaultValues: { name: book.name },
+	});
+	const save = async (data: { name?: string; type?: string }, message: string) => {
+		try {
+			await update.mutateAsync({ bookId: book.id, data });
+			await queryClient.invalidateQueries({ queryKey: getBooksListBooksQueryKey() });
+			toast.success(message);
+		} catch (error) {
+			toast.danger(error instanceof Error ? error.message : t.errors.unknown);
+			throw error;
+		}
+	};
+	return (
+		<SectionCard title={t.manage.bookDetails} description={t.manage.bookDetailsHint}>
+			<div className="flex flex-col gap-4">
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<span className="flex flex-col">
+						<span className="text-xs text-muted">{t.manage.bookName}</span>
+						<b className="text-lg">{book.name}</b>
+					</span>
+					<Button size="sm" variant="secondary" onPress={() => setRenaming(true)}>
+						{t.manage.editName}
+					</Button>
+				</div>
+				<div className="flex flex-col gap-1.5">
+					<span className="text-xs text-muted">{t.manage.bookType}</span>
+					<div className="flex flex-wrap gap-2">
+						{TYPE_ORDER.map((kind) => (
+							<Button
+								key={kind}
+								size="sm"
+								variant={kind === book.type ? "primary" : "ghost"}
+								isDisabled={update.isPending}
+								onPress={() => {
+									if (kind !== book.type)
+										void save({ type: kind }, t.manage.typeSaved).catch(() => {});
+								}}
+							>
+								{TYPES.find((type) => type.value === kind)?.label}
+							</Button>
+						))}
+					</div>
+					<p className="text-sm text-muted">{TYPE_HINTS[book.type] ?? ""}</p>
+				</div>
+				<CalendarSwitch book={book} />
+			</div>
+			<Modal isOpen={renaming} onOpenChange={setRenaming} title={t.manage.editName} size="sm">
+				<FormRoot
+					form={form}
+					className="flex flex-col gap-4"
+					onSubmit={async (values) => {
+						try {
+							await save({ name: values.name.trim() }, t.manage.nameSaved);
+							setRenaming(false);
+						} catch {
+							// the toast already said why
+						}
+					}}
+				>
+					<TextField name="name" label={t.books.name} isRequired />
+					<SubmitButton>{t.common.save}</SubmitButton>
+				</FormRoot>
+			</Modal>
+		</SectionCard>
+	);
+}
+
+/** Everything about the chosen book that is not a transaction: its details, its units and its categories. */
+function Settings({ book }: { book: BookResponse }) {
+	const currencies = useBooksListCurrencies(book.id);
+	return (
+		<>
+			<BookDetails key={`${book.id}-${book.name}`} book={book} />
+			{currencies.isLoading ? (
+				<PageSkeleton header={false} rows={3} />
+			) : currencies.isError ? (
+				<ErrorState onRetry={() => void currencies.refetch()} />
+			) : (
+				<div className="flex flex-col gap-5">
+					<CurrencyMenu book={book} options={currencies.data ?? []} />
+				</div>
+			)}
+		</>
+	);
+}
+
 export function Books({ presetCurrency }: { presetCurrency?: string | undefined }) {
 	const queryClient = useQueryClient();
 	const { books, book: active, isLoading } = useActiveBook();
@@ -117,6 +219,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 	});
 	const chosenType = useWatch({ control: form.control, name: "type" });
 	if (isLoading) return <PageSkeleton />;
+	if (books.length > 0 && !active && !formOpen) return <BookRequired />;
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader
@@ -126,13 +229,9 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 			{books.length === 0 ? (
 				<EmptyState title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />
 			) : active ? (
-				<SectionCard title={active.name}>
-					<p className="text-sm text-muted">
-						{TYPES.find((type) => type.value === active.type)?.label ?? active.type} ·{" "}
-						{currencyName(active.currency)}
-					</p>
-					<CalendarSwitch book={active} />
-				</SectionCard>
+				<div className="grid gap-5 lg:grid-cols-2">
+					<Settings book={active} />
+				</div>
 			) : null}
 			{active ? (
 				<Categories book={active} />

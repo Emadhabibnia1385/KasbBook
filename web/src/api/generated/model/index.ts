@@ -48,6 +48,7 @@ export * from "./bookResponse";
 export * from "./booksListCategoriesParams";
 export * from "./booksListConversionsParams";
 export * from "./booksListTransactionsParams";
+export * from "./bookUpdate";
 export * from "./budgetActualItem";
 export * from "./budgetActualResponse";
 export * from "./budgetRequest";

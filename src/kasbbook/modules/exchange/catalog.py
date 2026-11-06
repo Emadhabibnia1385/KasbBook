@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 FIAT = "fiat"
 CRYPTO = "crypto"
+METAL = "metal"
 
 
 @dataclass(frozen=True)
@@ -217,7 +218,32 @@ _ISO = (
 )
 
 
-CATALOG: tuple[Currency, ...] = _HAND + _ISO
+# Gold, coins and metals as units a book can hold and count in: a gold trader's stock is grams, not toman.
+# Each is priced in toman by the metal feeds (see `METAL_INSTRUMENT`), which is what the web quotes through.
+_METALS = (
+    Currency("GOLD18", "طلای ۱۸ عیار (گرم)", "گرم", METAL, "بازار ایران"),
+    Currency("GOLD24", "طلای ۲۴ عیار (گرم)", "گرم", METAL, "بازار ایران"),
+    Currency("MESGHAL", "مثقال طلا", "مثقال", METAL, "بازار ایران"),
+    Currency("EMAMI", "سکهٔ امامی", "سکه", METAL, "بازار ایران"),
+    Currency("BAHAR", "سکهٔ بهار آزادی", "سکه", METAL, "بازار ایران"),
+    Currency("NIM", "نیم‌سکه", "نیم‌سکه", METAL, "بازار ایران"),
+    Currency("ROB", "ربع‌سکه", "ربع‌سکه", METAL, "بازار ایران"),
+    Currency("GRAMI", "سکهٔ گرمی", "سکه", METAL, "بازار ایران"),
+    Currency("SILVER", "نقرهٔ ۹۹۹ (گرم)", "گرم", METAL, "بازار ایران"),
+    Currency("XAU", "اونس طلا", "اونس", METAL, "بازار جهانی"),
+    Currency("XAG", "اونس نقره", "اونس", METAL, "بازار جهانی"),
+    Currency("XPT", "اونس پلاتین", "اونس", METAL, "بازار جهانی"),
+    Currency("XPD", "اونس پالادیوم", "اونس", METAL, "بازار جهانی"),
+)
+
+# Which price (see `modules/portfolio/catalog.py`) values each of them.
+METAL_INSTRUMENT = {
+    "GOLD18": "gold18", "GOLD24": "gold24", "MESGHAL": "mesghal", "EMAMI": "coin_emami",
+    "BAHAR": "coin_bahar", "NIM": "coin_half", "ROB": "coin_quarter", "GRAMI": "coin_gram",
+    "SILVER": "silver", "XAU": "XAU", "XAG": "XAG", "XPT": "XPT", "XPD": "XPD",
+}
+
+CATALOG: tuple[Currency, ...] = _HAND + _METALS + _ISO
 BY_CODE = {c.code: c for c in CATALOG}
 
 

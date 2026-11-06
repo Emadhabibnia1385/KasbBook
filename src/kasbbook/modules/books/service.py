@@ -98,6 +98,42 @@ class BookService:
         await self.session.flush()
         return book
 
+    async def update_book(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID,
+        name: Optional[str] = None, book_type: Optional[BookType] = None,
+    ) -> Book:
+        """Rename a book or change what kind of book it is. Nothing recorded moves.
+
+        A personal book is one person's: it cannot be made so while others are in it, and the web panel
+        offers the team, payroll and shares only to the other kinds.
+        """
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        book = await self.get_book(book_id)
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValidationError("نام دفتر را بنویس.")
+            book.name = name[:120]
+        if book_type is not None and book_type is not book.type:
+            if book_type is BookType.PERSONAL:
+                others = (
+                    await self.session.execute(
+                        select(Membership.user_id).where(
+                            Membership.book_id == book_id,
+                            Membership.is_active.is_(True),
+                            Membership.user_id != book.owner_user_id,
+                        )
+                    )
+                ).first()
+                if others is not None:
+                    raise ValidationError("این دفتر عضو دیگری دارد؛ اول آنها را بردار تا بشود شخصی.")
+            book.type = book_type
+        self.session.add(
+            AuditEvent(user_id=actor_user_id, action="book.updated", subject=str(book_id), detail=book.name)
+        )
+        await self.session.flush()
+        return book
+
     async def set_cost_policy(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID, policy: CostPolicy
     ) -> Book:

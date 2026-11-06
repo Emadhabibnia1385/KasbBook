@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { EmptyState, ErrorState, PageHeader, PageSkeleton, SectionCard } from "@nyxon/nasim";
+import { ErrorState, PageHeader, PageSkeleton, SectionCard } from "@nyxon/nasim";
 import { useAnalyticsCashflow } from "@/api/generated/analytics/analytics";
 import { useBooksWallet } from "@/api/generated/books/books";
 import { usePayrollListPayslips, usePayrollListPeriods } from "@/api/generated/payroll/payroll";
@@ -13,6 +13,7 @@ import { color } from "@/shared/charts";
 import { calendarOf, formatMoney } from "@/shared/format";
 import { periodLabel } from "@/shared/periods";
 import { t } from "@/strings";
+import { BookRequired } from "@/features/books/BookRequired";
 import { ManageTabs } from "./ManageTabs";
 
 const money = (book: BookResponse) => (value: string) => formatMoney(value, book.currency);
@@ -163,19 +164,14 @@ export function ManageOverview() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
+	if (!book) return <BookRequired />;
 	return (
 		<div className="flex flex-col gap-5">
 			<ManageTabs />
 			<PageHeader title={t.manage.title} description={t.manage.lead} />
-			{!book ? (
-				<EmptyState title={t.manage.needBookTitle} description={t.manage.needBook} />
-			) : (
-				<>
-					<Balances book={book} />
-					<Savings book={book} />
-					{isPayrollBook(book) ? <Salaries book={book} /> : null}
-				</>
-			)}
+			<Balances book={book} />
+			<Savings book={book} />
+			{isPayrollBook(book) ? <Salaries book={book} /> : null}
 		</div>
 	);
 }

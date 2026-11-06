@@ -37,6 +37,7 @@ from ..schemas import (
     CurrencyOptionResponse,
     CurrencyToggleRequest,
     BookResponse,
+    BookUpdate,
     CalendarRequest,
     InviteRequest,
     MemberResponse,
@@ -111,6 +112,18 @@ async def get_book(
     books = BookService(session)
     await books.require(book_id, user.id, Permission.VIEW_TRANSACTIONS)
     book = await books.get_book(book_id)
+    return _book_response(book)
+
+
+@router.patch("/{book_id}", response_model=BookResponse)
+async def update_book(
+    book_id: uuid.UUID, body: BookUpdate, user: CurrentUser, session: SessionDep
+) -> BookResponse:
+    """Rename a book or change its kind (personal, business, team, organization)."""
+    book = await BookService(session).update_book(
+        user.id, book_id, name=body.name,
+        book_type=_as_enum(BookType, body.type, "type") if body.type else None,
+    )
     return _book_response(book)
 
 

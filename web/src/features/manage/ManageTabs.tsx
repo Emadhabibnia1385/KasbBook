@@ -10,6 +10,8 @@ import { t } from "@/strings";
 export function ManageTabs() {
 	const { book } = useActiveBook();
 	const path = useLocation({ select: (location) => location.pathname.replace(/\/$/, "") || "/" });
+	// With every book in view there is no kind of book to tailor the tabs to: the page asks which book first.
+	if (!book) return null;
 	const tab = (href: string, label: string) => ({
 		href,
 		label,
@@ -23,10 +25,10 @@ export function ManageTabs() {
 				tab("/wallet", t.manage.wallet),
 				tab("/planning", t.nav.planning),
 				// A person's own: a team's or a business's books have no holdings, assets or funds.
-				...(book && book.type !== "personal"
+				...(book.type !== "personal"
 					? []
 					: [tab("/portfolio", t.portfolio.tab), tab("/capital", t.capital.tab)]),
-				...(book?.type === "personal" ? [] : [tab("/team", t.manage.team)]),
+				...(book.type === "personal" ? [] : [tab("/team", t.manage.team)]),
 				tab("/books", t.manage.books),
 			]}
 		/>

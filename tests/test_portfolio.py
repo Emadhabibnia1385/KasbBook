@@ -327,3 +327,33 @@ async def test_a_note_and_its_lines_can_be_corrected(make):
     assert Decimal(fixed.json()["spent"]) == 250
     stranger = await client.patch(f"{root}/entries/{made['entries'][0]['id']}", json={"amount": "1"})
     assert stranger.status_code in (401, 403)
+
+
+async def test_gold_and_coins_are_units_a_book_can_hold_and_are_quoted_in_toman(make):
+    client, headers, book = await make()
+
+    quoted = await client.get("/api/v1/market/quotes", headers=headers,
+                              params={"base": "IRT", "codes": "GOLD18,EMAMI,XAU"})
+
+    assert quoted.status_code == 200, quoted.text
+    rows = {row["code"]: row for row in quoted.json()}
+    assert Decimal(rows["GOLD18"]["value"]) == 26_000_000 and rows["GOLD18"]["exact"] is True
+    assert Decimal(rows["EMAMI"]["value"]) == 266_000_000
+    # The world ounce goes through the dollar, so it is an estimate.
+    assert Decimal(rows["XAU"]["value"]) == 4000 * 270_000 and rows["XAU"]["exact"] is False
+    ticked = await client.put(f"/api/v1/books/{book['id']}/currencies/GOLD18", headers=headers,
+                              json={"enabled": True})
+    assert ticked.status_code == 200
+    assert any(o["code"] == "GOLD18" and o["enabled"] and o["kind"] == "metal" for o in ticked.json())
+
+
+async def test_a_book_can_be_renamed_and_its_kind_changed(make):
+    client, headers, book = await make()
+    base = f"/api/v1/books/{book['id']}"
+
+    changed = await client.patch(base, headers=headers, json={"name": "دفتر من", "type": "business"})
+
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["name"] == "دفتر من" and changed.json()["type"] == "business"
+    assert (await client.patch(base, headers=headers, json={"type": "spaceship"})).status_code == 422
+    assert (await client.patch(base, json={"name": "x"})).status_code in (401, 403)

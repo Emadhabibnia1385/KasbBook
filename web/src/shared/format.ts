@@ -66,7 +66,7 @@ export function currencyName(code: string): string {
 // Everything else follows the server's four stored places: two for a currency's cents, four for a coin.
 function decimalsFor(code: string): number {
 	if (code === "IRT" || code === "IRR") return 0;
-	return NAMES[code]?.kind === "crypto" ? 4 : 2;
+	return NAMES[code]?.kind === "crypto" || NAMES[code]?.kind === "metal" ? 4 : 2;
 }
 
 export function formatMoney(value: string | number, currency: string): string {

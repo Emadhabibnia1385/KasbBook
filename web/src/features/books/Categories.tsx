@@ -131,7 +131,7 @@ function CategoryList({
 	onRemove: (category: CategoryResponse) => void;
 }) {
 	return (
-		<ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+		<ul className="flex flex-col gap-2">
 			{categories.map((category) => (
 				<li
 					key={category.id}
@@ -170,14 +170,20 @@ export function Categories({ book }: { book: BookResponse }) {
 	const [adding, setAdding] = useState<"income" | "expense" | null>(null);
 	const [renaming, setRenaming] = useState<CategoryResponse | null>(null);
 	const [removing, setRemoving] = useState<CategoryResponse | null>(null);
-	const section = (flow: "income" | "expense") => {
+	const column = (flow: "income" | "expense") => {
 		const mine = data.filter((category) => category.flow === flow);
 		const expense = flow === "expense";
 		return (
-			<SectionCard
-				title={expense ? t.categories.expenseTitle : t.categories.incomeTitle}
-				description={expense ? t.categories.expenseHint : t.categories.incomeHint}
-				actions={
+			<section className="flex min-w-0 flex-col gap-3 rounded-2xl border border-border p-4">
+				<div className="flex items-start justify-between gap-2">
+					<div className="flex min-w-0 flex-col gap-0.5">
+						<h3 className="font-semibold">
+							{expense ? t.categories.expenseTitle : t.categories.incomeTitle}
+						</h3>
+						<p className="text-xs text-muted">
+							{expense ? t.categories.expenseHint : t.categories.incomeHint}
+						</p>
+					</div>
 					<Button
 						size="sm"
 						variant={expense ? "primary" : "secondary"}
@@ -185,8 +191,7 @@ export function Categories({ book }: { book: BookResponse }) {
 					>
 						{expense ? t.categories.addExpense : t.categories.addIncome}
 					</Button>
-				}
-			>
+				</div>
 				{isLoading ? (
 					<PageSkeleton header={false} rows={2} />
 				) : mine.length === 0 ? (
@@ -197,13 +202,15 @@ export function Categories({ book }: { book: BookResponse }) {
 				) : (
 					<CategoryList categories={mine} onRename={setRenaming} onRemove={setRemoving} />
 				)}
-			</SectionCard>
+			</section>
 		);
 	};
 	return (
-		<div className="flex flex-col gap-5">
-			{section("expense")}
-			{section("income")}
+		<SectionCard title={t.manage.categoriesTitle} description={t.manage.categoriesHint}>
+			<div className="grid gap-4 md:grid-cols-2">
+				{column("expense")}
+				{column("income")}
+			</div>
 			<Modal
 				isOpen={adding !== null}
 				onOpenChange={(open) => !open && setAdding(null)}
@@ -248,6 +255,6 @@ export function Categories({ book }: { book: BookResponse }) {
 					}
 				}}
 			/>
-		</div>
+		</SectionCard>
 	);
 }

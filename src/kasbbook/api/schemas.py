@@ -206,6 +206,13 @@ class CostPolicyRequest(Model):
     cost_policy: str
 
 
+class BookUpdate(Model):
+    """What may change on a book; whatever is left out stays."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    type: Optional[str] = None
+
+
 class CalendarRequest(Model):
     calendar: str
 

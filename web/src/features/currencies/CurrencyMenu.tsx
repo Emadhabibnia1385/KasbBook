@@ -70,74 +70,83 @@ export function CurrencyMenu({
 
 	return (
 		<>
-			<SectionCard title={t.currencies.baseTitle} description={t.currencies.baseHint}>
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					<span className="flex items-center gap-2 text-lg font-semibold">
-						{currencyName(book.currency)}
-						<span dir="ltr" className="text-sm font-normal text-muted">
-							{book.currency}
-						</span>
-					</span>
-					<Button
-						variant="secondary"
-						isPending={setBase.isPending}
-						onPress={() => setPicking("base")}
-					>
-						{t.currencies.changeBase}
-					</Button>
-				</div>
-				{refusal ? (
-					<div className="mt-3 flex flex-col gap-2">
-						<Notice tone="warning" role="alert">
-							{refusal.message}
-						</Notice>
-						<Button
-							variant="outline"
-							className="self-start"
-							onPress={() => void navigate({ to: "/books", search: { new: refusal.code } })}
-						>
-							{t.currencies.newBookWith}
-						</Button>
-					</div>
-				) : null}
-			</SectionCard>
-			<SectionCard
-				title={t.wallet.currencies}
-				description={t.wallet.currenciesHint}
-				actions={
-					<Button size="sm" onPress={() => setPicking("add")}>
-						{t.currencies.add}
-					</Button>
-				}
-			>
-				{enabled.length === 0 ? (
-					<p className="text-sm text-muted">{t.currencies.noneActive}</p>
-				) : (
-					<ul className="flex flex-col gap-2">
-						{enabled.map((option) => (
-							<li
-								key={option.code}
-								className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
-							>
-								<span className="flex min-w-0 flex-wrap items-center gap-2">
-									<span className="font-medium">{option.name}</span>
-									<span dir="ltr" className="text-sm text-muted">
-										{option.code}
+			<SectionCard title={t.wallet.currencies} description={t.wallet.currenciesHint}>
+				<div className="flex flex-col gap-4">
+					<div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+						<div className="flex flex-wrap items-center justify-between gap-3">
+							<span className="flex flex-col">
+								<span className="text-xs text-muted">{t.currencies.baseTitle}</span>
+								<span className="flex items-center gap-2 text-lg font-semibold">
+									{currencyName(book.currency)}
+									<span dir="ltr" className="text-sm font-normal text-muted">
+										{book.currency}
 									</span>
-									<StatusChip tone="success" label={t.wallet.enabled} />
 								</span>
+							</span>
+							<Button
+								size="sm"
+								variant="secondary"
+								isPending={setBase.isPending}
+								onPress={() => setPicking("base")}
+							>
+								{t.currencies.changeBase}
+							</Button>
+						</div>
+						<p className="text-xs text-muted">{t.currencies.baseHint}</p>
+						{refusal ? (
+							<div className="flex flex-col gap-2">
+								<Notice tone="warning" role="alert">
+									{refusal.message}
+								</Notice>
 								<Button
-									size="sm"
-									variant="ghost"
-									isPending={setCurrency.isPending && setCurrency.variables?.code === option.code}
-									onPress={() => void toggle(option.code, false)}
+									variant="outline"
+									className="self-start"
+									onPress={() => void navigate({ to: "/books", search: { new: refusal.code } })}
 								>
-									{t.wallet.turnOff}
+									{t.currencies.newBookWith}
 								</Button>
-							</li>
-						))}
-					</ul>
-				)}
+							</div>
+						) : null}
+					</div>
+					<div className="flex flex-col gap-2">
+						<div className="flex items-center justify-between gap-3">
+							<span className="text-sm font-medium">{t.currencies.otherUnits}</span>
+							<Button size="sm" onPress={() => setPicking("add")}>
+								{t.currencies.add}
+							</Button>
+						</div>
+						{enabled.length === 0 ? (
+							<p className="text-sm text-muted">{t.currencies.noneActive}</p>
+						) : (
+							<ul className="flex flex-col gap-2">
+								{enabled.map((option) => (
+									<li
+										key={option.code}
+										className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
+									>
+										<span className="flex min-w-0 flex-wrap items-center gap-2">
+											<span className="font-medium">{option.name}</span>
+											<span dir="ltr" className="text-sm text-muted">
+												{option.code}
+											</span>
+											<StatusChip tone="success" label={t.wallet.enabled} />
+										</span>
+										<Button
+											size="sm"
+											variant="ghost"
+											isPending={
+												setCurrency.isPending && setCurrency.variables?.code === option.code
+											}
+											onPress={() => void toggle(option.code, false)}
+										>
+											{t.wallet.turnOff}
+										</Button>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+				</div>
 			</SectionCard>
 			<CurrencyPicker
 				isOpen={picking === "add"}

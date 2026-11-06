@@ -161,6 +161,7 @@ export function HoldingForm({
 						current={code}
 						extras={things}
 						extraLabel={t.portfolio.everything}
+						without={["metal"]}
 						onPick={(value) => form.setValue("instrument", value, { shouldValidate: true })}
 					/>
 				</div>

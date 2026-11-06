@@ -56,6 +56,7 @@ export function TickerSettings() {
 				disabled={Object.fromEntries(codes.map((code) => [code, t.tickerSettings.already]))}
 				extras={things.map((item) => ({ code: item.code, name: item.name, note: item.unit }))}
 				extraLabel={t.tickerSettings.things}
+				without={["metal"]}
 				onPick={(code) => setTickerCodes([...codes, code])}
 			/>
 		</SettingGroup>

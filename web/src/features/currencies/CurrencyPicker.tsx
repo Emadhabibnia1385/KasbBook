@@ -22,8 +22,9 @@ const row = tv({
 });
 
 const NO_EXTRAS: PickerExtra[] = [];
+const NO_KINDS: readonly string[] = [];
 
-type Kind = "all" | "extra" | "crypto" | "fiat";
+type Kind = "all" | "extra" | "metal" | "crypto" | "fiat";
 
 /** Something besides a currency that can be picked here: gold, a coin, a metal. */
 export type PickerExtra = { code: string; name: string; note?: string };
@@ -52,6 +53,7 @@ export function CurrencyPicker({
 	disabled = {},
 	extras = NO_EXTRAS,
 	extraLabel = "",
+	without = NO_KINDS,
 	onPick,
 }: {
 	isOpen: boolean;
@@ -62,6 +64,8 @@ export function CurrencyPicker({
 	/** Things listed above the currencies, under a chip of their own named `extraLabel`. */
 	extras?: PickerExtra[];
 	extraLabel?: string;
+	/** Kinds of currency left out of the list (gold is already in `extras` where that is used). */
+	without?: readonly string[];
 	onPick: (code: string) => void;
 }) {
 	const wide = useMediaQuery("(min-width: 768px)");
@@ -75,7 +79,12 @@ export function CurrencyPicker({
 		const picked =
 			kind === "extra"
 				? []
-				: all.filter((c) => (kind === "all" || c.kind === kind) && matches(c, needle));
+				: all.filter(
+						(c) =>
+							!without.includes(c.kind) &&
+							(kind === "all" || c.kind === kind) &&
+							matches(c, needle),
+					);
 		// Without a search the common ones come first; a search is already narrow.
 		const currencies = needle
 			? picked
@@ -92,7 +101,7 @@ export function CurrencyPicker({
 			...listed,
 			...currencies.map((c) => ({ code: c.code, short: c.code, name: c.name, sub: c.region })),
 		];
-	}, [catalog.data, query, kind, extras]);
+	}, [catalog.data, query, kind, extras, without]);
 
 	const body = (
 		<div className="flex flex-col gap-3">
@@ -109,6 +118,7 @@ export function CurrencyPicker({
 				options={[
 					{ value: "all", label: t.common.all },
 					...(extras.length ? [{ value: "extra", label: extraLabel }] : []),
+					...(without.includes("metal") ? [] : [{ value: "metal", label: t.currencies.metal }]),
 					{ value: "crypto", label: t.currencies.crypto },
 					{ value: "fiat", label: t.currencies.fiat },
 				]}

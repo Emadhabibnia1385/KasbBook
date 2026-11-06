@@ -48,7 +48,7 @@ def test_the_catalog_is_sane():
     # The column that stores a code is 8 characters wide.
     assert max(len(code) for code in codes) <= 8
     kinds = {c.kind for c in CATALOG}
-    assert kinds == {"fiat", "crypto"}
+    assert kinds == {"fiat", "crypto", "metal"}
     assert all(code in BY_CODE for code in POPULAR)
     # The old three must survive, and the common world currencies must exist.
     for code in ("IRT", "IRR", "USDT", "TON", "TRX", "USD", "EUR", "GBP", "AED", "TRY", "BTC"):

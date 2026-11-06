@@ -3,7 +3,6 @@ import { useState } from "react";
 import {
 	Button,
 	ConfirmDialog,
-	EmptyState,
 	ErrorState,
 	Modal,
 	PageHeader,
@@ -31,6 +30,7 @@ import type {
 } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { PersonalOnly } from "@/features/manage/PersonalOnly";
+import { BookRequired } from "@/features/books/BookRequired";
 import { ManageTabs } from "@/features/manage/ManageTabs";
 import { Donut, categoryColor } from "@/shared/charts";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
@@ -402,18 +402,15 @@ export function Portfolio() {
 	});
 	if (isLoading) return <PageSkeleton />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
+	if (!book) return <BookRequired />;
 	return (
 		<div className="flex flex-col gap-5">
 			<ManageTabs />
 			<PageHeader title={t.portfolio.title} description={t.portfolio.lead} />
-			{book ? (
-				<PersonalOnly book={book}>
-					<Holdings book={book} instruments={instruments.data ?? []} />
-					<Notes book={book} />
-				</PersonalOnly>
-			) : (
-				<EmptyState title={t.manage.needBookTitle} description={t.portfolio.needBook} />
-			)}
+			<PersonalOnly book={book}>
+				<Holdings book={book} instruments={instruments.data ?? []} />
+				<Notes book={book} />
+			</PersonalOnly>
 		</div>
 	);
 }

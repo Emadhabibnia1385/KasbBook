@@ -11,6 +11,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Query, Request
 
+from ...modules.exchange.catalog import METAL_INSTRUMENT
+from ...modules.portfolio.pricing import price_table
 from ...rates import quote as quoting
 from ...rates.board import MAX_PAIRS, RateBoard, parse_pairs
 from ...shared.errors import ServiceUnavailable, ValidationError
@@ -84,11 +86,35 @@ async def quotes(
     prices_at = rates.fetched_at
     fiat = request.app.state.fiat
     per_usd = await fiat.per_usd()
-    if not prices and not per_usd:
+    metals = [code for code in wanted if code in METAL_INSTRUMENT]
+    if not prices and not per_usd and not metals:
         raise ServiceUnavailable("قیمت لحظه‌ای فعلاً در دسترس نیست؛ کمی بعد دوباره امتحان کن.")
+    table = await price_table(request.app.state.metals, rates, fiat) if metals else {}
+    # What one toman is worth in `base`, to turn a metal's toman price into it.
+    per_toman = (
+        quoting.quote(prices, per_usd, "IRT", base.upper(), prices_at, fiat.fetched_at)
+        if metals and base.upper() != "IRT" else None
+    )
     out: List[QuoteResponse] = []
     now = utcnow()
     for code in wanted:
+        if code in METAL_INSTRUMENT:
+            price = table.get(METAL_INSTRUMENT[code])
+            if price is None or price.value is None or base.upper() == code:
+                continue
+            if base.upper() == "IRT":
+                value, exact = price.value, price.exact
+            elif per_toman is not None:
+                value, exact = price.value * per_toman.value, price.exact and per_toman.exact
+            else:
+                continue
+            stamp = price.as_of
+            out.append(QuoteResponse(
+                code=code, base=base.upper(), value=_plain(value), exact=exact,
+                source=price.source, fetched_at=stamp,
+                age_seconds=max(0, int((now - stamp).total_seconds())) if stamp else 0,
+            ))
+            continue
         found = quoting.quote(prices, per_usd, code, base.upper(), prices_at, fiat.fetched_at)
         if found is None:
             continue
