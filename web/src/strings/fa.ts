@@ -1,5 +1,6 @@
 import { accountStrings } from "./account";
 import { analyticsStrings } from "./analytics";
+import { manageStrings } from "./manage";
 import { currencyStrings } from "./currencies";
 import { marketStrings } from "./market";
 import { parity3 } from "./parity3";
@@ -20,6 +21,7 @@ export const t = {
 	...currencyStrings,
 	...analyticsStrings,
 	...accountStrings,
+	...manageStrings,
 	github: { label: "کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",
@@ -34,6 +36,7 @@ export const t = {
 		reports: "گزارش‌ها",
 		planning: "برنامه‌ریزی",
 		more: "بیشتر",
+		manage: "مدیریت",
 		team: "تیم و حقوق",
 		books: "دفترها",
 		account: "حساب من",

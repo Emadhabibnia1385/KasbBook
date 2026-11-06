@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -223,7 +224,15 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 
 	return (
 		<div className="flex flex-col gap-5">
-			<PageHeader title={t.nav.transactions} description={book ? book.name : t.scope.allBooks} />
+			<PageHeader
+				title={t.nav.transactions}
+				description={book ? book.name : t.scope.allBooks}
+				actions={
+					<Link to="/recurring" className="text-sm text-accent">
+						{t.nav3.recurring}
+					</Link>
+				}
+			/>
 			<FilterBar
 				books={scope}
 				leading={

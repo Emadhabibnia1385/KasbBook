@@ -1,1 +1,0 @@
-import{L as e}from"./icons-CTIHdB1I.js";import{Xt as t,qt as n}from"./useHover-BFKuvMv4.js";var r=t(n(),1);function i(t={}){let{isReadOnly:n}=t,[i,a]=e(t.isSelected,t.defaultSelected||!1,t.onChange),[o]=(0,r.useState)(i);function s(e){n||a(e)}function c(){n||a(!i)}return{isSelected:i,defaultSelected:t.defaultSelected??o,setSelected:s,toggle:c}}export{i as t};

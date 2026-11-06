@@ -10,14 +10,18 @@ import {
 	ListIcon,
 	MoreIcon,
 	PlanIcon,
-	RepeatIcon,
-	TeamIcon,
-	WalletIcon,
 } from "@/shared/icons";
 import { t } from "@/strings";
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
-export type NavItem = { to: string; label: string; icon: Icon; activeIcon?: Icon };
+export type NavItem = {
+	to: string;
+	label: string;
+	icon: Icon;
+	activeIcon?: Icon;
+	/** Other pages that belong to this entry: it stays lit on them. */
+	also?: string[];
+};
 
 const DASHBOARD: NavItem = {
 	to: "/",
@@ -56,9 +60,11 @@ export const SIDE_NAV: NavItem[] = [
 	TRANSACTIONS,
 	REPORTS,
 	PLANNING,
-	{ to: "/team", label: t.nav.team, icon: TeamIcon },
-	{ to: "/books", label: t.nav.books, icon: BookIcon },
-	{ to: "/wallet", label: t.nav3.wallet, icon: WalletIcon },
-	{ to: "/recurring", label: t.nav3.recurring, icon: RepeatIcon },
+	{
+		to: "/manage",
+		label: t.nav.manage,
+		icon: BookIcon,
+		also: ["/books", "/wallet", "/team"],
+	},
 	{ to: "/account", label: t.nav.account, icon: AccountIcon },
 ];

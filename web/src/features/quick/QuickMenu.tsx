@@ -18,7 +18,7 @@ import { useQuickEnabled } from "./quickPrefs";
 // The places, grouped under headings so a long list reads as a few short ones.
 const GROUPS: { title: string; to: string[] }[] = [
 	{ title: t.nav.groupMoney, to: ["/", "/transactions", "/reports", "/planning"] },
-	{ title: t.nav.groupManage, to: ["/team", "/books", "/wallet", "/recurring"] },
+	{ title: t.nav.groupManage, to: ["/manage"] },
 	{ title: t.nav.groupAccount, to: ["/account"] },
 ];
 

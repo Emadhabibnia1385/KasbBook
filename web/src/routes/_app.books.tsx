@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Books } from "@/features/books/Books";
+import { ManageTabs } from "@/features/manage/ManageTabs";
 
 type Search = { new?: string | undefined };
 
@@ -15,5 +16,10 @@ export const Route = createFileRoute("/_app/books")({
 
 function BooksRoute() {
 	const { new: preset } = Route.useSearch();
-	return <Books presetCurrency={preset} />;
+	return (
+		<div className="flex flex-col gap-5">
+			<ManageTabs />
+			<Books presetCurrency={preset} />
+		</div>
+	);
 }
