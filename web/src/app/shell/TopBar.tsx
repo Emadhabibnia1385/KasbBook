@@ -10,12 +10,15 @@ export function TopBar({ sidebar }: { sidebar: boolean }) {
 	return (
 		<header className="z-20 shrink-0 border-b border-separator bg-background/85 px-page pt-(--nasim-safe-top) backdrop-blur">
 			{sidebar ? (
-				<div className="flex h-14 items-center justify-between gap-3">
-					<div className="flex min-w-0 items-center gap-5">
+				// A desktop: the date and time in the middle of the bar, the book on one side, the prices on the other.
+				<div className="grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-4">
+					<div className="justify-self-start">
 						<BookSwitcher />
+					</div>
+					<LiveClock align="center" />
+					<div className="min-w-0 justify-self-end">
 						<RatesTicker />
 					</div>
-					<LiveClock />
 				</div>
 			) : (
 				// A phone: the mark at the start, the book in the middle, the time and theme at the end.

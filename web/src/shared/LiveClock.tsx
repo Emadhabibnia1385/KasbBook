@@ -7,7 +7,13 @@ import { t } from "@/strings";
 // The clock, the weekday and today in both calendars as plain numbers: «جمعه ۰۹:۱۸:۲۰» over
 // «۱۴۰۵/۰۸/۱۵ · 2026/11/06». Each part follows the choice made in the settings. A screen reader hears the
 // date once, in words, not the seconds: the ticking part is hidden from it.
-export function LiveClock({ withDate = true }: { withDate?: boolean }) {
+export function LiveClock({
+	withDate = true,
+	align = "end",
+}: {
+	withDate?: boolean;
+	align?: "end" | "center";
+}) {
 	const now = useNowSeconds();
 	const zone = useAuthMe().data?.timezone;
 	const prefs = useHeaderPrefs();
@@ -16,7 +22,9 @@ export function LiveClock({ withDate = true }: { withDate?: boolean }) {
 	const showTop = prefs.time || prefs.weekday;
 	if (!showTop && !showDates) return null;
 	return (
-		<div className="flex min-w-0 flex-col items-end leading-tight">
+		<div
+			className={`flex min-w-0 flex-col leading-tight ${align === "center" ? "items-center" : "items-end"}`}
+		>
 			{showTop ? (
 				<span aria-hidden className="flex items-center gap-2 text-sm font-semibold">
 					{prefs.weekday ? <span>{weekdayName(now, zone)}</span> : null}
