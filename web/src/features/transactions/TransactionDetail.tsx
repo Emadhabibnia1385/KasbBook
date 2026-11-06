@@ -2,7 +2,8 @@ import { useState } from "react";
 import { apiFetch } from "@/api/transport";
 import { BottomSheet, Button, KeyValueList, Modal, useIsNarrow } from "@nyxon/nasim";
 import { useBooksListAttachments } from "@/api/generated/books/books";
-import type { BookResponse, TransactionResponse } from "@/api/generated/model";
+import type { BookedTransactionResponse } from "@/api/generated/model";
+import type { BookRef } from "./Amount";
 import { useQuotes } from "@/features/market/useQuotes";
 import { multiply } from "@/features/payroll/decimal";
 import { currencyName, formatAmount, formatFullDate, formatMoney } from "@/shared/format";
@@ -10,7 +11,7 @@ import { t } from "@/strings";
 import { AttachmentItem } from "./AttachmentsField";
 
 // The receipt the bot stored lives at the messenger; this asks for it on the person's behalf.
-function ReceiptRow({ book, row }: { book: BookResponse; row: TransactionResponse }) {
+function ReceiptRow({ book, row }: { book: BookRef; row: BookedTransactionResponse }) {
 	const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
 	return (
 		<div className="flex flex-col gap-2">
@@ -44,7 +45,8 @@ function ReceiptRow({ book, row }: { book: BookResponse; row: TransactionRespons
 	);
 }
 
-function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
+function Body({ row }: { row: BookedTransactionResponse }) {
+	const book: BookRef = { id: row.book_id, currency: row.book_currency };
 	const files = useBooksListAttachments(book.id, row.id, {
 		query: { enabled: (row.attachment_count ?? 0) > 0 },
 	});
@@ -99,6 +101,7 @@ function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
 								),
 							}
 						: null,
+					{ label: t.scope.book, value: row.book_name },
 					{ label: t.transactions.kind, value: income ? t.common.income : t.common.expense },
 					{ label: t.transactions.date, value: formatFullDate(row.occurred_on) },
 					// The whole note, wrapped: the list only shows its first line.
@@ -127,17 +130,15 @@ function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
 
 /** Everything about one transaction, with its full note and files, and the two things to do with it. */
 export function TransactionDetail({
-	book,
 	row,
 	onClose,
 	onEdit,
 	onRemove,
 }: {
-	book: BookResponse;
-	row: TransactionResponse | null;
+	row: BookedTransactionResponse | null;
 	onClose: () => void;
-	onEdit: (row: TransactionResponse) => void;
-	onRemove: (row: TransactionResponse) => void;
+	onEdit: (row: BookedTransactionResponse) => void;
+	onRemove: (row: BookedTransactionResponse) => void;
 }) {
 	const narrow = useIsNarrow("md");
 	const footer = row ? (
@@ -162,7 +163,7 @@ export function TransactionDetail({
 		</>
 	) : null;
 	const title = row?.category ?? t.attach.detailTitle;
-	const body = row ? <Body book={book} row={row} /> : null;
+	const body = row ? <Body row={row} /> : null;
 	return narrow ? (
 		<BottomSheet
 			isOpen={row !== null}

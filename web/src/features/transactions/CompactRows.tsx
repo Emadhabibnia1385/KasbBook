@@ -1,6 +1,6 @@
 import { tv } from "tailwind-variants";
 import { EmptyState, ErrorState, Pager, TableSkeleton } from "@nyxon/nasim";
-import type { BookResponse, TransactionResponse } from "@/api/generated/model";
+import type { BookedTransactionResponse } from "@/api/generated/model";
 import { DownIcon, UpIcon } from "@/shared/icons";
 import { formatDay } from "@/shared/format";
 import { Amount } from "./Amount";
@@ -23,7 +23,7 @@ const row = tv({
 // A phone's list: two lines per transaction instead of a card of five labelled fields, so a page of
 // twenty fits in a few screens. The details and the actions open on a tap.
 export function CompactRows({
-	book,
+	showBook,
 	rows,
 	status,
 	onRetry,
@@ -34,8 +34,9 @@ export function CompactRows({
 	onPageChange,
 	onOpen,
 }: {
-	book: BookResponse;
-	rows: readonly TransactionResponse[] | undefined;
+	/** Across every book, each row says which one it belongs to. */
+	showBook: boolean;
+	rows: readonly BookedTransactionResponse[] | undefined;
 	status: "loading" | "error" | "ready";
 	onRetry: () => void;
 	emptyTitle: string;
@@ -43,7 +44,7 @@ export function CompactRows({
 	page: number;
 	pageCount: number;
 	onPageChange: (page: number) => void;
-	onOpen: (row: TransactionResponse) => void;
+	onOpen: (row: BookedTransactionResponse) => void;
 }) {
 	if (status === "loading") return <TableSkeleton />;
 	if (status === "error") return <ErrorState onRetry={onRetry} />;
@@ -67,11 +68,12 @@ export function CompactRows({
 								<span className="flex min-w-0 flex-1 flex-col">
 									<span className="truncate font-medium">{item.category}</span>
 									<span className="truncate text-xs text-muted">
+										{showBook ? `${item.book_name} · ` : ""}
 										{formatDay(item.occurred_on)}
 										{item.description ? ` · ${item.description}` : ""}
 									</span>
 								</span>
-								<Amount row={item} book={book} />
+								<Amount row={item} book={{ id: item.book_id, currency: item.book_currency }} />
 							</button>
 						</li>
 					);

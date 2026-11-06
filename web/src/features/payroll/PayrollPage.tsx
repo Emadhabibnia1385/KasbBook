@@ -1,3 +1,4 @@
+import { BookRequired } from "@/features/books/BookRequired";
 import { EmptyState, PageSkeleton } from "@nyxon/nasim";
 import type { ReactNode } from "react";
 import type { BookResponse } from "@/api/generated/model";
@@ -9,8 +10,7 @@ import { isPayrollBook } from "./shared";
 export function PayrollPage({ children }: { children: (book: BookResponse) => ReactNode }) {
 	const { book, isLoading } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
-	if (!book)
-		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book) return <BookRequired />;
 	if (!isPayrollBook(book))
 		return <EmptyState as="h1" title={t.payroll.teamOnlyTitle} description={t.payroll.teamOnly} />;
 	return <>{children(book)}</>;

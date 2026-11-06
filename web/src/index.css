@@ -19,3 +19,98 @@ body {
 		animation: none !important;
 	}
 }
+
+/* The quick-actions button: it breathes with a soft ring and now and then gives its bolt a little shake, so
+   it is noticed without being a nuisance; the menu opens with its rows rising one after the other. */
+.quick-fab::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: 9999px;
+	background: var(--accent);
+	opacity: 0;
+	animation: quick-ring 3.2s ease-out infinite;
+	pointer-events: none;
+}
+.quick-fab-open::before {
+	animation: none;
+}
+.quick-fab {
+	transition: transform 0.2s ease;
+}
+.quick-fab:hover {
+	transform: scale(1.06);
+}
+.quick-fab:active {
+	transform: scale(0.94);
+}
+.quick-bolt {
+	animation: quick-shake 6s ease-in-out infinite;
+	transform-origin: center;
+}
+.quick-panel {
+	transform-origin: bottom right;
+	animation: quick-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.quick-item {
+	animation: quick-rise 0.26s ease-out both;
+}
+:root[dir="rtl"] .quick-panel,
+[dir="rtl"] .quick-panel {
+	transform-origin: bottom left;
+}
+@keyframes quick-ring {
+	0% {
+		transform: scale(1);
+		opacity: 0.45;
+	}
+	70%,
+	100% {
+		transform: scale(1.7);
+		opacity: 0;
+	}
+}
+@keyframes quick-shake {
+	0%,
+	82%,
+	100% {
+		transform: rotate(0) scale(1);
+	}
+	86% {
+		transform: rotate(-14deg) scale(1.12);
+	}
+	90% {
+		transform: rotate(12deg) scale(1.12);
+	}
+	94% {
+		transform: rotate(-6deg) scale(1.05);
+	}
+}
+@keyframes quick-pop {
+	from {
+		opacity: 0;
+		transform: scale(0.85) translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes quick-rise {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.quick-fab::before,
+	.quick-bolt,
+	.quick-panel,
+	.quick-item {
+		animation: none !important;
+	}
+}

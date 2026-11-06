@@ -100,7 +100,11 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 					))}
 				</div>
 			)}
-			{active ? <Categories book={active} /> : null}
+			{active ? (
+				<Categories book={active} />
+			) : (
+				<p className="text-sm text-muted">{t.scope.needsBook}</p>
+			)}
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.books.add} size="sm">
 				<FormRoot
 					form={form}

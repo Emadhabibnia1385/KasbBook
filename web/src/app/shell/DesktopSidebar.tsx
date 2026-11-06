@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { tv } from "tailwind-variants";
 import { Button, ThemeToggle } from "@nyxon/nasim";
 import { useAuthMe } from "@/api/generated/auth/auth";
-import { GithubStar } from "@/features/shell/GithubStar";
+import { GithubLink } from "@/features/shell/GithubLink";
 import { InstallButton } from "@/features/pwa/InstallButton";
 import { LogoutIcon } from "@/shared/icons";
 import { t } from "@/strings";
@@ -26,9 +26,9 @@ export function DesktopSidebar() {
 	const slots = sidebar();
 	return (
 		<aside aria-label={t.shell.sidebar} className={slots.root()}>
-			<div className="flex flex-col items-start gap-2 px-2">
+			<div className="flex items-start justify-between gap-2 px-2">
 				<Brand full />
-				<GithubStar />
+				<GithubLink />
 			</div>
 			<nav aria-label={t.nav.label} className="min-h-0 overflow-y-auto">
 				<ul className={slots.list()}>

@@ -3,6 +3,7 @@ import { currencyStrings } from "./currencies";
 import { marketStrings } from "./market";
 import { parity3 } from "./parity3";
 import { txFilterStrings } from "./txFilter";
+import { scopeStrings } from "./scope";
 
 // Every word a person reads, in one place: screens import `t`, never a literal.
 import { parity1 } from "./parity1";
@@ -13,13 +14,17 @@ export const t = {
 	...parity2,
 	...parity3,
 	...txFilterStrings,
+	...scopeStrings,
 	...marketStrings,
 	...currencyStrings,
 	...analyticsStrings,
-	github: { star: "Star", label: "ستاره‌دادن به کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
+	github: { label: "کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
 	brand: "کسب‌بوک",
 	tagline: "دفتر مالی شخصی و تیمی",
 	nav: {
+		groupMoney: "مالی",
+		groupManage: "مدیریت",
+		groupAccount: "حساب",
 		label: "منوی اصلی",
 		skip: "رفتن به محتوا",
 		dashboard: "داشبورد",

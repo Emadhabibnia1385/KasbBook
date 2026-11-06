@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from "react";
 import { useBooksListBooks } from "@/api/generated/books/books";
 
-const KEY = "kasbbook.book";
+// «scope»: a book id, or "all" (the default). The old key held only a book, and everyone began on it.
+const KEY = "kasbbook.scope";
+export const ALL = "all";
 const listeners = new Set<() => void>();
 
 function read(): string | null {
@@ -30,16 +32,22 @@ export function selectBook(id: string) {
 	listeners.forEach((listener) => listener());
 }
 
-/** The books the person can reach, and the one every screen is currently about. */
+/**
+ * The books the person can reach, and which of them every screen is about: one chosen book, or all of
+ * them (`all`, the default once there are two or more). With a single book, that book is always it.
+ */
 export function useActiveBook() {
 	const query = useBooksListBooks();
 	const saved = useSyncExternalStore(subscribe, read, () => null);
 	const books = query.data ?? [];
-	// A saved id for a book that is gone (left, deleted) falls back to the first one.
-	const book = books.find((candidate) => candidate.id === saved) ?? books[0];
+	const chosen = books.find((candidate) => candidate.id === saved);
+	// A saved id for a book that is gone (left, deleted) falls back to all of them.
+	const book = chosen ?? (books.length === 1 ? books[0] : undefined);
 	return {
 		books,
 		book,
+		/** True when no single book is chosen and there is more than one to span. */
+		all: book === undefined && books.length > 1,
 		isLoading: query.isLoading,
 		isError: query.isError,
 		refetch: query.refetch,

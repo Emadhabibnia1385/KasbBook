@@ -1,3 +1,4 @@
+import { BookRequired } from "@/features/books/BookRequired";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -5,7 +6,6 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
-	EmptyState,
 	FormRoot,
 	Modal,
 	PageHeader,
@@ -112,7 +112,6 @@ function Members({ book }: { book: BookResponse }) {
 export function Team() {
 	const { book, isLoading } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
-	if (!book)
-		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book) return <BookRequired />;
 	return <Members book={book} />;
 }

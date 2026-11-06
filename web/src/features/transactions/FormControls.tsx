@@ -9,6 +9,7 @@ import {
 	EmptyState,
 	Modal,
 	SearchBox,
+	SelectField,
 	toast,
 	useIsNarrow,
 } from "@nyxon/nasim";
@@ -268,5 +269,25 @@ export function CategoryField({
 				</Modal>
 			)}
 		</div>
+	);
+}
+
+/** Which book an entry belongs to: only asked when there is a choice. */
+export function BookField({
+	name,
+	books,
+	label,
+}: {
+	name: string;
+	books: readonly { id: string; name: string }[];
+	label: string;
+}) {
+	if (books.length < 2) return null;
+	return (
+		<SelectField
+			name={name}
+			label={label}
+			options={books.map((book) => ({ value: book.id, label: book.name }))}
+		/>
 	);
 }

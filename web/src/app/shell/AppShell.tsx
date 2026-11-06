@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { tv } from "tailwind-variants";
 import { OfflineBanner, useMediaQuery } from "@nyxon/nasim";
 import { useCatalog } from "@/features/currencies/useCatalog";
+import { QuickHost } from "@/features/quick/QuickHost";
+import { QuickMenu } from "@/features/quick/QuickMenu";
 import { t } from "@/strings";
 import { DesktopSidebar } from "./DesktopSidebar";
 import { PhoneTabBar } from "./PhoneTabBar";
@@ -13,7 +15,8 @@ const shell = tv({
 		skip: "sr-only z-50 rounded-xl bg-surface px-4 py-3 text-sm font-medium shadow-overlay focus:not-sr-only focus:fixed focus:start-4 focus:top-4",
 		column: "flex min-w-0 flex-1 flex-col",
 		main: "min-h-0 flex-1 overflow-y-auto overscroll-contain px-page outline-none",
-		page: "mx-auto w-full max-w-6xl py-4",
+		// The room under the content keeps the last rows clear of the round quick-actions button.
+		page: "mx-auto w-full max-w-6xl pt-4 pb-28",
 	},
 });
 
@@ -38,6 +41,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 				</main>
 				{wide ? null : <PhoneTabBar />}
 			</div>
+			<QuickMenu />
+			<QuickHost />
 		</div>
 	);
 }

@@ -1,15 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { PlusIcon } from "@/shared/icons";
-import { Amount } from "./Amount";
-import { MoneyFields } from "./MoneyFields";
-import { CategoryField, FlowSwitch } from "./FormControls";
-import { AttachmentsField } from "./AttachmentsField";
-import { CompactRows } from "./CompactRows";
-import { FilterBar } from "./FilterBar";
-import { type Filters, NO_FILTERS, rangeDates, todayIso } from "./filters";
-import { TransactionDetail } from "./TransactionDetail";
+import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
@@ -19,51 +10,37 @@ import {
 	EmptyState,
 	FormRoot,
 	Modal,
-	useIsNarrow,
 	PageHeader,
 	SubmitButton,
 	TextField,
 	toast,
+	useIsNarrow,
 } from "@nyxon/nasim";
-import {
-	booksAddAttachment,
-	useBooksDeleteTransaction,
-	useBooksEditTransaction,
-	useBooksListTransactions,
-	useBooksRecordTransaction,
-} from "@/api/generated/books/books";
-import type { BookResponse, TransactionResponse } from "@/api/generated/model";
+import { useBooksDeleteTransaction, useBooksEditTransaction } from "@/api/generated/books/books";
+import type { BookedTransactionResponse, BookResponse } from "@/api/generated/model";
+import { useTransactionsListAllTransactions } from "@/api/generated/transactions/transactions";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { openQuick } from "@/features/quick/quickBus";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
 import { formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
+import { PlusIcon } from "@/shared/icons";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
+import { Amount } from "./Amount";
+import { AttachmentsField } from "./AttachmentsField";
+import { CompactRows } from "./CompactRows";
+import { FilterBar } from "./FilterBar";
+import { type Filters, NO_FILTERS, rangeDates } from "./filters";
+import { BookField, CategoryField, FlowSwitch } from "./FormControls";
+import { MoneyFields } from "./MoneyFields";
+import { amountRule } from "./rules";
+import { TransactionDetail } from "./TransactionDetail";
 
 const PER_PAGE = 20;
 
-const amountRule = z
-	.string()
-	.transform(toAscii)
-	.refine((value) => /^\d+(\.\d{1,4})?$/.test(value) && Number(value) > 0, {
-		error: t.transactions.badAmount,
-	});
-
-const schema = z.object({
-	flow: z.enum(["income", "expense"]),
-	amount: amountRule,
-	category: z.string().trim().min(1, { error: t.transactions.needCategory }).max(80),
-	description: z.string().max(300),
-	// The money it was paid in; the book's own currency unless chosen otherwise. A rate is only
-	// asked for, and checked, when it is another one.
-	currency: z.string(),
-	rate: z.string().transform(toAscii),
-	// Today unless changed: most entries are made the day they happen.
-	occurred_on: z.string().min(1, { error: t.days.needDate }),
-});
-type Values = z.input<typeof schema>;
-
 const editSchema = z.object({
+	book_id: z.string().min(1),
 	flow: z.enum(["income", "expense"]),
 	currency: z.string(),
 	rate: z.string().transform(toAscii),
@@ -74,7 +51,6 @@ const editSchema = z.object({
 });
 type EditValues = z.input<typeof editSchema>;
 
-/** "1500000.0000" → "1500000": the amount as a person would type it back. */
 /** "300000.0000" → "300000"; a rate keeps what places it has, so a small one is not rounded away. */
 function plainRate(value: string): string {
 	return value.includes(".") ? value.replace(/\.?0+$/, "") : value;
@@ -85,12 +61,13 @@ function plainAmount(value: string): string {
 }
 
 function EditForm({
-	book,
+	books,
 	row,
 	onDone,
 }: {
-	book: BookResponse;
-	row: TransactionResponse;
+	/** Where this entry may go: the books with its own unit, itself included. */
+	books: BookResponse[];
+	row: BookedTransactionResponse;
 	onDone: () => void;
 }) {
 	const queryClient = useQueryClient();
@@ -98,6 +75,7 @@ function EditForm({
 	const form = useForm<EditValues>({
 		resolver: zodResolver(editSchema),
 		defaultValues: {
+			book_id: row.book_id,
 			flow: row.flow === "income" ? "income" : "expense",
 			currency: row.original_currency,
 			rate: plainRate(row.conversion_rate),
@@ -108,6 +86,19 @@ function EditForm({
 		},
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
+	const targetId = useWatch({ control: form.control, name: "book_id" });
+	// The book it is going to: its categories and currencies are the ones on offer.
+	const book = books.find((b) => b.id === targetId) ?? {
+		id: row.book_id,
+		currency: row.book_currency,
+	};
+	// Another book has its own categories: the one picked for the last is not carried over.
+	const seen = useRef(row.book_id);
+	useEffect(() => {
+		if (book.id === seen.current) return;
+		seen.current = book.id;
+		form.setValue("category", "");
+	}, [book.id, form]);
 	return (
 		<FormRoot
 			form={form}
@@ -121,6 +112,7 @@ function EditForm({
 				}
 				// Only what changed is sent: an unchanged amount would be re-checked against the wallet for nothing.
 				const changes: Record<string, string | null> = {};
+				if (values.book_id !== row.book_id) changes.book_id = values.book_id;
 				if (values.flow !== row.flow) changes.flow = values.flow;
 				if (values.currency !== row.original_currency) changes.currency = values.currency;
 				// The rate is sent when it changed, and with any new currency: a new currency has none to inherit.
@@ -141,8 +133,11 @@ function EditForm({
 					return;
 				}
 				try {
-					await edit.mutateAsync({ bookId: book.id, transactionId: row.id, data: changes });
-					await refreshMoney(queryClient, book.id);
+					await edit.mutateAsync({ bookId: row.book_id, transactionId: row.id, data: changes });
+					await Promise.all([
+						refreshMoney(queryClient, row.book_id),
+						changes.book_id ? refreshMoney(queryClient, changes.book_id) : null,
+					]);
 					toast.success(t.txExtra.editSaved);
 					onDone();
 				} catch (error) {
@@ -151,13 +146,16 @@ function EditForm({
 			}}
 		>
 			<div className="flex flex-col gap-4">
+				<BookField name="book_id" books={books} label={t.scope.book} />
 				<FlowSwitch name="flow" />
 				<MoneyFields
+					key={book.id}
 					book={book}
 					initialCurrency={row.original_currency}
 					initialRate={plainRate(row.conversion_rate)}
 				/>
 				<CategoryField
+					key={book.id}
 					name="category"
 					bookId={book.id}
 					flow={flow}
@@ -168,96 +166,12 @@ function EditForm({
 			</div>
 			<div className="flex flex-col gap-4">
 				<TextField name="description" label={t.transactions.note} />
-				<AttachmentsField bookId={book.id} transactionId={row.id} queue={[]} onQueue={() => {}} />
-			</div>
-			<div className="md:col-span-2">
-				<SubmitButton>{t.common.save}</SubmitButton>
-			</div>
-		</FormRoot>
-	);
-}
-
-function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
-	const queryClient = useQueryClient();
-	const record = useBooksRecordTransaction();
-	const form = useForm<Values>({
-		resolver: zodResolver(schema),
-		defaultValues: {
-			flow: "expense",
-			amount: "",
-			category: "",
-			description: "",
-			currency: book.currency,
-			rate: "",
-			occurred_on: toPicker(todayIso()),
-		},
-	});
-	const flow = useWatch({ control: form.control, name: "flow" });
-	// Files chosen before the transaction exists wait here and are sent once it does.
-	const [files, setFiles] = useState<File[]>([]);
-	return (
-		<FormRoot
-			form={form}
-			className="grid gap-x-8 gap-y-4 md:grid-cols-2"
-			onSubmit={async (raw) => {
-				const values = schema.parse(raw);
-				const other = values.currency !== book.currency;
-				if (other && !(/^\d+(\.\d+)?$/.test(values.rate) && Number(values.rate) > 0)) {
-					form.setError("rate", { message: t.fx.needRate });
-					return;
-				}
-				try {
-					// Scope follows the book's kind on the server; the panel records what the person typed.
-					const made = await record.mutateAsync({
-						bookId: book.id,
-						data: {
-							flow: values.flow,
-							scope:
-								book.type === "personal" ? "personal" : book.type === "business" ? "work" : "team",
-							category: values.category,
-							amount: values.amount,
-							description: values.description || null,
-							occurred_on: pickedDay(values.occurred_on),
-							currency: other ? values.currency : null,
-							conversion_rate: other ? values.rate : null,
-						},
-					});
-					let unsent = 0;
-					for (const file of files) {
-						try {
-							await booksAddAttachment(book.id, made.id, { file });
-						} catch {
-							unsent += 1;
-						}
-					}
-					await refreshMoney(queryClient, book.id);
-					await queryClient.invalidateQueries({
-						queryKey: [`/api/v1/books/${book.id}/transactions`],
-					});
-					toast.success(t.transactions.saved);
-					// The transaction is saved either way; a file that did not go is said plainly, and can be added by editing.
-					if (unsent) toast.danger(t.attach.someUnsent);
-					onDone();
-				} catch (error) {
-					reportFailure(error);
-				}
-			}}
-		>
-			<div className="flex flex-col gap-4">
-				<FlowSwitch name="flow" />
-				<MoneyFields book={book} initialCurrency={book.currency} initialRate="" />
-				<DayField name="occurred_on" label={t.transactions.date} isRequired />
-			</div>
-			<div className="flex flex-col gap-4">
-				<CategoryField
-					name="category"
-					bookId={book.id}
-					flow={flow}
-					label={t.transactions.category}
-					isRequired
+				<AttachmentsField
+					bookId={row.book_id}
+					transactionId={row.id}
+					queue={[]}
+					onQueue={() => {}}
 				/>
-				<TextField name="description" label={t.transactions.note} />
-				<AttachmentsField bookId={book.id} queue={files} onQueue={setFiles} />
 			</div>
 			<div className="md:col-span-2">
 				<SubmitButton>{t.common.save}</SubmitButton>
@@ -266,14 +180,15 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 	);
 }
 
-function List({ book }: { book: BookResponse }) {
+function List({ books, book }: { books: BookResponse[]; book: BookResponse | undefined }) {
 	const [page, setPage] = useState(1);
-	const [adding, setAdding] = useState(false);
-	const [opened, setOpened] = useState<TransactionResponse | null>(null);
-	const [editing, setEditing] = useState<TransactionResponse | null>(null);
-	const [removing, setRemoving] = useState<TransactionResponse | null>(null);
+	const [opened, setOpened] = useState<BookedTransactionResponse | null>(null);
+	const [editing, setEditing] = useState<BookedTransactionResponse | null>(null);
+	const [removing, setRemoving] = useState<BookedTransactionResponse | null>(null);
 	const [filters, setFilters] = useState<Filters>(NO_FILTERS);
 	const queryClient = useQueryClient();
+	// One chosen book narrows the list to it; otherwise it is every book's.
+	const scope = book ? [book] : books;
 	const dates = rangeDates(filters);
 	const text = filters.q.trim();
 	const filtered = Boolean(
@@ -284,8 +199,9 @@ function List({ book }: { book: BookResponse }) {
 			filters.currencies.length ||
 			text.length >= 2,
 	);
-	const query = useBooksListTransactions(book.id, {
+	const query = useTransactionsListAllTransactions({
 		...dates,
+		book_id: book ? [book.id] : undefined,
 		flow: filters.flows.length ? filters.flows : undefined,
 		category: filters.categories.length ? filters.categories : undefined,
 		q: text.length >= 2 ? text : undefined,
@@ -300,14 +216,21 @@ function List({ book }: { book: BookResponse }) {
 	const status = query.isError ? "error" : query.isLoading ? "loading" : "ready";
 	const emptyTitle = filtered ? t.txFilter.noMatchTitle : t.transactions.emptyTitle;
 	const empty = filtered ? t.txFilter.noMatch : t.transactions.empty;
+	const showBook = !book;
+	// An entry can only move to a book with the same unit, so that is all the edit form offers.
+	const sameUnit = (row: BookedTransactionResponse) =>
+		books.filter((candidate) => candidate.currency === row.book_currency);
 
 	return (
 		<div className="flex flex-col gap-5">
-			<PageHeader title={t.nav.transactions} description={book.name} />
+			<PageHeader title={t.nav.transactions} description={book ? book.name : t.scope.allBooks} />
 			<FilterBar
-				book={book}
+				books={scope}
 				leading={
-					<Button className="hidden shrink-0 md:inline-flex" onPress={() => setAdding(true)}>
+					<Button
+						className="hidden shrink-0 md:inline-flex"
+						onPress={() => openQuick("transaction")}
+					>
 						<PlusIcon aria-hidden />
 						{t.transactions.add}
 					</Button>
@@ -319,34 +242,31 @@ function List({ book }: { book: BookResponse }) {
 				}}
 			/>
 			{query.data && filtered ? (
-				<p
-					className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted"
-					aria-live="polite"
-				>
+				<div className="flex flex-col gap-1 text-sm text-muted" aria-live="polite">
 					<span>
 						{formatAmount(query.data.total)} {t.txFilter.matches}
 					</span>
-					{Number(query.data.total_income ?? 0) > 0 ? (
-						<span>
-							{t.txFilter.incomeSum}:{" "}
-							<b className="text-success">
-								{formatMoney(query.data.total_income ?? "0", book.currency)}
-							</b>
-						</span>
-					) : null}
-					{Number(query.data.total_expense ?? 0) > 0 ? (
-						<span>
-							{t.txFilter.expenseSum}:{" "}
-							<b className="text-foreground">
-								{formatMoney(query.data.total_expense ?? "0", book.currency)}
-							</b>
-						</span>
-					) : null}
-				</p>
+					{query.data.totals.map((line) => (
+						<p key={line.currency} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+							{Number(line.income) > 0 ? (
+								<span>
+									{t.txFilter.incomeSum}:{" "}
+									<b className="text-success">{formatMoney(line.income, line.currency)}</b>
+								</span>
+							) : null}
+							{Number(line.expense) > 0 ? (
+								<span>
+									{t.txFilter.expenseSum}:{" "}
+									<b className="text-foreground">{formatMoney(line.expense, line.currency)}</b>
+								</span>
+							) : null}
+						</p>
+					))}
+				</div>
 			) : null}
 			{narrow ? (
 				<CompactRows
-					book={book}
+					showBook={showBook}
 					rows={query.data?.items}
 					status={status}
 					onRetry={() => void query.refetch()}
@@ -358,7 +278,7 @@ function List({ book }: { book: BookResponse }) {
 					onOpen={setOpened}
 				/>
 			) : (
-				<DataTable<TransactionResponse>
+				<DataTable<BookedTransactionResponse>
 					ariaLabel={t.nav.transactions}
 					status={status}
 					onRetry={() => void query.refetch()}
@@ -373,20 +293,25 @@ function List({ book }: { book: BookResponse }) {
 							isRowHeader: true,
 							className: "w-36",
 							cell: (row) => (
-								<span className="flex items-center gap-2">
-									<button
-										type="button"
-										className="truncate text-start font-medium hover:underline"
-										onClick={() => setOpened(row)}
-									>
-										{row.category}
-									</button>
-									{(row.attachment_count ?? 0) > 0 ? (
-										<span title={t.attach.clip} className="shrink-0 text-xs text-muted">
-											<span aria-hidden>📎</span>
-											<span className="sr-only">{t.attach.clip}</span>{" "}
-											{formatAmount(row.attachment_count ?? 0)}
-										</span>
+								<span className="flex min-w-0 flex-col">
+									<span className="flex items-center gap-2">
+										<button
+											type="button"
+											className="truncate text-start font-medium hover:underline"
+											onClick={() => setOpened(row)}
+										>
+											{row.category}
+										</button>
+										{(row.attachment_count ?? 0) > 0 ? (
+											<span title={t.attach.clip} className="shrink-0 text-xs text-muted">
+												<span aria-hidden>📎</span>
+												<span className="sr-only">{t.attach.clip}</span>{" "}
+												{formatAmount(row.attachment_count ?? 0)}
+											</span>
+										) : null}
+									</span>
+									{showBook ? (
+										<span className="truncate text-xs text-muted">{row.book_name}</span>
 									) : null}
 								</span>
 							),
@@ -396,7 +321,9 @@ function List({ book }: { book: BookResponse }) {
 							header: t.transactions.amount,
 							align: "end",
 							className: "w-36",
-							cell: (row) => <Amount row={row} book={book} />,
+							cell: (row) => (
+								<Amount row={row} book={{ id: row.book_id, currency: row.book_currency }} />
+							),
 						},
 						{
 							id: "date",
@@ -447,21 +374,17 @@ function List({ book }: { book: BookResponse }) {
 				type="button"
 				aria-label={t.transactions.add}
 				className="fixed bottom-[calc(var(--nasim-bottom-bar,4.5rem)+1rem)] start-4 z-20 flex h-14 items-center gap-2 rounded-full bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg md:hidden"
-				onClick={() => setAdding(true)}
+				onClick={() => openQuick("transaction")}
 			>
 				<PlusIcon aria-hidden className="size-6" />
 				{t.transactions.add}
 			</button>
 			<TransactionDetail
-				book={book}
 				row={opened}
 				onClose={() => setOpened(null)}
 				onEdit={setEditing}
 				onRemove={setRemoving}
 			/>
-			<Modal isOpen={adding} onOpenChange={setAdding} title={t.transactions.add} size="lg">
-				<AddForm book={book} onDone={() => setAdding(false)} />
-			</Modal>
 			<Modal
 				isOpen={editing !== null}
 				onOpenChange={(open) => !open && setEditing(null)}
@@ -469,7 +392,12 @@ function List({ book }: { book: BookResponse }) {
 				size="lg"
 			>
 				{editing ? (
-					<EditForm key={editing.id} book={book} row={editing} onDone={() => setEditing(null)} />
+					<EditForm
+						key={editing.id}
+						books={sameUnit(editing)}
+						row={editing}
+						onDone={() => setEditing(null)}
+					/>
 				) : null}
 			</Modal>
 			<ConfirmDialog
@@ -482,8 +410,8 @@ function List({ book }: { book: BookResponse }) {
 				onConfirm={async () => {
 					if (!removing) return;
 					try {
-						await remove.mutateAsync({ bookId: book.id, transactionId: removing.id });
-						await refreshMoney(queryClient, book.id);
+						await remove.mutateAsync({ bookId: removing.book_id, transactionId: removing.id });
+						await refreshMoney(queryClient, removing.book_id);
 					} catch (error) {
 						reportFailure(error);
 						throw error;
@@ -495,9 +423,9 @@ function List({ book }: { book: BookResponse }) {
 }
 
 export function Transactions() {
-	const { book, isLoading } = useActiveBook();
+	const { books, book, isLoading } = useActiveBook();
 	if (isLoading) return null;
-	if (!book)
+	if (books.length === 0)
 		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
-	return <List book={book} />;
+	return <List books={books} book={book} />;
 }

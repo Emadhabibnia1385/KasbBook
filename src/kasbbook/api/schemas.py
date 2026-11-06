@@ -326,6 +326,8 @@ class TransactionUpdate(MoneyModel):
     flow: Optional[str] = None
     currency: Optional[str] = Field(default=None, min_length=2, max_length=8)
     conversion_rate: Optional[Decimal] = Field(default=None, gt=0)
+    # Moves it to another book of the same base currency: «recorded in the wrong one».
+    book_id: Optional[uuid.UUID] = None
 
 
 class TransactionActivityResponse(Model):
@@ -375,6 +377,29 @@ class TransactionPage(MoneyModel):
     # Over every match, not just this page: «how much did I spend on rent» is the question.
     total_income: Decimal = Decimal("0")
     total_expense: Decimal = Decimal("0")
+
+
+class BookedTransactionResponse(TransactionResponse):
+    """A transaction in the list that spans every book: it says which book it belongs to."""
+
+    book_id: uuid.UUID
+    book_name: str
+    book_currency: str
+
+
+class CurrencyTotal(MoneyModel):
+    currency: str
+    income: Decimal
+    expense: Decimal
+
+
+class AllTransactionPage(MoneyModel):
+    items: List[BookedTransactionResponse]
+    total: int
+    page: int
+    per_page: int
+    # One line per base currency among the books listed, because adding toman to dollars means nothing.
+    totals: List[CurrencyTotal]
 
 
 class TransactionSearchPage(MoneyModel):

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button, PageHeader } from "@nyxon/nasim";
 import { SIDE_NAV } from "@/app/shell/nav";
 import { signOut } from "@/app/shell/signOut";
-import { GithubStar } from "@/features/shell/GithubStar";
+import { GithubLink } from "@/features/shell/GithubLink";
 import { InstallButton } from "@/features/pwa/InstallButton";
 import { LogoutIcon } from "@/shared/icons";
 import { t } from "@/strings";
@@ -28,7 +28,7 @@ function More() {
 			</ul>
 			<InstallButton />
 			<div className="flex justify-center">
-				<GithubStar />
+				<GithubLink />
 			</div>
 			<Button variant="outline" onPress={() => void signOut(queryClient)}>
 				<LogoutIcon aria-hidden />

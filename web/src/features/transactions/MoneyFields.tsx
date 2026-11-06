@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { SelectField, TextField } from "@nyxon/nasim";
 import { useBooksListCurrencies } from "@/api/generated/books/books";
-import type { BookResponse } from "@/api/generated/model";
+import type { BookRef } from "./Amount";
 import { useQuotes } from "@/features/market/useQuotes";
 import { multiply } from "@/features/payroll/decimal";
 import { currencyName, formatMoney, toAscii } from "@/shared/format";
@@ -23,7 +23,7 @@ export function MoneyFields({
 	initialCurrency,
 	initialRate,
 }: {
-	book: BookResponse;
+	book: BookRef;
 	initialCurrency: string;
 	initialRate: string;
 }) {

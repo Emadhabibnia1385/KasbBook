@@ -389,7 +389,18 @@ async def edit_transaction(book_id: uuid.UUID, transaction_id: uuid.UUID, body: 
     changes = body.model_dump(exclude_unset=True)
     if "flow" in changes and changes["flow"] is not None:
         changes["flow"] = _as_enum(Flow, changes["flow"], "flow")
-    row = await LedgerService(session).update(book_id, user.id, transaction_id, **changes)
+    ledger = LedgerService(session)
+    target = changes.pop("book_id", None)
+    if target is not None and target != book_id:
+        # The rest of the edit is judged in the book it lands in, so the move goes first.
+        await ledger.move(book_id, user.id, transaction_id, target)
+        book_id = target
+        if not changes:
+            row = await ledger.get_transaction(book_id, user.id, transaction_id)
+            activity = (await ledger.activities(user.id, [row]))[row.id]
+            count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
+            return _transaction(row, activity, count)
+    row = await ledger.update(book_id, user.id, transaction_id, **changes)
     activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
     count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
     return _transaction(row, activity, count)

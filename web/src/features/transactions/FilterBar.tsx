@@ -1,7 +1,13 @@
+import { useQueries } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { tv } from "tailwind-variants";
 import { BottomSheet, Button, Modal, SearchBox, useIsNarrow } from "@nyxon/nasim";
-import { useBooksListCategories, useBooksListCurrencies } from "@/api/generated/books/books";
+import {
+	booksListCategories,
+	booksListCurrencies,
+	getBooksListCategoriesQueryKey,
+	getBooksListCurrenciesQueryKey,
+} from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
 import { ChevronDownIcon } from "@/shared/icons";
 import { DayField } from "@/shared/DayField";
@@ -22,8 +28,10 @@ const row = tv({
 	variants: { on: { true: "bg-accent-soft font-semibold text-accent-soft-foreground" } },
 });
 
+// Every filter is the same shape: the name small above, what it is set to below, a chevron at the end.
+// In a grid they line up in columns instead of wrapping into rows of different lengths.
 const trigger = tv({
-	base: "inline-flex min-h-10 min-w-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+	base: "flex min-h-14 w-full min-w-0 items-center gap-2 rounded-2xl border px-3 py-1.5 text-start transition-colors",
 	variants: {
 		on: {
 			true: "border-accent bg-accent-soft font-semibold text-accent-soft-foreground",
@@ -90,9 +98,11 @@ function Picker({
 				aria-haspopup="dialog"
 				onClick={() => setOpen(true)}
 			>
-				<span className="text-muted">{label}:</span>
-				<span className="truncate">{summary}</span>
-				<ChevronDownIcon aria-hidden className="size-4 shrink-0" />
+				<span className="flex min-w-0 flex-1 flex-col leading-tight">
+					<span className="truncate text-xs text-muted">{label}</span>
+					<span className="truncate text-sm">{summary}</span>
+				</span>
+				<ChevronDownIcon aria-hidden className="size-4 shrink-0 text-muted" />
 			</button>
 			{narrow ? (
 				<BottomSheet isOpen={open} onOpenChange={setOpen} title={title}>
@@ -108,21 +118,47 @@ function Picker({
 }
 
 export function FilterBar({
-	book,
+	books,
 	value,
 	onChange,
 	leading,
 }: {
-	book: BookResponse;
+	/** The books the list is about: one, or all of them. */
+	books: BookResponse[];
 	value: Filters;
 	onChange: (next: Filters) => void;
 	leading?: React.ReactNode;
 }) {
-	const categories = useBooksListCategories(book.id).data ?? [];
-	// The money a payment can have been in: the book's own, then whatever it holds.
-	const currencyOptions = (useBooksListCurrencies(book.id).data ?? [])
-		.filter((option) => option.enabled)
-		.map((option) => option.code);
+	// Across several books the same name is one choice, and a currency is offered if any of them holds it.
+	const categoryLists = useQueries({
+		queries: books.map((book) => ({
+			queryKey: getBooksListCategoriesQueryKey(book.id),
+			queryFn: () => booksListCategories(book.id),
+		})),
+	});
+	const seen = new Set<string>();
+	const categories = categoryLists
+		.flatMap((query) => query.data ?? [])
+		.filter((category) => {
+			const key = `${category.flow ?? ""}:${category.name}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
+	// The money a payment can have been in: each book's own, then whatever it holds.
+	const currencyLists = useQueries({
+		queries: books.map((book) => ({
+			queryKey: getBooksListCurrenciesQueryKey(book.id),
+			queryFn: () => booksListCurrencies(book.id),
+		})),
+	});
+	const currencyOptions = [
+		...new Set(
+			currencyLists.flatMap((query) =>
+				(query.data ?? []).filter((option) => option.enabled).map((option) => option.code),
+			),
+		),
+	];
 	// What is typed is shown at once; what the list asks for follows after a pause.
 	const [typed, setTyped] = useState(value.q);
 	const settled = useDebounced(typed);
@@ -138,6 +174,8 @@ export function FilterBar({
 			category.flow === null ||
 			value.flows.includes(category.flow as FlowKey),
 	);
+	// Range, kind and sort are always there; categories and a second currency only when there is a choice.
+	const cells = 3 + (offered.length ? 1 : 0) + (currencyOptions.length > 1 ? 1 : 0);
 	const rangeLabel = RANGES.find((item) => item.value === value.range)?.label ?? t.txFilter.all;
 	const wrongRange =
 		value.range === "custom" && value.since && value.until && value.since > value.until;
@@ -161,7 +199,13 @@ export function FilterBar({
 					/>
 				</div>
 			</div>
-			<div className="flex flex-wrap items-center gap-2">
+			<div
+				className={
+					cells >= 5
+						? "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5"
+						: "grid grid-cols-2 gap-2 md:grid-cols-4"
+				}
+			>
 				<Picker
 					label={t.txFilter.range}
 					summary={rangeLabel}
@@ -298,9 +342,11 @@ export function FilterBar({
 					</div>
 				</Picker>
 				{count > 0 ? (
-					<Button size="sm" variant="ghost" onPress={clearAll}>
-						{t.txFilter.clear}
-					</Button>
+					<div className="col-span-full flex justify-end">
+						<Button size="sm" variant="ghost" onPress={clearAll}>
+							{t.txFilter.clear}
+						</Button>
+					</div>
 				) : null}
 			</div>
 		</div>

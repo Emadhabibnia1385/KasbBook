@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { tv } from "tailwind-variants";
 import { BottomSheet, Modal, useMediaQuery } from "@nyxon/nasim";
-import { selectBook, useActiveBook } from "@/features/books/useActiveBook";
-import { BookIcon, CheckIcon, ChevronDownIcon } from "@/shared/icons";
+import { ALL, selectBook, useActiveBook } from "@/features/books/useActiveBook";
+import { BookIcon, BooksIcon, CheckIcon, ChevronDownIcon } from "@/shared/icons";
 import { t } from "@/strings";
 
 const trigger = tv({
@@ -17,19 +17,39 @@ const option = tv({
 // Every screen is about one book; this is where the person changes which. A pill that opens a sheet on
 // a phone and a dialog on a desktop: the platform's own picker looked foreign next to the rest of the bar.
 export function BookSwitcher() {
-	const { books, book } = useActiveBook();
+	const { books, book, all } = useActiveBook();
 	const [open, setOpen] = useState(false);
 	const wide = useMediaQuery("(min-width: 768px)");
-	if (books.length < 2 || !book) return null;
+	if (books.length < 2) return null;
 
 	const list = (
 		<ul className="flex flex-col gap-1" aria-label={t.book.switcher}>
+			<li>
+				<button
+					type="button"
+					aria-current={all}
+					className={option({ active: all })}
+					onClick={() => {
+						selectBook(ALL);
+						setOpen(false);
+					}}
+				>
+					<BooksIcon aria-hidden className="size-5 shrink-0" />
+					<span className="min-w-0 flex-1">
+						<span className="block truncate">{t.scope.allBooks}</span>
+						<span className="block truncate text-xs font-normal text-muted">
+							{t.scope.allBooksHint}
+						</span>
+					</span>
+					{all ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
+				</button>
+			</li>
 			{books.map((item) => (
 				<li key={item.id}>
 					<button
 						type="button"
-						aria-current={item.id === book.id}
-						className={option({ active: item.id === book.id })}
+						aria-current={item.id === book?.id}
+						className={option({ active: item.id === book?.id })}
 						onClick={() => {
 							selectBook(item.id);
 							setOpen(false);
@@ -37,7 +57,7 @@ export function BookSwitcher() {
 					>
 						<BookIcon aria-hidden className="size-5 shrink-0" />
 						<span className="min-w-0 flex-1 truncate">{item.name}</span>
-						{item.id === book.id ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
+						{item.id === book?.id ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
 					</button>
 				</li>
 			))}
@@ -52,8 +72,12 @@ export function BookSwitcher() {
 				aria-haspopup="dialog"
 				onClick={() => setOpen(true)}
 			>
-				<BookIcon aria-hidden className="size-5 shrink-0 text-muted" />
-				<span className="truncate">{book.name}</span>
+				{all ? (
+					<BooksIcon aria-hidden className="size-5 shrink-0 text-muted" />
+				) : (
+					<BookIcon aria-hidden className="size-5 shrink-0 text-muted" />
+				)}
+				<span className="truncate">{book ? book.name : t.scope.allBooks}</span>
 				<ChevronDownIcon aria-hidden className="size-4 shrink-0 text-muted" />
 			</button>
 			{wide ? (

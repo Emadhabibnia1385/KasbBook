@@ -1,3 +1,4 @@
+import { BookRequired } from "@/features/books/BookRequired";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -252,7 +253,6 @@ export function Wallet() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
-	if (!book)
-		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book) return <BookRequired />;
 	return <Content book={book} />;
 }

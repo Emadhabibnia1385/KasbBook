@@ -13,6 +13,7 @@ import { authLogoutEverywhere, useAuthMe, useAuthSessions } from "@/api/generate
 import { useIdentitiesListIdentities } from "@/api/generated/identities/identities";
 import { clearSession } from "@/api/session";
 import { HeaderSettings } from "@/features/market/HeaderSettings";
+import { QuickSettings } from "@/features/quick/QuickSettings";
 import { TickerSettings } from "@/features/market/TickerSettings";
 import { InstallButton } from "@/features/pwa/InstallButton";
 import { DigestForm } from "./DigestForm";
@@ -96,6 +97,7 @@ export function Account() {
 					</Button>
 				</SectionCard>
 				<HeaderSettings />
+				<QuickSettings />
 				<TickerSettings />
 				<SectionCard title={t.account.appearance}>
 					<div className="flex flex-col items-start gap-3">

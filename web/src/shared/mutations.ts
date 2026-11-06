@@ -22,7 +22,13 @@ export async function refreshMoney(queryClient: QueryClient, bookId: string): Pr
 		queryClient.invalidateQueries({ queryKey: getBooksWalletQueryKey(bookId) }),
 		queryClient.invalidateQueries({ queryKey: getPlanningListBudgetsQueryKey(bookId) }),
 		queryClient.invalidateQueries({
-			predicate: (query) => String(query.queryKey[0]).includes("/reports/"),
+			predicate: (query) => {
+				const key = String(query.queryKey[0]);
+				// Reports and charts of every book, and the list that spans all of them.
+				return (
+					key.includes("/reports/") || key.includes("/analytics/") || key === "/api/v1/transactions"
+				);
+			},
 		}),
 	]);
 }

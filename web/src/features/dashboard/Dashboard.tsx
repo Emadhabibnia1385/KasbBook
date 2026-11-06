@@ -22,6 +22,7 @@ import {
 import { KpiRow, OverviewRow } from "@/features/analytics/kpis";
 import { BudgetGauges, TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { AllBooksDashboard } from "./AllBooks";
 import { currentPeriod, formatDay, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 
@@ -73,12 +74,28 @@ function MoreCharts({ children }: { children: React.ReactNode }) {
 }
 
 export function Dashboard() {
-	const { book, isLoading, isError, refetch } = useActiveBook();
+	const { books, book, all, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton stats={4} />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
+	const period = currentPeriod();
+	// Every book together, unless one is chosen: the dashboard is about all of someone's money.
+	if (all)
+		return (
+			<div className="flex flex-col gap-5">
+				<PageHeader
+					title={t.dashboard.title}
+					description={t.scope.allBooks}
+					actions={
+						<Link to="/reports" className="text-sm text-accent">
+							{t.analytics.dashboard.details}
+						</Link>
+					}
+				/>
+				<AllBooksDashboard books={books} period={period} />
+			</div>
+		);
 	if (!book)
 		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
-	const period = currentPeriod();
 	const a = t.analytics.dashboard;
 	return (
 		<div className="flex flex-col gap-5">

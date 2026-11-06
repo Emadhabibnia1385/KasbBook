@@ -1,12 +1,6 @@
+import { BookRequired } from "@/features/books/BookRequired";
 import { useState } from "react";
-import {
-	Button,
-	EmptyState,
-	ErrorState,
-	FilterChips,
-	PageHeader,
-	PageSkeleton,
-} from "@nyxon/nasim";
+import { Button, ErrorState, FilterChips, PageHeader, PageSkeleton } from "@nyxon/nasim";
 import { reportsExportCsv } from "@/api/generated/reports/reports";
 import type { BookResponse } from "@/api/generated/model";
 import {
@@ -70,8 +64,7 @@ export function Reports() {
 	const [year, setYear] = useState(YEARS[0]?.value ?? "");
 	if (isLoading) return <PageSkeleton stats={4} />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
-	if (!book)
-		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book) return <BookRequired />;
 	const period = kind === "week" ? "week" : kind === "month" ? month : year;
 	const options = kind === "month" ? MONTHS : YEARS;
 	const r = t.analytics.reports;

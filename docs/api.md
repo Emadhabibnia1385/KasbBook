@@ -155,6 +155,7 @@ prefix, never the key.
 | `GET /books/{id}/transactions` | `?since=&until=&page=&per_page=`, newest first |
 | `POST /books/{id}/transactions` | see below |
 | `GET`/`DELETE /books/{id}/transactions/{tx}` | one transaction |
+| `GET /transactions` | the same list across every book the account can see (`?book_id=` repeated to narrow it); each item names its book, and `totals` is one line per base currency |
 | `GET /books/{id}/currencies` · `PUT /{code}` | which currencies this book may hold |
 | `GET /books/{id}/wallet` | what it holds, per currency |
 | `GET`/`POST /books/{id}/conversions` | move value between two of them |
@@ -351,7 +352,10 @@ choose their type explicitly. They are excluded from the filtered picker until
 classified. Their existing transactions remain usable without rewriting history.
 
 `PATCH /api/v1/books/{book_id}/transactions/{transaction_id}` accepts `category`,
-`amount` and `description`. Money is a string. Amount means the original
+`amount`, `description` and `book_id`: a different `book_id` moves the entry to that book
+(its files and its journal entry go with it) when the account may record there, the
+books share a base currency, the currency is enabled in the target and neither
+period is closed; otherwise it is refused and nothing changes. Money is a string. Amount means the original
 currency amount and retains the stored conversion rate. `description: null`
 clears it; null category/amount and empty patches are refused. Financial dates
 with calculated payslips or a non-open payroll period are protected. Loan

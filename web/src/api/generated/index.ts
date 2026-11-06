@@ -10,4 +10,5 @@ export * from "./payroll/payroll";
 export * from "./planning/planning";
 export * from "./recurring/recurring";
 export * from "./reports/reports";
+export * from "./transactions/transactions";
 export * from "./webhooks/webhooks";

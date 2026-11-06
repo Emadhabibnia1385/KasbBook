@@ -1,4 +1,7 @@
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
+
+/** The two facts about a book that an amount needs: which currency it adds up in. */
+export type BookRef = Pick<BookResponse, "id" | "currency">;
 import { formatMoney } from "@/shared/format";
 
 /**
@@ -12,7 +15,7 @@ export function Amount({
 	align = "end",
 }: {
 	row: TransactionResponse;
-	book: BookResponse;
+	book: BookRef;
 	align?: "start" | "end";
 }) {
 	const income = row.flow === "income";

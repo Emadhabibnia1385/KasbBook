@@ -1,3 +1,4 @@
+import { BookRequired } from "@/features/books/BookRequired";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -372,8 +373,7 @@ export function Planning() {
 	const { book, isLoading, isError, refetch } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
 	if (isError) return <ErrorState onRetry={() => void refetch()} />;
-	if (!book)
-		return <EmptyState as="h1" title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />;
+	if (!book) return <BookRequired />;
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader title={t.nav.planning} description={book.name} />

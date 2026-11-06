@@ -40,6 +40,7 @@ from .models import (
     RateMode,
     Scope,
     Transaction,
+    TransactionAttachment,
 )
 
 
@@ -680,6 +681,85 @@ class LedgerService:
             entries[0].memo = f"{tx.flow.value}: {tx.category}"
             # The journal mirrors the transaction, including when it happened.
             entries[0].occurred_on = moved_to
+        self._mark_edited(tx, actor_user_id)
+        await self.session.flush()
+        return tx
+
+    async def move(
+        self, book_id: uuid.UUID, actor_user_id: uuid.UUID, transaction_id: uuid.UUID,
+        target_book_id: uuid.UUID,
+    ) -> Transaction:
+        """Put a transaction recorded in the wrong book into the right one.
+
+        It leaves one book and arrives in another, so it has to be allowed to do both: deleted from
+        where it was, recorded where it lands. Everything that makes that safe is checked before a
+        row changes: the two books share a base currency (a different one would make the frozen
+        conversion meaningless), the money it was paid in is held and enabled where it lands, neither
+        book has closed the period, and no installment is tied to it. Files stay with it. The
+        journal entry is rebuilt through the one writer, on the target book's own accounts.
+        """
+        if target_book_id == book_id:
+            return await self.get_transaction(book_id, actor_user_id, transaction_id)
+        await self.books.require(book_id, actor_user_id, Permission.DELETE_TRANSACTION)
+        for locked in sorted((book_id, target_book_id), key=str):
+            await self.categories.lock_book(locked)
+        tx = await self.session.scalar(select(Transaction).where(
+            Transaction.id == transaction_id, Transaction.book_id == book_id
+        ).with_for_update().execution_options(populate_existing=True))
+        if tx is None:
+            raise NotFound("این تراکنش پیدا نشد.")
+        await self.books.require(
+            target_book_id, actor_user_id,
+            Permission.RECORD_INCOME if tx.flow is Flow.INCOME else Permission.RECORD_EXPENSE,
+        )
+        source = await self.books.get_book(book_id)
+        target = await self.books.get_book(target_book_id)
+        if source.base_currency != target.base_currency:
+            raise ValidationError(
+                "واحد اصلی این دو دفتر یکی نیست؛ تراکنش را نمی‌شود بین‌شان جابه‌جا کرد."
+            )
+        if await self.session.scalar(select(LoanPayment.id).where(
+            LoanPayment.transaction_id == tx.id
+        ).limit(1)):
+            raise ValidationError("پرداخت قسط را نمی‌شود به دفتر دیگری برد.")
+        await self._require_open_date(book_id, tx.occurred_on)
+        await self._require_open_date(target_book_id, tx.occurred_on)
+
+        exchange = ExchangeService(self.session)
+        if tx.original_currency != target.base_currency:
+            if tx.original_currency not in await exchange.allowed(target_book_id):
+                raise ValidationError(
+                    f"دفتر مقصد {tx.original_currency} را پشتیبانی نمی‌کند؛ اول از تنظیمات ارزها "
+                    "فعالش کن."
+                )
+        await self._require_wallet_survives(tx, -tx.original_amount)
+        if tx.flow is Flow.EXPENSE:
+            await exchange.require_funds(target_book_id, tx.original_currency, tx.original_amount)
+
+        entries = (await self.session.scalars(select(JournalEntry).where(
+            JournalEntry.book_id == book_id, JournalEntry.transaction_id == tx.id
+        ))).all()
+        if (len(entries) != 1 or not entries[0].is_balanced
+                or entries[0].total_debit != tx.converted_amount):
+            raise BalanceError("سند این تراکنش معتبر نیست؛ جابه‌جایی انجام نشد.")
+        await self.session.delete(entries[0])
+        await self.session.flush()
+
+        category_row = await self.categories._ensure(target_book_id, tx.category, tx.flow)
+        tx.book_id, tx.category, tx.category_id = target_book_id, category_row.name, category_row.id
+        await self.session.execute(
+            TransactionAttachment.__table__.update()
+            .where(TransactionAttachment.transaction_id == tx.id)
+            .values(book_id=target_book_id)
+        )
+        await self.ensure_chart_of_accounts(target_book_id)
+        cash = await self.account(target_book_id, CASH)
+        other = await self.account(target_book_id, INCOME if tx.flow is Flow.INCOME else EXPENSE)
+        lines = ([(cash.id, tx.converted_amount, ZERO), (other.id, ZERO, tx.converted_amount)]
+                 if tx.flow is Flow.INCOME else
+                 [(other.id, tx.converted_amount, ZERO), (cash.id, ZERO, tx.converted_amount)])
+        await self.post_entry(target_book_id, tx.occurred_on, lines,
+                              memo=f"{tx.flow.value}: {tx.category}", transaction_id=tx.id)
         self._mark_edited(tx, actor_user_id)
         await self.session.flush()
         return tx
