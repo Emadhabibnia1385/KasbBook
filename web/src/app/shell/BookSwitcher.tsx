@@ -1,8 +1,10 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { tv } from "tailwind-variants";
 import { BottomSheet, Modal, useMediaQuery } from "@nyxon/nasim";
+import { useAuthMe } from "@/api/generated/auth/auth";
 import { ALL, selectBook, useActiveBook } from "@/features/books/useActiveBook";
-import { BookIcon, BooksIcon, CheckIcon, ChevronDownIcon } from "@/shared/icons";
+import { BookIcon, BooksIcon, CheckIcon, ChevronDownIcon, PlusIcon } from "@/shared/icons";
 import { t } from "@/strings";
 
 const trigger = tv({
@@ -20,30 +22,35 @@ export function BookSwitcher() {
 	const { books, book, all } = useActiveBook();
 	const [open, setOpen] = useState(false);
 	const wide = useMediaQuery("(min-width: 768px)");
-	if (books.length < 2) return null;
+	const navigate = useNavigate();
+	const suggested = useAuthMe().data?.suggested_currency ?? "IRT";
+	if (books.length < 1) return null;
+	const several = books.length > 1;
 
 	const list = (
 		<ul className="flex flex-col gap-1" aria-label={t.book.switcher}>
-			<li>
-				<button
-					type="button"
-					aria-current={all}
-					className={option({ active: all })}
-					onClick={() => {
-						selectBook(ALL);
-						setOpen(false);
-					}}
-				>
-					<BooksIcon aria-hidden className="size-5 shrink-0" />
-					<span className="min-w-0 flex-1">
-						<span className="block truncate">{t.scope.allBooks}</span>
-						<span className="block truncate text-xs font-normal text-muted">
-							{t.scope.allBooksHint}
+			{several ? (
+				<li>
+					<button
+						type="button"
+						aria-current={all}
+						className={option({ active: all })}
+						onClick={() => {
+							selectBook(ALL);
+							setOpen(false);
+						}}
+					>
+						<BooksIcon aria-hidden className="size-5 shrink-0" />
+						<span className="min-w-0 flex-1">
+							<span className="block truncate">{t.scope.allBooks}</span>
+							<span className="block truncate text-xs font-normal text-muted">
+								{t.scope.allBooksHint}
+							</span>
 						</span>
-					</span>
-					{all ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
-				</button>
-			</li>
+						{all ? <CheckIcon aria-hidden className="size-5 shrink-0" /> : null}
+					</button>
+				</li>
+			) : null}
 			{books.map((item) => (
 				<li key={item.id}>
 					<button
@@ -61,6 +68,19 @@ export function BookSwitcher() {
 					</button>
 				</li>
 			))}
+			<li className="mt-1 border-t border-separator pt-2">
+				<button
+					type="button"
+					className={option()}
+					onClick={() => {
+						setOpen(false);
+						void navigate({ to: "/books", search: { new: suggested } });
+					}}
+				>
+					<PlusIcon aria-hidden className="size-5 shrink-0 text-accent" />
+					<span className="min-w-0 flex-1 truncate">{t.quick.addBook}</span>
+				</button>
+			</li>
 		</ul>
 	);
 

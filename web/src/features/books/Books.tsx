@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -107,7 +108,15 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 	const queryClient = useQueryClient();
 	const { books, book: active, isLoading } = useActiveBook();
 	// Arriving from a refused base-currency change opens the form with that unit already chosen.
-	const [adding, setAdding] = useState(Boolean(presetCurrency));
+	// Arriving with a base currency in the address (the switcher's «افزودن دفتر», a refused currency change)
+	// opens the form with that unit already chosen.
+	const [adding, setAdding] = useState(false);
+	const navigate = useNavigate();
+	const formOpen = adding || Boolean(presetCurrency);
+	const setAddingOpen = (open: boolean) => {
+		setAdding(open);
+		if (!open && presetCurrency) void navigate({ to: "/books", search: {}, replace: true });
+	};
 	// The money and the calendar start from where this account's time zone says the person is; they may change both.
 	const me = useAuthMe().data;
 	const [chosenCurrency, setCurrency] = useState<string | null>(presetCurrency ?? null);
@@ -126,7 +135,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 		<div className="flex flex-col gap-5">
 			<PageHeader
 				title={t.nav.books}
-				actions={<Button onPress={() => setAdding(true)}>{t.books.add}</Button>}
+				actions={<Button onPress={() => setAddingOpen(true)}>{t.books.add}</Button>}
 			/>
 			{books.length === 0 ? (
 				<EmptyState title={t.dashboard.noBookTitle} description={t.dashboard.noBook} />
@@ -161,7 +170,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 			) : (
 				<p className="text-sm text-muted">{t.scope.needsBook}</p>
 			)}
-			<Modal isOpen={adding} onOpenChange={setAdding} title={t.books.add} size="sm">
+			<Modal isOpen={formOpen} onOpenChange={setAddingOpen} title={t.books.add} size="sm">
 				<FormRoot
 					form={form}
 					className="flex flex-col gap-4"
@@ -176,7 +185,7 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 							form.reset();
 							setCurrency(null);
 							setCalendar(null);
-							setAdding(false);
+							setAddingOpen(false);
 						} catch (error) {
 							toast.danger(error instanceof Error ? error.message : t.errors.unknown);
 						}
