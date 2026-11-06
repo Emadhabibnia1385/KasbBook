@@ -22,6 +22,8 @@ from .common import (
     fmt,
     fmt_currency,
     home_row,
+    tx_money,
+    tx_short,
     main_menu,
     rtl,
     unclear_reason,
@@ -310,7 +312,7 @@ def daily_view(
         # the tallest screen in the bot — a page of twelve plus its headers —
         # is half as tall.
         section.append(Button(
-            f"{tx.category[:14]} · {fmt(tx.converted_amount)}",
+            f"{tx.category[:14]} · {tx_short(tx, sheet.book.base_currency)}",
             data=f"td:open:{tx.id}:{origin}",
         ))
     buttons += rows_of(section, 2)
@@ -513,10 +515,10 @@ def transaction_list(book: Book, rows, page: int, total: int, per_page: int = 8)
         clip = " 🧾" if tx.receipt_file_id else ""
         lines.append(
             f"{mark} {jalali.to_text(tx.occurred_on)} | {tx.category}: "
-            f"{fmt(tx.converted_amount, book.base_currency)}{clip}"
+            f"{tx_money(tx, book.base_currency)}{clip}"
         )
         buttons.append([
-            Button(f"{tx.category[:16]} — {fmt(tx.converted_amount)}", data=f"td:open:{tx.id}")
+            Button(f"{tx.category[:16]} — {tx_short(tx, book.base_currency)}", data=f"td:open:{tx.id}")
         ])
 
     last = max(0, (total - 1) // per_page)
@@ -631,12 +633,15 @@ def ask_description(editing=False) -> Screen:
                        cancel_row("nav:cancel")]
 
 
-def ask_description_with_rate(code: str, rate, base_code: str, converted) -> Screen:
+def ask_description_with_rate(code: str, rate, base_code: str, converted, estimate: bool = False) -> Screen:
     """The live rate was applied; say so, and offer to change it."""
     name = CURRENCY_NAMES.get(code, code)
     return rtl(
         f"💱 نرخ امروز {name}: {fmt(rate, CURRENCY_NAMES.get(base_code, base_code))}\n"
-        f"معادل: {fmt(converted, CURRENCY_NAMES.get(base_code, base_code))}\n\n"
+        f"معادل: {fmt(converted, CURRENCY_NAMES.get(base_code, base_code))}\n"
+        + ("⚠️ این نرخ تخمینی است، نه قیمت بازار آزاد؛ اگر نرخ واقعی معامله فرق دارد، "
+           "«نرخ دیگری دارم» را بزن.\n" if estimate else "")
+        + "\n"
         "توضیحات تراکنش را بنویس (حداکثر 500 حرف)؛ مثلاً: «بابت مرداد».\n"
         "اگر رسید، عکس یا فایلی داری، همراه توضیحات بفرست."
     ), [
@@ -671,12 +676,12 @@ def search_results(book: Book, query: str, rows, total: int, amount, page: int,
         note = f" — {tx.description[:24]}" if tx.description else ""
         lines.append(
             f"{mark} {jalali.to_text(tx.occurred_on)} | {tx.category}: "
-            f"{fmt(tx.converted_amount)}{note}"
+            f"{tx_money(tx, book.base_currency)}{note}"
         )
         # A result you cannot open is a dead end: finding a transaction is
         # nearly always the first step of editing or deleting it.
         buttons.append([
-            Button(f"{mark} {tx.category[:16]} — {fmt(tx.converted_amount)}", data=f"td:open:{tx.id}")
+            Button(f"{mark} {tx.category[:16]} — {tx_short(tx, book.base_currency)}", data=f"td:open:{tx.id}")
         ])
 
     last = max(0, (total - 1) // per_page)

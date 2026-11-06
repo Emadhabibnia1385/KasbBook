@@ -28,7 +28,7 @@ if str(ROOT) not in sys.path:
 
 import httpx  # noqa: E402
 
-from kasbbook.rates.swapwallet import SwapWalletRates
+from kasbbook.rates.market import MarketRates
 from kasbbook.adapters.bale import BaleAdapter  # noqa: E402
 from kasbbook.adapters.base import EventKind, MessagingAdapter  # noqa: E402
 from kasbbook.adapters.rubika import RubikaAdapter  # noqa: E402
@@ -105,7 +105,7 @@ class BotRunner:
         self.state = state
         # One instance for the process, so its short cache is shared across
         # updates instead of a fresh request per keystroke.
-        self.rates = SwapWalletRates()
+        self.rates = MarketRates()
         self._offset: Optional[int] = None
         self._running = False
 

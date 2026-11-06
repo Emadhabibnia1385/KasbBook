@@ -331,6 +331,11 @@ class ExchangeService:
             return None
         return await self.rates.quote(code, base)
 
+    async def quote_detail(self, code: str, base: str):
+        """The same price with its label: exact, or an estimate. None if the provider cannot say."""
+        detail = getattr(self.rates, "quote_detail", None)
+        return await detail(code, base) if detail else None
+
     async def valuation(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID
     ) -> tuple[List[CurrencyValue], Optional[Decimal]]:

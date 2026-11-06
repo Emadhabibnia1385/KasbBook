@@ -68,6 +68,25 @@ def fmt_currency(amount: Decimal, code: str) -> str:
     return f"{text or '0'} {name}"
 
 
+def tx_money(tx, base_code: str, equivalent: bool = True) -> str:
+    """A transaction's amount in the money it was paid in, with its worth in the book's beneath.
+
+    «۲۰ تون ≈ ۷٬۱۶۹٬۰۰۶ تومان»: the first figure is what changed hands, the second what the books
+    count. A book-currency payment is just its amount.
+    """
+    if tx.original_currency == base_code:
+        return fmt(tx.converted_amount, base_code)
+    native = fmt_currency(tx.original_amount, tx.original_currency)
+    return f"{native} ≈ {fmt(tx.converted_amount, base_code)}" if equivalent else native
+
+
+def tx_short(tx, base_code: str) -> str:
+    """The amount for a button label: in the money it was paid in, nothing else, so it stays short."""
+    if tx.original_currency == base_code:
+        return fmt(tx.converted_amount)
+    return fmt_currency(tx.original_amount, tx.original_currency)
+
+
 # ------------------------------------------------------------------ welcome
 def welcome(display_name: str, first_run: bool = False) -> Screen:
     """The home screen. A first run says what to do first: a book comes before anything."""

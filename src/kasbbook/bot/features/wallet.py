@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+from ...modules.books.models import Permission
 from ...shared.errors import ValidationError
 from ...shared.money import quantize
 from ...shared.parsing import parse_amount
@@ -19,7 +20,7 @@ from .base import Feature
 
 class WalletFeature(Feature):
     prefixes = ("cu",)
-    flows = ("conversion",)
+    flows = ("conversion", "currency")
 
     async def callback(self, area, parts, user, key, event):
         action = parts[1] if len(parts) > 1 else ""
@@ -31,10 +32,46 @@ class WalletFeature(Feature):
     async def text(self, text, draft, user, key, event):
         if draft.get("flow") == "conversion":
             return await self._conversion_text(text, draft, user, key)
+        if draft.get("flow") == "currency":
+            return await self._currency_find_text(text, draft, user)
         raise AssertionError(draft.get("flow"))
+
+    async def _currency_find_text(self, text, draft, user):
+        """A typed name or code, answered with the catalog's matches for this book."""
+        from ...modules.exchange.catalog import search
+
+        if draft.get("awaiting") != "find":
+            # A line typed on the tick screen is not an answer to anything.
+            return screens.stale(None, user.display_name)
+        book = await self.ctx.books.get_book(uuid.UUID(draft["book_id"]))
+        options = await self.ctx.exchange.options(user.id, book.id)
+        enabled = {o.code for o in options if o.enabled}
+        matches = search(text)
+        # What was found may need switching on, so the tick handler's own check
+        # (the book from the draft, not from the button) still applies to it.
+        return screens.currency_find_results(book, matches, enabled)
+
+    async def _prices(self, book):
+        """Crypto the market publishes, and national currencies as labelled estimates, in toman."""
+        rates = self.ctx.rates
+        table = getattr(rates, "table", None)
+        if table is None:
+            return screens.prices_screen(book, [], [], 0)
+        crypto = await table(["USDT", "BTC", "ETH", "TON", "TRX"], "IRT")
+        countries = await table(["USD", "EUR", "GBP", "AED", "TRY"], "IRT")
+        stamps = [q.fetched_at for _, q in crypto + countries if q.fetched_at]
+        from ...shared.security import utcnow
+
+        age = int((utcnow() - min(stamps)).total_seconds()) if stamps else 0
+        return screens.prices_screen(book, crypto, countries, max(0, age))
 
     # ------------------------------------------------- wallet and currencies
     async def _currency_callback(self, action: str, argument: str, user, key: str):
+        if action == "prices":
+            book = await self.ctx.books.get_book(uuid.UUID(argument))
+            await self.ctx.books.require(book.id, user.id, Permission.VIEW_REPORTS)
+            return await self._prices(book)
+
         if action in ("home", "set", "conv"):
             book = await self.ctx.books.get_book(uuid.UUID(argument))
             if action == "set":
@@ -63,6 +100,14 @@ class WalletFeature(Feature):
         # put after a permission check, rather than from the button.
         draft = await self.ctx.state.get(key)
 
+        if action == "find":
+            if draft.get("flow") != "currency":
+                return screens.stale(None, user.display_name)
+            draft["awaiting"] = "find"
+            await self.ctx.state.set(key, draft)
+            book = await self.ctx.books.get_book(uuid.UUID(draft["book_id"]))
+            return screens.currency_find_ask(book)
+
         if action == "tog":
             if draft.get("flow") != "currency":
                 return screens.stale(None, user.display_name)
@@ -71,6 +116,14 @@ class WalletFeature(Feature):
             await self.ctx.exchange.set_enabled(
                 user.id, book.id, argument, argument not in enabled
             )
+            if draft.get("awaiting") == "find":
+                # Came from a search: stay on the search so several can be switched on in a row.
+                options = await self.ctx.exchange.options(user.id, book.id)
+                from ...modules.exchange.catalog import BY_CODE
+
+                return screens.currency_find_results(
+                    book, [BY_CODE[argument]], {o.code for o in options if o.enabled}
+                )
             return screens.currency_settings(
                 book, await self.ctx.exchange.options(user.id, book.id)
             )

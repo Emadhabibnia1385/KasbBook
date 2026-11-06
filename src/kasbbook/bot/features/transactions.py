@@ -130,7 +130,10 @@ class TransactionsFeature(Feature):
                 await self.ctx.state.set(key, draft)
                 return screens.ask_description()
 
-            live = await self.ctx.exchange.quote(argument, book.base_currency)
+            detail = await self.ctx.exchange.quote_detail(argument, book.base_currency)
+            live = detail.value if detail is not None else await self.ctx.exchange.quote(
+                argument, book.base_currency
+            )
             if live is not None:
                 # Today's market price, applied so the person does not have to
                 # type it. It is shown rather than hidden, and overridable,
@@ -141,6 +144,7 @@ class TransactionsFeature(Feature):
                 return screens.ask_description_with_rate(
                     argument, live, book.base_currency,
                     Decimal(draft["amount"]) * live,
+                    estimate=detail is not None and not detail.exact,
                 )
 
             draft["awaiting"] = "rate"

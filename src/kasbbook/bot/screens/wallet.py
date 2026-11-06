@@ -42,7 +42,8 @@ def currency_home(book: Book, balances, has_extra: bool, total=None) -> Screen:
             lines += ["", f"ارزش کل به نرخ امروز: {fmt(total, base_name)}"]
         lines += ["", "هر ارز همان ارز می‌ماند تا وقتی تبدیلش کنی."]
 
-    buttons = [[Button("⚙️ ارزهای دفتر", data=f"cu:set:{book.id}")]]
+    buttons = [[Button("⚙️ ارزهای دفتر", data=f"cu:set:{book.id}"),
+                Button("📈 قیمت‌ها", data=f"cu:prices:{book.id}")]]
     if has_extra:
         buttons.append([Button("🔄 تبدیل ارز", data=f"cu:conv:{book.id}")])
     buttons.append(back_row(f"book:open:{book.id}"))
@@ -81,7 +82,62 @@ def currency_settings(book: Book, options) -> Screen:
     ]
     # Two to a row: a currency name is one short word, and one per row pushed
     # the way out off the first screenful.
-    return rtl("\n".join(lines)), rows_of(ticks) + [back_row(f"cu:home:{book.id}")]
+    find = [Button("➕ ارز دیگر (دلار، یورو، بیت‌کوین، …)", data="cu:find")]
+    return rtl("\n".join(lines)), rows_of(ticks) + [find, back_row(f"cu:home:{book.id}")]
+
+
+def currency_find_ask(book: Book, problem=None) -> Screen:
+    """Any currency in the catalog, by typing a piece of its name, its code or its country."""
+    text = (
+        "🔎 کدام ارز؟\n\n"
+        "بخشی از نام، کد یا کشورش را بنویس؛ مثلاً: دلار، USD، ترکیه، بیت‌کوین."
+    )
+    if problem:
+        text = f"⚠️ {problem}\n\n" + text
+    return rtl(text), [back_row(f"cu:set:{book.id}")]
+
+
+def currency_find_results(book: Book, matches, enabled_codes) -> Screen:
+    """What the search found, one tap each to switch it on (or off, if it already is)."""
+    if not matches:
+        return currency_find_ask(book, "ارزی با این مشخصات پیدا نشد؛ یک نام یا کد دیگر بنویس.")
+    lines = ["🔎 این‌ها پیدا شد؛ روی هرکدام بزنی روشن می‌شود:", ""]
+    buttons = []
+    for c in matches:
+        on = c.code in enabled_codes
+        base = c.code == book.base_currency
+        mark = "✅" if (on or base) else "⬜️"
+        lines.append(f"{mark} {c.name} ({c.code})" + (f" — {c.region}" if c.region else ""))
+        if not base:
+            buttons.append(Button(f"{mark} {c.name}", data=f"cu:tog:{c.code}"))
+    return rtl("\n".join(lines)), rows_of(buttons) + [
+        [Button("🔎 جست‌وجوی دیگر", data="cu:find")],
+        back_row(f"cu:set:{book.id}"),
+    ]
+
+
+def prices_screen(book: Book, crypto, countries, age_seconds: int) -> Screen:
+    """Live prices in toman. National currencies are estimates, and the screen says so."""
+    lines = ["📈 قیمت لحظه‌ای (تومان)", ""]
+    if not crypto and not countries:
+        lines.append("الان قیمتی در دسترس نیست؛ کمی بعد دوباره امتحان کن.")
+    for code, quote in crypto:
+        lines.append(f"• {CURRENCY_NAMES.get(code, code)}: {fmt(quote.value)}")
+    if countries:
+        lines += ["", "ارزهای کشورها (تخمینی):"]
+        for code, quote in countries:
+            lines.append(f"• {CURRENCY_NAMES.get(code, code)}: {fmt(quote.value)}")
+        lines += [
+            "",
+            "این‌ها قیمت بازار آزاد نیست: قیمت دلار از قیمت تتر و نرخ بین ارزها "
+            "از exchangerate-api می‌آید (روزی یک‌بار به‌روز می‌شود).",
+        ]
+    if age_seconds:
+        lines.append(f"آخرین به‌روزرسانی: {age_seconds // 60 + 1} دقیقه پیش")
+    return rtl("\n".join(lines)), [
+        [Button("🔄 تازه‌سازی", data=f"cu:prices:{book.id}")],
+        back_row(f"cu:home:{book.id}"),
+    ]
 
 
 def conversion_pick_source(book: Book, balances) -> Screen:

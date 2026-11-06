@@ -219,3 +219,36 @@ _ISO = (
 
 CATALOG: tuple[Currency, ...] = _HAND + _ISO
 BY_CODE = {c.code: c for c in CATALOG}
+
+
+def _fold(text: str) -> str:
+    """Case, Arabic yeh/kaf and digits folded, so «دلار», «دلار», «usd» and «USD» meet."""
+    table = str.maketrans({"ي": "ی", "ى": "ی", "ك": "ک", "‌": " "})
+    return text.translate(table).casefold().strip()
+
+
+def search(query: str, limit: int = 8) -> list:
+    """Currencies whose name, code, symbol or country contains every word of the query, best first.
+
+    An exact code first, then popular currencies, then names that start with the word, then the rest.
+    """
+    words = [w for w in _fold(query).split() if w]
+    if not words:
+        return []
+    scored = []
+    for position, currency in enumerate(CATALOG):
+        haystack = _fold(f"{currency.name} {currency.code} {currency.symbol} {currency.region}")
+        if not all(w in haystack for w in words):
+            continue
+        first = words[0]
+        # An exact code first, then the currencies people actually use that match, then names that start
+        # with the word: «دلار» is a dozen currencies and the first one should be the American.
+        rank = (
+            0 if currency.code.casefold() == first
+            else 1 if currency.code in POPULAR
+            else 2 if _fold(currency.name).startswith(first)
+            else 3
+        )
+        scored.append((rank, position, currency))
+    scored.sort(key=lambda row: (row[0], row[1]))
+    return [row[2] for row in scored[:limit]]
