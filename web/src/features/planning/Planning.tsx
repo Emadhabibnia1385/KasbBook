@@ -377,7 +377,7 @@ export function Planning() {
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader title={t.nav.planning} description={book.name} />
-			<SectionCard title={t.planning.title}>
+			<SectionCard title={t.planning.title} description={t.planning.intro}>
 				<Tabs
 					label={t.planning.title}
 					defaultSelectedKey="budgets"
