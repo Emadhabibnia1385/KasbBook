@@ -17,6 +17,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..capital.models import CapitalMovement
 from ...shared import jalali
 from ...shared.errors import PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
@@ -277,6 +278,15 @@ class ExchangeService:
         ).all()
         for code, amount in payouts:
             add(code, -to_decimal(amount))
+
+        # Buying gold, paying into a fund and repaying a loan's principal move cash without being an
+        # expense; they are held in the book's own currency.
+        for (delta,) in (
+            await self.session.execute(
+                select(CapitalMovement.cash_delta).where(CapitalMovement.book_id == book_id)
+            )
+        ).all():
+            add(book.base_currency, to_decimal(delta))
 
         swaps = (
             await self.session.execute(

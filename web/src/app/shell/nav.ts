@@ -44,7 +44,7 @@ const MANAGE: NavItem = {
 	to: "/manage",
 	label: t.nav.manage,
 	icon: BookIcon,
-	also: ["/books", "/wallet", "/team", "/planning"],
+	also: ["/books", "/wallet", "/team", "/planning", "/capital"],
 };
 const ACCOUNT: NavItem = { to: "/account", label: t.nav.account, icon: AccountIcon };
 

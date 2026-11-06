@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAccountRouteImport } from './routes/_app.account'
 import { Route as AppBooksRouteImport } from './routes/_app.books'
+import { Route as AppCapitalRouteImport } from './routes/_app.capital'
 import { Route as AppManageRouteImport } from './routes/_app.manage'
 import { Route as AppMoreRouteImport } from './routes/_app.more'
 import { Route as AppPlanningRouteImport } from './routes/_app.planning'
@@ -50,6 +51,11 @@ const AppAccountRoute = AppAccountRouteImport.update({
 const AppBooksRoute = AppBooksRouteImport.update({
   id: '/books',
   path: '/books',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCapitalRoute = AppCapitalRouteImport.update({
+  id: '/capital',
+  path: '/capital',
   getParentRoute: () => AppRoute,
 } as any)
 const AppManageRoute = AppManageRouteImport.update({
@@ -123,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/account': typeof AppAccountRoute
   '/books': typeof AppBooksRoute
+  '/capital': typeof AppCapitalRoute
   '/manage': typeof AppManageRoute
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/account': typeof AppAccountRoute
   '/books': typeof AppBooksRoute
+  '/capital': typeof AppCapitalRoute
   '/manage': typeof AppManageRoute
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/account': typeof AppAccountRoute
   '/_app/books': typeof AppBooksRoute
+  '/_app/capital': typeof AppCapitalRoute
   '/_app/manage': typeof AppManageRoute
   '/_app/more': typeof AppMoreRoute
   '/_app/planning': typeof AppPlanningRoute
@@ -183,6 +192,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/account'
     | '/books'
+    | '/capital'
     | '/manage'
     | '/more'
     | '/planning'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/account'
     | '/books'
+    | '/capital'
     | '/manage'
     | '/more'
     | '/planning'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/account'
     | '/_app/books'
+    | '/_app/capital'
     | '/_app/manage'
     | '/_app/more'
     | '/_app/planning'
@@ -276,6 +288,13 @@ declare module '@tanstack/react-router' {
       path: '/books'
       fullPath: '/books'
       preLoaderRoute: typeof AppBooksRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/capital': {
+      id: '/_app/capital'
+      path: '/capital'
+      fullPath: '/capital'
+      preLoaderRoute: typeof AppCapitalRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/manage': {
@@ -394,6 +413,7 @@ const AppTeamRouteWithChildren =
 interface AppRouteChildren {
   AppAccountRoute: typeof AppAccountRoute
   AppBooksRoute: typeof AppBooksRoute
+  AppCapitalRoute: typeof AppCapitalRoute
   AppManageRoute: typeof AppManageRoute
   AppMoreRoute: typeof AppMoreRoute
   AppPlanningRoute: typeof AppPlanningRoute
@@ -408,6 +428,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAccountRoute: AppAccountRoute,
   AppBooksRoute: AppBooksRoute,
+  AppCapitalRoute: AppCapitalRoute,
   AppManageRoute: AppManageRoute,
   AppMoreRoute: AppMoreRoute,
   AppPlanningRoute: AppPlanningRoute,

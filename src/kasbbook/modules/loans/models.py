@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Optional
 
 from sqlalchemy import Date, ForeignKey, Index, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
@@ -34,6 +35,13 @@ class Loan(UUIDPrimaryKey, Timestamped, Base):
     installment_count: Mapped[int] = mapped_column(Integer, nullable=False)
     starts_on: Mapped[date] = mapped_column(Date, nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # "consumer": every installment is a personal expense. "capital": the loan paid for something that
+    # is kept (gold, a car), so an installment repays debt and only its interest is an expense.
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="consumer", server_default="consumer"
+    )
+    # What was borrowed, for a capital loan; the installments add up to more when there is interest.
+    principal: Mapped[Optional[Money]] = mapped_column(Money, nullable=True)
 
 
 class LoanPayment(UUIDPrimaryKey, Timestamped, Base):
@@ -49,7 +57,8 @@ class LoanPayment(UUIDPrimaryKey, Timestamped, Base):
     )
     # The transaction outlives the loan, so this link is severed rather than
     # cascading when a loan is deleted.
-    transaction_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False
+    # Empty for an installment of a capital loan that had no interest: debt was repaid, nothing was spent.
+    transaction_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=True
     )
     paid_on: Mapped[date] = mapped_column(Date, nullable=False)

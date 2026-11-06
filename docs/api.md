@@ -151,6 +151,31 @@ blocks it. There is no id to pass: a token can only close its own account.
 Every new account starts with one personal book, «حساب‌داری شخصی». `/auth/login` takes the
 email, the phone **or the username** as its `identifier`.
 
+
+### Assets, funds and loans that bought something kept
+
+Some money changes shape without being earned or spent: gold bought with a loan, a month paid into
+a rotating savings fund (خواندگی), the turn that pays the pool out. None of it is income or an
+expense, so none of it is a transaction and none of it appears in the income and expense reports.
+Each operation posts a balanced journal entry between the cash account and an asset or liability
+account, and the wallet's cash (in the book's own currency) follows.
+
+| | |
+|---|---|
+| `GET /books/{id}/capital/overview` | `assets`, `fund_claims`, `liabilities` and `net` (these three; not the wallet) |
+| `GET`/`POST /books/{id}/capital/assets` | `POST` takes `name`, `kind` (`gold`, `savings`, `property`, `other`), `cost`, `acquired_on`; with `installment_amount` and `installment_count` (and optionally `down_payment`) it is bought on a loan: no cash moves for the borrowed part, and a **capital loan** is created. Installments must add up to at least the borrowed amount. |
+| `POST /books/{id}/capital/assets/{id}/sell` | `price`, `sold_on`: the cost returns as cash; only the difference is recorded, as income (a gain) or an expense (a loss) |
+| `DELETE /books/{id}/capital/assets/{id}` | a purchase entered by mistake; refused once sold or once its loan has been paid on |
+| `GET`/`POST /books/{id}/capital/funds` | a rotating fund: `monthly_amount`, `months`, `payout_amount`, `starts_on`, `turn_month` |
+| `POST …/funds/{id}/contribute` | pay one month (`on`, optional `amount`): before the turn it builds a claim on the fund; after it, it pays back what was received beyond that |
+| `POST …/funds/{id}/receive` | the turn: the pool is paid out, settling the claim; the rest is owed back |
+| `DELETE …/funds/{id}` | only while nothing has been paid in or out |
+
+Loans have a `kind`. A `consumer` loan (the default) records every installment as a personal
+expense. A `capital` loan's installment repays the debt and leaves the wallet, and only the part of
+it above its share of the principal (the interest) is recorded as an expense (category «سود وام»).
+A capital loan is deleted by deleting the asset it bought.
+
 ### Keys for programs
 
 ```bash

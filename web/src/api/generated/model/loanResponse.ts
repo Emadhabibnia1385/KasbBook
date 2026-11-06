@@ -21,11 +21,13 @@ export interface LoanResponse {
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	installment_amount: string;
 	installment_count: number;
+	kind?: string;
 	next_due_on?: string | null;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	paid_amount: string;
 	paid_count: number;
 	percent_paid: number;
+	principal?: string | null;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	remaining: string;
 	title: string;

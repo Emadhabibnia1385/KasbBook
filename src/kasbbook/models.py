@@ -19,6 +19,7 @@ from .modules.identity.models import (
     User,
     WebLoginChallenge,
 )
+from .modules.capital.models import Asset, CapitalMovement, Fund
 from .modules.loans.models import Loan, LoanPayment
 from .modules.recurring.models import RecurringOccurrence, RecurringRule
 from .modules.ledger.models import (
@@ -57,12 +58,15 @@ __all__ = [
     "TeamInvitation",
     "ApiKey",
     "Adjustment",
+    "Asset",
     "AuditEvent",
     "Book",
     "BookCurrency",
     "Budget",
+    "CapitalMovement",
     "Debt",
     "FinancialPeriod",
+    "Fund",
     "Identity",
     "JournalEntry",
     "JournalLine",

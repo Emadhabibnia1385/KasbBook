@@ -59,6 +59,8 @@ DEFAULT_ACCOUNTS = (
     ("2000", "بدهی", AccountType.LIABILITY),
     ("3000", "سرمایه", AccountType.EQUITY),
     ("1900", "خزانه", AccountType.ASSET),
+    ("1500", "دارایی‌ها", AccountType.ASSET),
+    ("1600", "سپردهٔ صندوق‌ها", AccountType.ASSET),
 )
 
 CASH = "1000"

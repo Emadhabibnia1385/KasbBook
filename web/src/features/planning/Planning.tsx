@@ -321,8 +321,13 @@ function Loans({ book }: { book: BookResponse }) {
 								key={loan.id}
 								title={loan.title}
 								aside={
-									<span className="text-sm text-muted">
-										{formatAmount(loan.paid_count)} / {formatAmount(loan.installment_count)}
+									<span className="flex items-center gap-2">
+										{loan.kind === "capital" ? (
+											<StatusChip tone="info" label={t.plan.capitalLoan} />
+										) : null}
+										<span className="text-sm text-muted">
+											{formatAmount(loan.paid_count)} / {formatAmount(loan.installment_count)}
+										</span>
 									</span>
 								}
 							>
@@ -363,7 +368,7 @@ function Loans({ book }: { book: BookResponse }) {
 				title={t.planningForms.payTitle}
 				description={
 					paying
-						? `${t.planningForms.payBody} (${formatMoney(paying.installment_amount, book.currency)})`
+						? `${paying.kind === "capital" ? t.plan.capitalPayBody : t.planningForms.payBody} (${formatMoney(paying.installment_amount, book.currency)})`
 						: undefined
 				}
 				confirmLabel={t.planningForms.payConfirm}

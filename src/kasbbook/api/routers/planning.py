@@ -187,7 +187,7 @@ def _debt(row) -> DebtResponse:
 def _loan(progress) -> LoanResponse:
     loan = progress.loan
     return LoanResponse(
-        id=loan.id, title=loan.title,
+        id=loan.id, title=loan.title, kind=loan.kind, principal=loan.principal,
         installment_amount=loan.installment_amount,
         installment_count=loan.installment_count,
         paid_count=progress.paid_count, paid_amount=progress.paid_amount,

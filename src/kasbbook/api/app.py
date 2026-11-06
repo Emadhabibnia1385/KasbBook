@@ -26,6 +26,7 @@ from .routers import (
     analytics,
     auth,
     books,
+    capital,
     currencies,
     everything,
     health,
@@ -183,6 +184,7 @@ def create_app(
     app.include_router(reports.router, prefix=api)
     app.include_router(analytics.router, prefix=api)
     app.include_router(planning.router, prefix=api)
+    app.include_router(capital.router, prefix=api)
     app.include_router(payroll.router, prefix=api)
     app.include_router(recurring.router, prefix=api)
     app.include_router(recurring.everywhere, prefix=api)

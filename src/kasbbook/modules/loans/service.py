@@ -21,6 +21,7 @@ from ..ledger.service import LedgerService
 from .models import Loan, LoanPayment
 
 INSTALLMENT_CATEGORY = "قسط"
+INTEREST_CATEGORY = "سود وام"
 
 
 @dataclass(frozen=True)
@@ -132,20 +133,22 @@ class LoanService:
     ) -> LoanProgress:
         await self.books.require(book_id, user_id, Permission.VIEW_REPORTS)
 
-        row = (
-            await self.session.execute(
-                select(
-                    func.count(LoanPayment.id),
-                    func.coalesce(func.sum(Transaction.converted_amount), 0),
-                )
+        # Counted from the payments themselves: an installment of a capital loan with no interest has
+        # no transaction to join to, and would otherwise not be counted at all.
+        count = int(await self._paid_count(loan))
+        cal = calendars.of(await self.books.get_book(book_id))
+        if loan.kind == "capital":
+            # What was paid is the installments themselves, not a sum over the transactions that exist.
+            paid = quantize(loan.installment_amount * count)
+        else:
+            summed = await self.session.scalar(
+                select(func.coalesce(func.sum(Transaction.converted_amount), 0))
                 .select_from(LoanPayment)
                 .join(Transaction, Transaction.id == LoanPayment.transaction_id)
                 .where(LoanPayment.loan_id == loan.id)
             )
-        ).one()
-
-        cal = calendars.of(await self.books.get_book(book_id))
-        return LoanProgress(loan, int(row[0]), quantize(to_decimal(row[1])), cal)
+            paid = quantize(to_decimal(summed))
+        return LoanProgress(loan, count, paid, cal)
 
     async def _paid_count(self, loan: Loan) -> int:
         return int(await self.session.scalar(
@@ -187,6 +190,9 @@ class LoanService:
         # The book's day, not the server's UTC one.
         paid_on = on or jalali.today_in((await self.books.get_book(book_id)).timezone)
 
+        if loan.kind == "capital":
+            return await self._pay_capital(loan, user_id, paid, paid_on)
+
         transaction = await self.ledger.record(
             book_id=book_id,
             actor_user_id=user_id,
@@ -206,6 +212,45 @@ class LoanService:
         await self.session.flush()
         return transaction
 
+    async def _pay_capital(self, loan: Loan, user_id: uuid.UUID, paid: int, paid_on: date):
+        """An installment of a loan that bought something kept.
+
+        Most of it repays the debt, which is not an expense; only what exceeds the share of the
+        principal it carries is interest, and that is an ordinary personal expense. The shares are
+        even, and the last installment takes whatever principal is left so the debt ends at zero.
+        """
+        from ..capital.posting import CASH, LOANS, post_movement
+
+        principal = quantize(to_decimal(loan.principal or ZERO))
+        count = int(loan.installment_count)
+        share = quantize(principal / count)
+        repaid = principal - share * paid if paid == count - 1 else share
+        repaid = min(max(repaid, ZERO), quantize(to_decimal(loan.installment_amount)))
+        interest = quantize(to_decimal(loan.installment_amount)) - repaid
+
+        if repaid > ZERO:
+            await post_movement(
+                self.session, loan.book_id, user_id, paid_on, "loan_principal",
+                [(LOANS, repaid, ZERO), (CASH, ZERO, repaid)],
+                cash_delta=-repaid, memo=f"قسط وام: {loan.title}", loan_id=loan.id,
+            )
+        transaction = None
+        if interest > ZERO:
+            transaction = await self.ledger.record(
+                book_id=loan.book_id, actor_user_id=user_id, flow=Flow.EXPENSE,
+                scope=Scope.PERSONAL, category=INTEREST_CATEGORY, amount=interest,
+                description=loan.title, occurred_on=paid_on,
+            )
+        self.session.add(
+            LoanPayment(
+                loan_id=loan.id,
+                transaction_id=transaction.id if transaction is not None else None,
+                paid_on=paid_on,
+            )
+        )
+        await self.session.flush()
+        return transaction
+
     async def delete(
         self, book_id: uuid.UUID, user_id: uuid.UUID, loan_id: uuid.UUID
     ) -> None:
@@ -218,5 +263,9 @@ class LoanService:
         """
         await self.books.require(book_id, user_id, Permission.DELETE_TRANSACTION)
 
-        await self.session.delete(await self._owned(book_id, loan_id))
+        loan = await self._owned(book_id, loan_id)
+        if loan.kind == "capital":
+            # Its debt is on the books with what it bought; forgetting only the loan would leave both.
+            raise ValidationError("این وام به یک دارایی وصل است؛ از بخش دارایی‌ها حذفش کن.")
+        await self.session.delete(loan)
         await self.session.flush()

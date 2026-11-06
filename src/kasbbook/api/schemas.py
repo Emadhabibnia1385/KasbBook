@@ -592,6 +592,9 @@ class LoanRequest(MoneyModel):
 class LoanResponse(MoneyModel):
     id: uuid.UUID
     title: str
+    # "consumer" (every installment is an expense) or "capital" (it bought something kept).
+    kind: str = "consumer"
+    principal: Optional[Decimal] = None
     installment_amount: Decimal
     installment_count: int
     paid_count: int
@@ -815,3 +818,75 @@ class QuoteResponse(Model):
     source: str
     fetched_at: Optional[datetime] = None
     age_seconds: int = 0
+
+
+# ------------------------------------------------- assets, funds, capital
+class AssetRequest(MoneyModel):
+    name: str = Field(min_length=1, max_length=80)
+    kind: str = "other"
+    cost: Decimal = Field(gt=0)
+    acquired_on: date
+    quantity: Optional[Decimal] = Field(default=None, gt=0)
+    unit: Optional[str] = Field(default=None, max_length=16)
+    note: Optional[str] = Field(default=None, max_length=500)
+    # Bought with a loan: what was paid now, then the installment and how many. Left out, it was paid in cash.
+    down_payment: Optional[Decimal] = Field(default=None, ge=0)
+    installment_amount: Optional[Decimal] = Field(default=None, gt=0)
+    installment_count: Optional[int] = Field(default=None, ge=1, le=600)
+    loan_starts_on: Optional[date] = None
+
+
+class AssetResponse(MoneyModel):
+    id: uuid.UUID
+    name: str
+    kind: str
+    cost: Decimal
+    quantity: Optional[Decimal] = None
+    unit: Optional[str] = None
+    acquired_on: date
+    loan_id: Optional[uuid.UUID] = None
+    note: Optional[str] = None
+    sold_on: Optional[date] = None
+    sold_for: Optional[Decimal] = None
+
+
+class AssetSaleRequest(MoneyModel):
+    price: Decimal = Field(gt=0)
+    sold_on: date
+
+
+class CircleRequest(MoneyModel):
+    name: str = Field(min_length=1, max_length=80)
+    monthly_amount: Decimal = Field(gt=0)
+    months: int = Field(ge=1, le=600)
+    payout_amount: Decimal = Field(gt=0)
+    starts_on: date
+    turn_month: Optional[int] = Field(default=None, ge=1, le=600)
+
+
+class CircleResponse(MoneyModel):
+    id: uuid.UUID
+    name: str
+    monthly_amount: Decimal
+    months: int
+    payout_amount: Decimal
+    starts_on: date
+    turn_month: Optional[int] = None
+    paid_months: int
+    claim: Decimal
+    owed: Decimal
+    received_on: Optional[date] = None
+    received_amount: Optional[Decimal] = None
+
+
+class CircleMovementRequest(MoneyModel):
+    on: date
+    # Left out, the fund's own monthly amount (or, for the turn, its payout).
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+
+
+class CapitalOverviewResponse(MoneyModel):
+    assets: Decimal
+    fund_claims: Decimal
+    liabilities: Decimal
+    net: Decimal
