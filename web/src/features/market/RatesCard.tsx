@@ -1,65 +1,62 @@
-import {
-	EmptyState,
-	ErrorState,
-	Notice,
-	PageSkeleton,
-	SectionCard,
-	StatusChip,
-} from "@nyxon/nasim";
+import { EmptyState, ErrorState, PageSkeleton, SectionCard, StatusChip } from "@nyxon/nasim";
 import { formatAmount } from "@/shared/format";
 import { t } from "@/strings";
 import { currencyName } from "@/shared/format";
 import { ageText } from "./format";
 import { useNowSeconds } from "@/shared/clock";
 import { useTickerCodes } from "./tickerPrefs";
+import { PriceBoard } from "./PriceBoard";
 import { useQuotes } from "./useQuotes";
+import { useTickerRows } from "./useTickerRows";
 
-/** Live prices of the chosen currencies, with their source and age; the age counts up by itself. */
+/** Today's prices of what was chosen for the strip (dollar, gold, coins, coins of crypto), and every other price below. */
 export function RatesCard() {
 	const codes = useTickerCodes();
-	const quotes = useQuotes(codes, "IRT");
+	const ticker = useTickerRows(codes);
 	const now = useNowSeconds();
-	const rows = quotes.data ?? [];
-	const first = rows[0];
+	const rows = ticker.rows;
+	const first = rows.find((row) => row.age > 0) ?? rows[0];
 	const approximate = rows.some((row) => !row.exact);
 	// Age as of this second: the server's age at fetch time plus however long ago that was received.
-	const ageOf = (age: number) => age + Math.max(0, now - Math.floor(quotes.dataUpdatedAt / 1000));
+	const ageOf = (age: number) => age + Math.max(0, now - Math.floor(ticker.updatedAt / 1000));
 	return (
 		<SectionCard
 			title={t.market.title}
 			description={t.market.lead}
 			actions={approximate ? <StatusChip tone="warning" label={t.fx.estimateShort} /> : undefined}
 		>
-			{quotes.isLoading ? (
-				<PageSkeleton header={false} rows={3} label={t.market.loading} />
-			) : quotes.isError && rows.length === 0 ? (
-				<ErrorState message={t.market.unavailable} onRetry={() => void quotes.refetch()} />
-			) : rows.length === 0 ? (
-				<EmptyState title={t.market.empty} />
-			) : (
-				<div className="flex flex-col gap-3">
-					{quotes.isError ? <Notice tone="warning">{t.market.refreshFailed}</Notice> : null}
-					<ul className="flex flex-col">
-						{rows.map((rate) => (
-							<li
-								key={rate.code}
-								className="flex items-center justify-between gap-3 border-b border-separator py-2 last:border-b-0"
-							>
-								<span className="font-medium">{currencyName(rate.code)}</span>
-								<span dir="ltr" className="text-sm font-semibold tabular-nums">
-									{rate.exact ? "" : "≈ "}
-									{formatAmount(rate.value, 0)} {t.money.toman}
-								</span>
-							</li>
-						))}
-					</ul>
-					{first ? (
-						<p className="text-xs text-muted">
-							{t.market.updated} {ageText(ageOf(first.age_seconds ?? 0))}
-						</p>
-					) : null}
-				</div>
-			)}
+			<div className="flex flex-col gap-3">
+				{ticker.isLoading ? (
+					<PageSkeleton header={false} rows={3} label={t.market.loading} />
+				) : ticker.isError ? (
+					<ErrorState message={t.market.unavailable} onRetry={ticker.refetch} />
+				) : rows.length === 0 ? (
+					<EmptyState title={t.market.empty} />
+				) : (
+					<>
+						<ul className="flex flex-col">
+							{rows.map((rate) => (
+								<li
+									key={rate.code}
+									className="flex items-center justify-between gap-3 border-b border-separator py-2 last:border-b-0"
+								>
+									<span className="font-medium">{rate.name}</span>
+									<span dir="ltr" className="text-sm font-semibold tabular-nums">
+										{rate.exact ? "" : "≈ "}
+										{formatAmount(rate.value, 0)} {t.money.toman}
+									</span>
+								</li>
+							))}
+						</ul>
+						{first ? (
+							<p className="text-xs text-muted">
+								{t.market.updated} {ageText(ageOf(first.age))}
+							</p>
+						) : null}
+					</>
+				)}
+				<PriceBoard />
+			</div>
 		</SectionCard>
 	);
 }

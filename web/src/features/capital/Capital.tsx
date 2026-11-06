@@ -27,6 +27,7 @@ import {
 } from "@/api/generated/capital/capital";
 import type { AssetResponse, BookResponse, CircleResponse } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { PersonalOnly } from "@/features/manage/PersonalOnly";
 import { ManageTabs } from "@/features/manage/ManageTabs";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
@@ -334,11 +335,11 @@ export function Capital() {
 			<ManageTabs />
 			<PageHeader title={t.capital.title} description={t.capital.lead} />
 			{book ? (
-				<>
+				<PersonalOnly book={book}>
 					<Overview book={book} />
 					<Assets book={book} />
 					<Funds book={book} />
-				</>
+				</PersonalOnly>
 			) : (
 				<EmptyState title={t.manage.needBookTitle} description={t.manage.needBook} />
 			)}

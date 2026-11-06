@@ -4,6 +4,10 @@ export const manageStrings = {
 		label: "بخش‌های مدیریت",
 		overview: "نمای کلی",
 		books: "دسته‌بندی تراکنش‌ها",
+		personalOnlyTitle: "این بخش مخصوص دفتر شخصی است",
+		personalOnly:
+			"سرمایه، دارایی‌ها و صندوق‌ها برای حساب‌داری شخصی ساخته شده‌اند و در دفتر کسب‌وکار، تیم یا سازمان جایی ندارند.",
+		goPersonal: "رفتن به دفتر شخصی",
 		totalIncome: "درآمد کل",
 		totalExpense: "هزینه کل",
 		totalSaving: "پس‌انداز کل",

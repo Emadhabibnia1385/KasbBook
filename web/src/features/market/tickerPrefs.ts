@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-// Which currencies the price strip and the prices card list. A taste of this device, so it lives here and
+// Which prices (currencies, gold, coins, metals) the price strip and the prices card list. A taste of this device, so it lives here and
 // not on the server: nobody else sees the strip, and it should not need a request to change.
 const KEY = "kasbbook.ticker";
-export const DEFAULT_TICKER = ["USDT", "TRX", "TON"];
-export const MAX_TICKER = 6;
+export const DEFAULT_TICKER = ["USD", "gold18", "USDT"];
+export const MAX_TICKER = 8;
 
 const listeners = new Set<() => void>();
 let cached: readonly string[] | null = null;

@@ -186,9 +186,9 @@ the ledger or the income and expense reports.
 |---|---|
 | `GET /portfolio/instruments` | everything that can be held (`gold18`, `gold24`, `mesghal`, the coins, `silver`, the world ounces `XAU` `XAG` `XPT` `XPD`, currencies, crypto, and `other`), each with today's price in toman, whether it is `exact`, its source and when it was fetched |
 | `GET /books/{id}/portfolio` | the holdings with `price`, `value`, `profit` and `profit_percent`, in the book's currency, and the totals; `unpriced` counts holdings nobody could price |
-| `POST /books/{id}/portfolio/holdings`, `PATCH`/`DELETE …/holdings/{id}` | `instrument`, `quantity`, optional `cost` (all of it, in the book's currency; the basis for profit and loss), `acquired_on`, `note`. `other` has no feed: it takes a `label` and the `unit_price` the person gives |
-| `GET`/`POST /books/{id}/portfolio/notes` | a note on one thing (a plot, a house); `DELETE …/notes/{id}` |
-| `POST …/notes/{id}/entries`, `DELETE …/entries/{id}` | a line: `kind` `spent` (money put in), `value` (what it is worth then) or `note` (words only), with `occurred_on`. The note reports `spent` (the sum), the latest `value` by date, and the `gain` between them |
+| `POST /books/{id}/portfolio/holdings`, `PATCH`/`DELETE …/holdings/{id}` | `instrument`, `quantity`, optional `cost` (all of it, in the book's currency; the basis for profit and loss), `acquired_on`, `note`. `instrument` may also be any currency code of `GET /currencies` (it is priced through the quote feed). `other` has no feed: it takes a `label` and the `unit_price` the person gives |
+| `GET`/`POST /books/{id}/portfolio/notes` | a note on one thing (a plot, a house); `PATCH`/`DELETE …/notes/{id}`; lines are `…/notes/{id}/entries` (`PATCH`/`DELETE …/entries/{id}` to correct or remove one) |
+| `POST …/notes/{id}/entries`, `PATCH`/`DELETE …/entries/{id}` | a line: `kind` `spent` (money put in), `value` (what it is worth then) or `note` (words only), with `occurred_on`. The note reports `spent` (the sum), the latest `value` by date, and the `gain` between them |
 
 Prices come from two open feeds, cached for five minutes, with the last good table kept when one is down:
 the Iranian market (tgju's public indicator feed: gold by the gram and mithqal, the coins, silver; rials,

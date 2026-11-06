@@ -17,9 +17,11 @@ from ..deps import CurrentUser, RatesDep, SessionDep
 from ..schemas import (
     FinancialNoteRequest,
     FinancialNoteResponse,
+    FinancialNoteUpdate,
     InstrumentResponse,
     NoteEntryRequest,
     NoteEntryResponse,
+    NoteEntryUpdate,
     PortfolioHoldingRequest,
     PortfolioHoldingResponse,
     PortfolioHoldingUpdate,
@@ -143,6 +145,17 @@ async def add_note(
     return _note(next(v for v in views if v.note.id == created.id))
 
 
+@router.patch("/notes/{note_id}", response_model=FinancialNoteResponse)
+async def update_note(
+    book_id: uuid.UUID, note_id: uuid.UUID, body: FinancialNoteUpdate, request: Request,
+    user: CurrentUser, session: SessionDep, rates: RatesDep,
+) -> FinancialNoteResponse:
+    service = _service(request, session, rates)
+    await service.update_note(book_id, user.id, note_id, title=body.title, text=body.text)
+    views = await service.notes(book_id, user.id)
+    return _note(next(v for v in views if v.note.id == note_id))
+
+
 @router.delete("/notes/{note_id}", status_code=204)
 async def delete_note(
     book_id: uuid.UUID, note_id: uuid.UUID, request: Request,
@@ -160,6 +173,21 @@ async def add_entry(
     service = _service(request, session, rates)
     await service.add_entry(
         book_id, user.id, note_id, body.kind, body.occurred_on, body.amount, body.memo
+    )
+    views = await service.notes(book_id, user.id)
+    return _note(next(v for v in views if v.note.id == note_id))
+
+
+@router.patch("/notes/{note_id}/entries/{entry_id}", response_model=FinancialNoteResponse)
+async def update_entry(
+    book_id: uuid.UUID, note_id: uuid.UUID, entry_id: uuid.UUID, body: NoteEntryUpdate,
+    request: Request, user: CurrentUser, session: SessionDep, rates: RatesDep,
+) -> FinancialNoteResponse:
+    """Correct a line of a note: its day, its amount or its words."""
+    service = _service(request, session, rates)
+    await service.update_entry(
+        book_id, user.id, note_id, entry_id,
+        occurred_on=body.occurred_on, amount=body.amount, memo=body.memo,
     )
     views = await service.notes(book_id, user.id)
     return _note(next(v for v in views if v.note.id == note_id))

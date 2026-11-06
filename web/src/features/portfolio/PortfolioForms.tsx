@@ -2,24 +2,29 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { FormRoot, SelectField, SubmitButton, TextField, toast } from "@nyxon/nasim";
+import { useState } from "react";
+import { Button, FormRoot, SelectField, SubmitButton, TextField, toast } from "@nyxon/nasim";
 import {
 	getPortfolioListNotesQueryKey,
 	getPortfolioPortfolioQueryKey,
 	usePortfolioAddEntry,
 	usePortfolioAddHolding,
 	usePortfolioAddNote,
+	usePortfolioUpdateEntry,
 	usePortfolioUpdateHolding,
+	usePortfolioUpdateNote,
 } from "@/api/generated/portfolio/portfolio";
 import type {
 	BookResponse,
 	FinancialNoteResponse,
 	InstrumentResponse,
+	NoteEntryResponse,
 	PortfolioHoldingResponse,
 } from "@/api/generated/model";
+import { CurrencyPicker } from "@/features/currencies/CurrencyPicker";
 import { pickedDay, todayPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
-import { toAscii } from "@/shared/format";
+import { currencyName, toAscii } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -79,12 +84,15 @@ export function HoldingForm({
 		},
 	});
 	const code = useWatch({ control: form.control, name: "instrument" });
+	const [picking, setPicking] = useState(false);
 	const picked = instruments.find((item) => item.code === code);
 	const manual = picked?.source === "manual";
-	const options = instruments.map((item) => ({
-		value: item.code,
-		label: `${t.portfolio.groups[item.group as keyof typeof t.portfolio.groups] ?? item.group} · ${item.name}`,
-	}));
+	// Gold, coins and metals (and «other») are listed above; every currency and coin comes from the catalog.
+	const things = instruments
+		.filter((item) => item.source !== "market")
+		.map((item) => ({ code: item.code, name: item.name, note: item.unit }));
+	const pickedName = picked?.name ?? currencyName(code);
+	const unit = picked?.unit ?? currencyName(code);
 	return (
 		<FormRoot
 			form={form}
@@ -134,12 +142,33 @@ export function HoldingForm({
 			}}
 		>
 			{holding ? null : (
-				<SelectField name="instrument" label={t.portfolio.instrument} options={options} />
+				<div className="flex flex-col gap-1.5">
+					<span className="text-sm font-medium">{t.portfolio.instrument}</span>
+					<Button
+						variant="outline"
+						className="w-full justify-between"
+						onPress={() => setPicking(true)}
+					>
+						<span>{pickedName}</span>
+						<span dir="ltr" className="text-sm text-muted">
+							{picked?.source === "manual" || !/^[A-Z0-9]{2,8}$/.test(code) ? "" : code}
+						</span>
+					</Button>
+					<CurrencyPicker
+						isOpen={picking}
+						onOpenChange={setPicking}
+						title={t.portfolio.instrument}
+						current={code}
+						extras={things}
+						extraLabel={t.portfolio.everything}
+						onPick={(value) => form.setValue("instrument", value, { shouldValidate: true })}
+					/>
+				</div>
 			)}
 			{manual ? <TextField name="label" label={t.portfolio.label} isRequired /> : null}
 			<TextField
 				name="quantity"
-				label={`${t.portfolio.quantity}${picked?.unit ? ` (${picked.unit})` : ""}`}
+				label={`${t.portfolio.quantity}${unit ? ` (${unit})` : ""}`}
 				inputMode="decimal"
 				dir="ltr"
 				isRequired
@@ -174,12 +203,21 @@ const noteSchema = z.object({
 });
 type NoteValues = z.input<typeof noteSchema>;
 
-export function NoteForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
+export function NoteForm({
+	book,
+	note,
+	onDone,
+}: {
+	book: BookResponse;
+	note?: FinancialNoteResponse;
+	onDone: () => void;
+}) {
 	const queryClient = useQueryClient();
 	const add = usePortfolioAddNote();
+	const update = usePortfolioUpdateNote();
 	const form = useForm<NoteValues>({
 		resolver: zodResolver(noteSchema),
-		defaultValues: { title: "", text: "" },
+		defaultValues: { title: note?.title ?? "", text: note?.text ?? "" },
 	});
 	return (
 		<FormRoot
@@ -187,10 +225,18 @@ export function NoteForm({ book, onDone }: { book: BookResponse; onDone: () => v
 			className="flex flex-col gap-4"
 			onSubmit={async (values) => {
 				try {
-					await add.mutateAsync({
-						bookId: book.id,
-						data: { title: values.title.trim(), text: values.text || null },
-					});
+					if (note) {
+						await update.mutateAsync({
+							bookId: book.id,
+							noteId: note.id,
+							data: { title: values.title.trim(), text: values.text },
+						});
+					} else {
+						await add.mutateAsync({
+							bookId: book.id,
+							data: { title: values.title.trim(), text: values.text || null },
+						});
+					}
 					await queryClient.invalidateQueries({ queryKey: getPortfolioListNotesQueryKey(book.id) });
 					toast.success(t.portfolio.saved);
 					onDone();
@@ -207,28 +253,36 @@ export function NoteForm({ book, onDone }: { book: BookResponse; onDone: () => v
 }
 
 const entrySchema = z.object({
-	kind: z.enum(["spent", "value", "note"]),
+	kind: z.enum(["spent", "note"]),
 	amount: optional(t.portfolio.needAmount),
 	occurred_on: z.string().min(1),
 	memo: z.string().max(1000),
 });
 type EntryValues = z.input<typeof entrySchema>;
 
-/** One line of a note: money put in, what it is worth now, or just a remark. */
+/** One line of a note: money put in, or just a remark. With `entry`, a line already written is corrected. */
 export function EntryForm({
 	book,
 	note,
+	entry,
 	onDone,
 }: {
 	book: BookResponse;
 	note: FinancialNoteResponse;
+	entry?: NoteEntryResponse;
 	onDone: () => void;
 }) {
 	const queryClient = useQueryClient();
 	const add = usePortfolioAddEntry();
+	const update = usePortfolioUpdateEntry();
 	const form = useForm<EntryValues>({
 		resolver: zodResolver(entrySchema),
-		defaultValues: { kind: "spent", amount: "", occurred_on: todayPicker(), memo: "" },
+		defaultValues: {
+			kind: entry?.kind === "note" ? "note" : "spent",
+			amount: entry?.amount ? String(Number(entry.amount)) : "",
+			occurred_on: entry ? `${entry.occurred_on}T12:00` : todayPicker(),
+			memo: entry?.memo ?? "",
+		},
 	});
 	const kind = useWatch({ control: form.control, name: "kind" });
 	return (
@@ -246,16 +300,29 @@ export function EntryForm({
 					return;
 				}
 				try {
-					await add.mutateAsync({
-						bookId: book.id,
-						noteId: note.id,
-						data: {
-							kind: values.kind,
-							occurred_on: pickedDay(values.occurred_on),
-							amount: values.kind === "note" ? null : values.amount,
-							memo: values.memo || null,
-						},
-					});
+					if (entry) {
+						await update.mutateAsync({
+							bookId: book.id,
+							noteId: note.id,
+							entryId: entry.id,
+							data: {
+								occurred_on: pickedDay(values.occurred_on),
+								amount: values.kind === "note" ? null : values.amount,
+								memo: values.memo,
+							},
+						});
+					} else {
+						await add.mutateAsync({
+							bookId: book.id,
+							noteId: note.id,
+							data: {
+								kind: values.kind,
+								occurred_on: pickedDay(values.occurred_on),
+								amount: values.kind === "note" ? null : values.amount,
+								memo: values.memo || null,
+							},
+						});
+					}
 					await queryClient.invalidateQueries({ queryKey: getPortfolioListNotesQueryKey(book.id) });
 					toast.success(t.portfolio.saved);
 					onDone();
@@ -264,16 +331,19 @@ export function EntryForm({
 				}
 			}}
 		>
-			<SelectField
-				name="kind"
-				label={t.portfolio.entryKind}
-				options={[
-					{ value: "spent", label: t.portfolio.kinds.spent },
-					{ value: "value", label: t.portfolio.kinds.value },
-					{ value: "note", label: t.portfolio.kinds.note },
-				]}
-			/>
-			<p className="text-sm text-muted">{t.portfolio.kindHint[kind]}</p>
+			{entry ? null : (
+				<>
+					<SelectField
+						name="kind"
+						label={t.portfolio.entryKind}
+						options={[
+							{ value: "spent", label: t.portfolio.kinds.spent },
+							{ value: "note", label: t.portfolio.kinds.note },
+						]}
+					/>
+					<p className="text-sm text-muted">{t.portfolio.kindHint[kind]}</p>
+				</>
+			)}
 			{kind === "note" ? null : (
 				<TextField
 					name="amount"

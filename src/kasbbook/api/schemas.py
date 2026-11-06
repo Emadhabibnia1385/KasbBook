@@ -967,12 +967,25 @@ class NoteEntryRequest(MoneyModel):
     memo: Optional[str] = Field(default=None, max_length=1000)
 
 
+class NoteEntryUpdate(MoneyModel):
+    """What may change on a line already written; whatever is left out stays."""
+
+    occurred_on: Optional[date] = None
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    memo: Optional[str] = Field(default=None, max_length=1000)
+
+
 class NoteEntryResponse(MoneyModel):
     id: uuid.UUID
     kind: str
     occurred_on: date
     amount: Optional[Decimal] = None
     memo: Optional[str] = None
+
+
+class FinancialNoteUpdate(MoneyModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    text: Optional[str] = Field(default=None, max_length=2000)
 
 
 class FinancialNoteResponse(MoneyModel):

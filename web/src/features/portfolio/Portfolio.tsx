@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
 	Button,
-	Collapsible,
 	ConfirmDialog,
 	EmptyState,
 	ErrorState,
@@ -11,7 +10,6 @@ import {
 	PageSkeleton,
 	SectionCard,
 	StatCard,
-	StatusChip,
 	toast,
 } from "@nyxon/nasim";
 import {
@@ -27,10 +25,12 @@ import {
 import type {
 	BookResponse,
 	FinancialNoteResponse,
+	NoteEntryResponse,
 	InstrumentResponse,
 	PortfolioHoldingResponse,
 } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { PersonalOnly } from "@/features/manage/PersonalOnly";
 import { ManageTabs } from "@/features/manage/ManageTabs";
 import { Donut, categoryColor } from "@/shared/charts";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
@@ -232,58 +232,16 @@ function Holdings({
 	);
 }
 
-function PriceBoard({ instruments }: { instruments: InstrumentResponse[] }) {
-	const groups = ["gold", "coin", "metal", "currency", "crypto"] as const;
-	return (
-		<Collapsible title={t.portfolio.prices} description={t.portfolio.pricesLead}>
-			<div className="flex flex-col gap-4">
-				{groups.map((group) => {
-					const items = instruments.filter(
-						(item) => item.group === group && item.source !== "manual",
-					);
-					if (items.length === 0) return null;
-					return (
-						<section key={group} className="flex flex-col gap-1">
-							<h3 className="text-sm font-semibold text-muted">{t.portfolio.groups[group]}</h3>
-							<ul className="flex flex-col">
-								{items.map((item) => (
-									<li
-										key={item.code}
-										className="flex items-center justify-between gap-3 border-b border-separator py-2 text-sm last:border-b-0"
-									>
-										<span>
-											{item.name} <span className="text-xs text-muted">/ {item.unit}</span>
-										</span>
-										<span className="flex flex-col items-end">
-											<b>{item.price ? formatMoney(item.price, "IRT") : "—"}</b>
-											{item.price ? (
-												<span className="text-xs text-muted">
-													{t.portfolio.sources[
-														item.price_source as keyof typeof t.portfolio.sources
-													] ?? item.price_source}
-												</span>
-											) : null}
-										</span>
-									</li>
-								))}
-							</ul>
-						</section>
-					);
-				})}
-			</div>
-		</Collapsible>
-	);
-}
-
 function Note({ book, note }: { book: BookResponse; note: FinancialNoteResponse }) {
 	const queryClient = useQueryClient();
 	const removeNote = usePortfolioDeleteNote();
 	const removeEntry = usePortfolioDeleteEntry();
 	const [entering, setEntering] = useState(false);
+	const [editingEntry, setEditingEntry] = useState<NoteEntryResponse | null>(null);
+	const [editingNote, setEditingNote] = useState(false);
 	const [removing, setRemoving] = useState(false);
 	const refresh = () =>
 		queryClient.invalidateQueries({ queryKey: getPortfolioListNotesQueryKey(book.id) });
-	const gain = note.gain ? Number(note.gain) : null;
 	return (
 		<li className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
 			<div className="flex items-start justify-between gap-3">
@@ -291,73 +249,98 @@ function Note({ book, note }: { book: BookResponse; note: FinancialNoteResponse 
 					<h3 className="font-semibold">{note.title}</h3>
 					{note.text ? <p className="text-sm text-muted">{note.text}</p> : null}
 				</div>
-				{gain !== null ? (
-					<StatusChip
-						tone={gain >= 0 ? "success" : "danger"}
-						label={`${gain >= 0 ? t.portfolio.gain : t.portfolio.lossWord}: ${formatMoney(String(Math.abs(gain)), book.currency)}`}
-					/>
-				) : null}
 			</div>
-			<div className="grid grid-cols-2 gap-3 text-sm">
-				<span className="flex flex-col">
-					<span className="text-xs text-muted">{t.portfolio.spentTotal}</span>
-					<b>{formatMoney(note.spent, book.currency)}</b>
-				</span>
-				<span className="flex flex-col">
-					<span className="text-xs text-muted">
-						{t.portfolio.worthNow}
-						{note.value_on ? ` ${t.portfolio.asOf} ${formatFullDate(note.value_on)}` : ""}
-					</span>
-					<b>{note.value ? formatMoney(note.value, book.currency) : t.portfolio.noValueYet}</b>
-				</span>
+			<div className="flex flex-col text-sm">
+				<span className="text-xs text-muted">{t.portfolio.spentTotal}</span>
+				<b className="text-lg">{formatMoney(note.spent, book.currency)}</b>
 			</div>
 			{note.entries.length > 0 ? (
 				<ol className="flex flex-col gap-1.5 border-s-2 border-border ps-3 text-sm">
-					{note.entries.map((entry) => (
-						<li key={entry.id} className="flex items-start justify-between gap-2">
-							<span className="flex flex-col">
-								<span>
-									<b>
-										{t.portfolio.kinds[entry.kind as keyof typeof t.portfolio.kinds] ?? entry.kind}
-									</b>
-									{entry.amount ? ` · ${formatMoney(entry.amount, book.currency)}` : ""}
+					{note.entries
+						.filter((entry) => entry.kind !== "value")
+						.map((entry) => (
+							<li key={entry.id} className="flex items-start justify-between gap-2">
+								<span className="flex flex-col">
+									<span>
+										<b>
+											{t.portfolio.kinds[entry.kind as keyof typeof t.portfolio.kinds] ??
+												entry.kind}
+										</b>
+										{entry.amount ? ` · ${formatMoney(entry.amount, book.currency)}` : ""}
+									</span>
+									<span className="text-xs text-muted">
+										{formatFullDate(entry.occurred_on)}
+										{entry.memo ? ` — ${entry.memo}` : ""}
+									</span>
 								</span>
-								<span className="text-xs text-muted">
-									{formatFullDate(entry.occurred_on)}
-									{entry.memo ? ` — ${entry.memo}` : ""}
+								<span className="flex shrink-0 gap-1">
+									<Button
+										size="sm"
+										variant="ghost"
+										aria-label={t.portfolio.editEntry}
+										onPress={() => setEditingEntry(entry)}
+									>
+										{t.portfolio.edit}
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										aria-label={t.portfolio.deleteEntry}
+										onPress={async () => {
+											try {
+												await removeEntry.mutateAsync({
+													bookId: book.id,
+													noteId: note.id,
+													entryId: entry.id,
+												});
+												await refresh();
+											} catch (error) {
+												reportFailure(error);
+											}
+										}}
+									>
+										×
+									</Button>
 								</span>
-							</span>
-							<Button
-								size="sm"
-								variant="ghost"
-								aria-label={t.portfolio.deleteEntry}
-								onPress={async () => {
-									try {
-										await removeEntry.mutateAsync({
-											bookId: book.id,
-											noteId: note.id,
-											entryId: entry.id,
-										});
-										await refresh();
-									} catch (error) {
-										reportFailure(error);
-									}
-								}}
-							>
-								×
-							</Button>
-						</li>
-					))}
+							</li>
+						))}
 				</ol>
 			) : null}
 			<div className="flex gap-2">
 				<Button size="sm" variant="secondary" onPress={() => setEntering(true)}>
 					{t.portfolio.addEntry}
 				</Button>
+				<Button size="sm" variant="ghost" onPress={() => setEditingNote(true)}>
+					{t.portfolio.edit}
+				</Button>
 				<Button size="sm" variant="ghost" onPress={() => setRemoving(true)}>
 					{t.common.delete}
 				</Button>
 			</div>
+			<Modal
+				isOpen={editingNote}
+				onOpenChange={setEditingNote}
+				title={t.portfolio.editNote}
+				size="sm"
+			>
+				<NoteForm book={book} note={note} onDone={() => setEditingNote(false)} />
+			</Modal>
+			<Modal
+				isOpen={editingEntry !== null}
+				onOpenChange={(open) => !open && setEditingEntry(null)}
+				title={t.portfolio.editEntry}
+				size="sm"
+			>
+				{editingEntry ? (
+					<EntryForm
+						key={editingEntry.id}
+						book={book}
+						note={note}
+						entry={editingEntry}
+						onDone={() => setEditingEntry(null)}
+					/>
+				) : null}
+			</Modal>
 			<Modal isOpen={entering} onOpenChange={setEntering} title={note.title} size="sm">
 				<EntryForm book={book} note={note} onDone={() => setEntering(false)} />
 			</Modal>
@@ -424,11 +407,10 @@ export function Portfolio() {
 			<ManageTabs />
 			<PageHeader title={t.portfolio.title} description={t.portfolio.lead} />
 			{book ? (
-				<>
+				<PersonalOnly book={book}>
 					<Holdings book={book} instruments={instruments.data ?? []} />
-					<PriceBoard instruments={instruments.data ?? []} />
 					<Notes book={book} />
-				</>
+				</PersonalOnly>
 			) : (
 				<EmptyState title={t.manage.needBookTitle} description={t.portfolio.needBook} />
 			)}

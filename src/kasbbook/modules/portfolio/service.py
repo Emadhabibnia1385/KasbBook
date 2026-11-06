@@ -15,6 +15,8 @@ from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission
 from ..books.service import BookService
+from ...rates import quote as quoting
+from ..exchange.catalog import BY_CODE as CURRENCIES
 from .catalog import BY_CODE
 from .models import FinancialNote, Holding, NoteEntry
 from .pricing import Price, price_table, to_book_currency
@@ -57,6 +59,17 @@ class NoteView:
     gain: Optional[Decimal]
 
 
+def describe(code: str) -> Optional[tuple]:
+    """(name, unit, group) of something that can be held: a catalog instrument or any currency the app knows."""
+    item = BY_CODE.get(code)
+    if item is not None:
+        return item.name, item.unit, item.group
+    coin = CURRENCIES.get(code)
+    if coin is not None:
+        return coin.name, coin.name, "crypto" if coin.kind == "crypto" else "currency"
+    return None
+
+
 def _positive(value, message: str) -> Decimal:
     amount = quantize(to_decimal(value))
     if amount <= ZERO:
@@ -97,14 +110,22 @@ class PortfolioService:
         total_value = total_cost = ZERO
         unpriced = 0
         for holding in holdings:
-            item = BY_CODE.get(holding.instrument)
-            name = holding.label or (item.name if item else holding.instrument)
+            described = describe(holding.instrument)
+            name = holding.label or (described[0] if described else holding.instrument)
             price: Optional[Decimal] = None
             source, exact, as_of = "", False, None
             if holding.unit_price is not None:
                 price, source, exact = to_decimal(holding.unit_price), "manual", True
             else:
                 found = table.get(holding.instrument)
+                if found is None and holding.instrument in CURRENCIES and self.rates is not None and self.fiat is not None:
+                    # Any currency the app knows can be held, not only the few in the instrument list.
+                    asked = quoting.quote(
+                        await self.rates.prices(), await self.fiat.per_usd(), holding.instrument, "IRT",
+                        self.rates.fetched_at, self.fiat.fetched_at,
+                    )
+                    if asked is not None:
+                        found = Price(holding.instrument, asked.value, asked.source, asked.exact, asked.fetched_at)
                 if found is not None and found.value is not None and factor is not None:
                     price = quantize(found.value * factor)
                     source, exact, as_of = found.source, found.exact, found.as_of
@@ -121,7 +142,8 @@ class PortfolioService:
             if holding.cost is not None:
                 total_cost += to_decimal(holding.cost)
             rows.append(HoldingView(
-                holding=holding, name=name, unit=item.unit if item else "", group=item.group if item else "other",
+                holding=holding, name=name, unit=described[1] if described else "",
+                group=described[2] if described else "other",
                 price=price, value=value, profit=profit, profit_percent=percent,
                 source=source, exact=exact, as_of=as_of,
             ))
@@ -143,11 +165,11 @@ class PortfolioService:
     @staticmethod
     def _checked(instrument: str, label: Optional[str], unit_price) -> tuple:
         item = BY_CODE.get(instrument)
-        if item is None:
+        if item is None and instrument not in CURRENCIES:
             raise ValidationError("این نوع سرمایه شناخته نشد")
         name = (label or "").strip() or None
         price = quantize(to_decimal(unit_price)) if unit_price is not None else None
-        if item.source == "manual":
+        if item is not None and item.source == "manual":
             if name is None:
                 raise ValidationError("برای این مورد نام بنویس")
             if price is None or price <= ZERO:
@@ -184,7 +206,8 @@ class PortfolioService:
             holding.quantity = _positive(quantity, "مقدار باید بیشتر از صفر باشد")
         if cost is not None:
             holding.cost = quantize(to_decimal(cost))
-        if unit_price is not None and BY_CODE[holding.instrument].source == "manual":
+        kept = BY_CODE.get(holding.instrument)
+        if unit_price is not None and kept is not None and kept.source == "manual":
             holding.unit_price = _positive(unit_price, "قیمت هر واحد را بنویس")
         if label is not None:
             holding.label = label.strip() or None
@@ -248,6 +271,22 @@ class PortfolioService:
         await self.session.flush()
         return note
 
+    async def update_note(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, note_id: uuid.UUID,
+        title: Optional[str] = None, text: Optional[str] = None,
+    ) -> FinancialNote:
+        await self.books.require(book_id, user_id, Permission.RECORD_EXPENSE)
+        note = await self._note(book_id, note_id)
+        if title is not None:
+            title = title.strip()
+            if not title:
+                raise ValidationError("عنوان یادداشت لازم است")
+            note.title = title[:120]
+        if text is not None:
+            note.text = text or None
+        await self.session.flush()
+        return note
+
     async def delete_note(self, book_id: uuid.UUID, user_id: uuid.UUID, note_id: uuid.UUID) -> None:
         await self.books.require(book_id, user_id, Permission.RECORD_EXPENSE)
         await self.session.delete(await self._note(book_id, note_id))
@@ -271,6 +310,28 @@ class PortfolioService:
             occurred_on=occurred_on, memo=(memo or None),
         )
         self.session.add(entry)
+        await self.session.flush()
+        return entry
+
+    async def update_entry(
+        self, book_id: uuid.UUID, user_id: uuid.UUID, note_id: uuid.UUID, entry_id: uuid.UUID,
+        occurred_on: Optional[date] = None, amount=None, memo: Optional[str] = None,
+    ) -> NoteEntry:
+        """Correct a line already written: its day, its amount, its words."""
+        await self.books.require(book_id, user_id, Permission.RECORD_EXPENSE)
+        entry = await self.session.get(NoteEntry, entry_id)
+        if entry is None or entry.book_id != book_id or entry.note_id != note_id:
+            raise NotFound("این ردیف پیدا نشد")
+        if occurred_on is not None:
+            entry.occurred_on = occurred_on
+        if amount is not None:
+            if entry.kind == "note":
+                raise ValidationError("این ردیف مبلغ ندارد")
+            entry.amount = _positive(amount, "مبلغ باید بیشتر از صفر باشد")
+        if memo is not None:
+            if entry.kind == "note" and not memo.strip():
+                raise ValidationError("متن توضیح را بنویس")
+            entry.memo = memo or None
         await self.session.flush()
         return entry
 

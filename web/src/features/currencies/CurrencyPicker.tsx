@@ -21,7 +21,12 @@ const row = tv({
 	variants: { active: { true: "bg-accent-soft text-accent-soft-foreground" } },
 });
 
-type Kind = "all" | "crypto" | "fiat";
+const NO_EXTRAS: PickerExtra[] = [];
+
+type Kind = "all" | "extra" | "crypto" | "fiat";
+
+/** Something besides a currency that can be picked here: gold, a coin, a metal. */
+export type PickerExtra = { code: string; name: string; note?: string };
 
 // Persian and Latin letters, any case, any digits: «دلار», «usd», «۱» all find what they mean.
 const normal = (text: string) =>
@@ -45,6 +50,8 @@ export function CurrencyPicker({
 	title,
 	current,
 	disabled = {},
+	extras = NO_EXTRAS,
+	extraLabel = "",
 	onPick,
 }: {
 	isOpen: boolean;
@@ -52,6 +59,9 @@ export function CurrencyPicker({
 	title: string;
 	current?: string | undefined;
 	disabled?: Record<string, string>;
+	/** Things listed above the currencies, under a chip of their own named `extraLabel`. */
+	extras?: PickerExtra[];
+	extraLabel?: string;
 	onPick: (code: string) => void;
 }) {
 	const wide = useMediaQuery("(min-width: 768px)");
@@ -62,12 +72,27 @@ export function CurrencyPicker({
 	const rows = useMemo(() => {
 		const all = catalog.data ?? [];
 		const needle = normal(query.trim());
-		const picked = all.filter((c) => (kind === "all" || c.kind === kind) && matches(c, needle));
+		const picked =
+			kind === "extra"
+				? []
+				: all.filter((c) => (kind === "all" || c.kind === kind) && matches(c, needle));
 		// Without a search the common ones come first; a search is already narrow.
-		return needle
+		const currencies = needle
 			? picked
 			: [...picked.filter((c) => c.popular), ...picked.filter((c) => !c.popular)];
-	}, [catalog.data, query, kind]);
+		const things = kind === "all" || kind === "extra" ? extras : [];
+		const listed = things
+			.filter(
+				(item) =>
+					!needle ||
+					needle.split(/\s+/).every((word) => normal(`${item.name} ${item.code}`).includes(word)),
+			)
+			.map((item) => ({ code: item.code, short: "", name: item.name, sub: item.note ?? "" }));
+		return [
+			...listed,
+			...currencies.map((c) => ({ code: c.code, short: c.code, name: c.name, sub: c.region })),
+		];
+	}, [catalog.data, query, kind, extras]);
 
 	const body = (
 		<div className="flex flex-col gap-3">
@@ -83,6 +108,7 @@ export function CurrencyPicker({
 				onChange={(value) => setKind(value as Kind)}
 				options={[
 					{ value: "all", label: t.common.all },
+					...(extras.length ? [{ value: "extra", label: extraLabel }] : []),
 					{ value: "crypto", label: t.currencies.crypto },
 					{ value: "fiat", label: t.currencies.fiat },
 				]}
@@ -113,11 +139,11 @@ export function CurrencyPicker({
 									}}
 								>
 									<span dir="ltr" className="w-12 shrink-0 text-sm font-semibold text-muted">
-										{currency.code}
+										{currency.short}
 									</span>
 									<span className="flex min-w-0 flex-1 flex-col">
 										<span className="truncate font-medium">{currency.name}</span>
-										<span className="truncate text-xs text-muted">{why ?? currency.region}</span>
+										<span className="truncate text-xs text-muted">{why ?? currency.sub}</span>
 									</span>
 									{currency.code === current ? (
 										<CheckIcon aria-hidden className="size-5 shrink-0" />

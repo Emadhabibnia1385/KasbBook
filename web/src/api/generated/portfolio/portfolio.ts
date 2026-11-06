@@ -33,9 +33,11 @@ import type {
 import type {
 	FinancialNoteRequest,
 	FinancialNoteResponse,
+	FinancialNoteUpdate,
 	HTTPValidationError,
 	InstrumentResponse,
 	NoteEntryRequest,
+	NoteEntryUpdate,
 	PortfolioHoldingRequest,
 	PortfolioHoldingResponse,
 	PortfolioHoldingUpdate,
@@ -830,6 +832,117 @@ export const usePortfolioDeleteNote = <TError = ErrorType<HTTPValidationError>, 
 > => {
 	return useMutation(getPortfolioDeleteNoteMutationOptions(options), queryClient);
 };
+export const getPortfolioUpdateNoteUrl = (bookId: string, noteId: string) => {
+	return `/api/v1/books/${bookId}/portfolio/notes/${noteId}`;
+};
+
+/**
+ * @summary Update Note
+ */
+export const portfolioUpdateNote = async (
+	bookId: string,
+	noteId: string,
+	financialNoteUpdate: FinancialNoteUpdate,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<FinancialNoteResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<FinancialNoteResponse>(getPortfolioUpdateNoteUrl(bookId, noteId), {
+		...options,
+		method: "PATCH",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(financialNoteUpdate),
+	});
+};
+
+export const getPortfolioUpdateNoteMutationKey = () => ["portfolioUpdateNote"] as const;
+
+export const getPortfolioUpdateNoteMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof portfolioUpdateNote>>,
+		TError,
+		PortfolioUpdateNoteMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof portfolioUpdateNote>>,
+	TError,
+	PortfolioUpdateNoteMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPortfolioUpdateNoteMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof portfolioUpdateNote>>,
+		PortfolioUpdateNoteMutationVariables
+	> = (props) => {
+		const { bookId, noteId, data } = props ?? {};
+
+		return portfolioUpdateNote(bookId, noteId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PortfolioUpdateNoteMutationResult = NonNullable<
+	Awaited<ReturnType<typeof portfolioUpdateNote>>
+>;
+export type PortfolioUpdateNoteMutationBody = FinancialNoteUpdate;
+export type PortfolioUpdateNoteMutationError = ErrorType<HTTPValidationError>;
+export type PortfolioUpdateNoteMutationVariables = {
+	bookId: string;
+	noteId: string;
+	data: FinancialNoteUpdate;
+};
+
+/**
+ * @summary Update Note
+ */
+export const usePortfolioUpdateNote = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof portfolioUpdateNote>>,
+			TError,
+			PortfolioUpdateNoteMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof portfolioUpdateNote>>,
+	TError,
+	PortfolioUpdateNoteMutationVariables,
+	TContext
+> => {
+	return useMutation(getPortfolioUpdateNoteMutationOptions(options), queryClient);
+};
 export const getPortfolioAddEntryUrl = (bookId: string, noteId: string) => {
 	return `/api/v1/books/${bookId}/portfolio/notes/${noteId}/entries`;
 };
@@ -1034,6 +1147,123 @@ export const usePortfolioDeleteEntry = <
 	TContext
 > => {
 	return useMutation(getPortfolioDeleteEntryMutationOptions(options), queryClient);
+};
+export const getPortfolioUpdateEntryUrl = (bookId: string, noteId: string, entryId: string) => {
+	return `/api/v1/books/${bookId}/portfolio/notes/${noteId}/entries/${entryId}`;
+};
+
+/**
+ * Correct a line of a note: its day, its amount or its words.
+ * @summary Update Entry
+ */
+export const portfolioUpdateEntry = async (
+	bookId: string,
+	noteId: string,
+	entryId: string,
+	noteEntryUpdate: NoteEntryUpdate,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<FinancialNoteResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<FinancialNoteResponse>(getPortfolioUpdateEntryUrl(bookId, noteId, entryId), {
+		...options,
+		method: "PATCH",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(noteEntryUpdate),
+	});
+};
+
+export const getPortfolioUpdateEntryMutationKey = () => ["portfolioUpdateEntry"] as const;
+
+export const getPortfolioUpdateEntryMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof portfolioUpdateEntry>>,
+		TError,
+		PortfolioUpdateEntryMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof portfolioUpdateEntry>>,
+	TError,
+	PortfolioUpdateEntryMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPortfolioUpdateEntryMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof portfolioUpdateEntry>>,
+		PortfolioUpdateEntryMutationVariables
+	> = (props) => {
+		const { bookId, noteId, entryId, data } = props ?? {};
+
+		return portfolioUpdateEntry(bookId, noteId, entryId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PortfolioUpdateEntryMutationResult = NonNullable<
+	Awaited<ReturnType<typeof portfolioUpdateEntry>>
+>;
+export type PortfolioUpdateEntryMutationBody = NoteEntryUpdate;
+export type PortfolioUpdateEntryMutationError = ErrorType<HTTPValidationError>;
+export type PortfolioUpdateEntryMutationVariables = {
+	bookId: string;
+	noteId: string;
+	entryId: string;
+	data: NoteEntryUpdate;
+};
+
+/**
+ * @summary Update Entry
+ */
+export const usePortfolioUpdateEntry = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof portfolioUpdateEntry>>,
+			TError,
+			PortfolioUpdateEntryMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof portfolioUpdateEntry>>,
+	TError,
+	PortfolioUpdateEntryMutationVariables,
+	TContext
+> => {
+	return useMutation(getPortfolioUpdateEntryMutationOptions(options), queryClient);
 };
 export const getPortfolioInstrumentsUrl = () => {
 	return `/api/v1/portfolio/instruments`;

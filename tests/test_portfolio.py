@@ -292,3 +292,38 @@ async def test_an_entry_and_a_note_can_be_removed(make):
     assert gone.status_code == 200 and gone.json()["entries"] == []
     assert (await client.delete(f"/api/v1/books/{book['id']}/portfolio/notes/{land['id']}", headers=headers)).status_code == 204
     assert (await client.get(f"/api/v1/books/{book['id']}/portfolio/notes", headers=headers)).json() == []
+
+
+async def test_any_currency_the_app_knows_can_be_held_not_only_the_listed_instruments(make):
+    client, headers, book = await make(rates={"USDT/IRT": "270000", "TRX/USDT": "0.2"})
+
+    made = await add(client, headers, book, instrument="TRX", quantity="100")
+
+    assert made.status_code == 201, made.text
+    row = made.json()
+    assert row["group"] == "crypto" and Decimal(row["value"]) == 5_400_000
+    assert (await add(client, headers, book, instrument="ZZZ", quantity="1")).status_code == 422
+    # Changing how much of it is held must not trip over it not being in the instrument list.
+    base = f"/api/v1/books/{book['id']}/portfolio/holdings/{row['id']}"
+    assert (await client.patch(base, headers=headers, json={"quantity": "200"})).status_code == 200
+
+
+async def test_a_note_and_its_lines_can_be_corrected(make):
+    client, headers, book = await make()
+    land = await note(client, headers, book)
+    made = (await entry(client, headers, book, land, kind="spent", occurred_on="2026-01-10", amount="100")).json()
+    root = f"/api/v1/books/{book['id']}/portfolio/notes/{land['id']}"
+
+    renamed = await client.patch(root, headers=headers, json={"title": "زمین شمال"})
+    fixed = await client.patch(
+        f"{root}/entries/{made['entries'][0]['id']}", headers=headers,
+        json={"amount": "250", "occurred_on": "2026-01-12", "memo": "بیعانه"},
+    )
+
+    assert renamed.status_code == 200 and renamed.json()["title"] == "زمین شمال"
+    assert fixed.status_code == 200, fixed.text
+    line = fixed.json()["entries"][0]
+    assert Decimal(line["amount"]) == 250 and line["occurred_on"] == "2026-01-12" and line["memo"] == "بیعانه"
+    assert Decimal(fixed.json()["spent"]) == 250
+    stranger = await client.patch(f"{root}/entries/{made['entries'][0]['id']}", json={"amount": "1"})
+    assert stranger.status_code in (401, 403)
