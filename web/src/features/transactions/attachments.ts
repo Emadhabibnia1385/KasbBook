@@ -77,6 +77,7 @@ export function useAttachmentUrl(
 	transactionId: string,
 	attachmentId: string,
 	enabled = true,
+	segment: "transactions" | "conversions" = "transactions",
 ) {
 	const [url, setUrl] = useState<string | null>(null);
 	useEffect(() => {
@@ -84,7 +85,7 @@ export function useAttachmentUrl(
 		let revoked = false;
 		let made: string | null = null;
 		apiFetch<Blob>(
-			`/api/v1/books/${bookId}/transactions/${transactionId}/attachments/${attachmentId}`,
+			`/api/v1/books/${bookId}/${segment}/${transactionId}/attachments/${attachmentId}`,
 		)
 			.then((blob) => {
 				if (revoked) return;
@@ -96,7 +97,7 @@ export function useAttachmentUrl(
 			revoked = true;
 			if (made) URL.revokeObjectURL(made);
 		};
-	}, [bookId, transactionId, attachmentId, enabled]);
+	}, [bookId, transactionId, attachmentId, enabled, segment]);
 	return url;
 }
 

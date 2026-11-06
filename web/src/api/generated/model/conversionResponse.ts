@@ -16,6 +16,7 @@
  */
 
 export interface ConversionResponse {
+	attachment_count?: number;
 	base_currency: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	base_value: string;

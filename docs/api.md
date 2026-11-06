@@ -221,7 +221,9 @@ prefix, never the key.
 | `GET /transactions` | the same list across every book the account can see (`?book_id=` repeated to narrow it); each item names its book, and `totals` is one line per base currency |
 | `GET /books/{id}/currencies` · `PUT /{code}` | which currencies this book may hold |
 | `GET /books/{id}/wallet` | what it holds, per currency |
-| `GET`/`POST /books/{id}/conversions` | move value between two of them |
+| `GET`/`POST /books/{id}/conversions` | move value between two of them; the list is a page (`page`, `per_page`, `total`), each item with its `attachment_count`. `occurred_on` is the day it happened |
+| `PATCH`/`DELETE /books/{id}/conversions/{id}` | correct any part of one (units, amounts, `base_value`, day, note) or remove it; refused if a wallet unit would be left below zero |
+| `GET`/`POST /books/{id}/conversions/{id}/attachments`, `GET`/`DELETE …/{file}` | a photo or PDF (up to 1.5 MB, five per conversion) kept with it |
 
 ```bash
 curl -X POST /api/v1/books/$BOOK/transactions \

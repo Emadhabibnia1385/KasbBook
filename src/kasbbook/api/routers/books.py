@@ -20,6 +20,7 @@ from ...modules.books.invitations import InvitationService
 from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.ledger.models import Flow, Scope
+from ...modules.exchange.attachments import ConversionAttachmentService
 from ...modules.exchange.service import ExchangeService
 from ...modules.ledger.attachments import MAX_BYTES, AttachmentService, sniff
 from ...modules.ledger.service import LedgerService
@@ -31,7 +32,9 @@ from ..schemas import (
     BaseCurrencyRequest,
     BookRequest,
     ConversionRequest,
+    ConversionPage,
     ConversionResponse,
+    ConversionUpdate,
     CostPolicyRequest,
     CurrencyBalanceResponse,
     CurrencyOptionResponse,
@@ -196,13 +199,17 @@ async def wallet(
     ]
 
 
-@router.get("/{book_id}/conversions", response_model=List[ConversionResponse])
+@router.get("/{book_id}/conversions", response_model=ConversionPage)
 async def list_conversions(
     book_id: uuid.UUID, user: CurrentUser, session: SessionDep,
-    limit: int = Query(20, ge=1, le=100),
-) -> List[ConversionResponse]:
-    rows = await ExchangeService(session).conversions(user.id, book_id, limit)
-    return [_conversion(row) for row in rows]
+    page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=100),
+) -> ConversionPage:
+    """One page of this book's conversions, newest first, with the total and each one's file count."""
+    rows, total, files = await ExchangeService(session).conversion_page(user.id, book_id, page, per_page)
+    return ConversionPage(
+        items=[_conversion(row, files.get(row.id, 0)) for row in rows],
+        total=total, page=page, per_page=per_page,
+    )
 
 
 @router.post("/{book_id}/conversions", response_model=ConversionResponse,
@@ -225,14 +232,85 @@ async def convert(
     return _conversion(row)
 
 
-def _conversion(row) -> ConversionResponse:
+def _conversion(row, files: int = 0) -> ConversionResponse:
     return ConversionResponse(
+        attachment_count=files,
         id=row.id, occurred_on=row.occurred_on,
         from_currency=row.from_currency, from_amount=row.from_amount,
         to_currency=row.to_currency, to_amount=row.to_amount,
         base_value=row.base_value, base_currency=row.base_currency,
         note=row.note,
     )
+
+
+@router.patch("/{book_id}/conversions/{conversion_id}", response_model=ConversionResponse)
+async def update_conversion(
+    book_id: uuid.UUID, conversion_id: uuid.UUID, body: ConversionUpdate,
+    user: CurrentUser, session: SessionDep,
+) -> ConversionResponse:
+    """Correct a conversion: its units, amounts, worth, day or note."""
+    row = await ExchangeService(session).update_conversion(
+        user.id, book_id, conversion_id,
+        from_currency=body.from_currency, from_amount=body.from_amount,
+        to_currency=body.to_currency, to_amount=body.to_amount,
+        base_value=body.base_value, occurred_on=body.occurred_on, note=body.note,
+    )
+    return _conversion(row)
+
+
+@router.delete("/{book_id}/conversions/{conversion_id}", status_code=204)
+async def delete_conversion(
+    book_id: uuid.UUID, conversion_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    await ExchangeService(session).delete_conversion(user.id, book_id, conversion_id)
+
+
+@router.get("/{book_id}/conversions/{conversion_id}/attachments", response_model=List[AttachmentResponse])
+async def list_conversion_attachments(
+    book_id: uuid.UUID, conversion_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[AttachmentResponse]:
+    rows = await ConversionAttachmentService(session).list(book_id, user.id, conversion_id)
+    return [AttachmentResponse(id=r.id, file_name=r.file_name, content_type=r.content_type,
+                               size=r.size, created_at=r.created_at) for r in rows]
+
+
+@router.post("/{book_id}/conversions/{conversion_id}/attachments",
+             response_model=AttachmentResponse, status_code=201)
+async def add_conversion_attachment(
+    book_id: uuid.UUID, conversion_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    file: UploadFile = File(...),
+) -> AttachmentResponse:
+    """Keep a photo or a PDF (up to 1.5 MB) with a conversion. The type is read from the bytes."""
+    data = await file.read(MAX_BYTES + 1)
+    row = await ConversionAttachmentService(session).add(book_id, user.id, conversion_id, file.filename, data)
+    return AttachmentResponse(id=row.id, file_name=row.file_name, content_type=row.content_type,
+                              size=row.size, created_at=row.created_at)
+
+
+@router.get("/{book_id}/conversions/{conversion_id}/attachments/{attachment_id}")
+async def download_conversion_attachment(
+    book_id: uuid.UUID, conversion_id: uuid.UUID, attachment_id: uuid.UUID,
+    user: CurrentUser, session: SessionDep,
+) -> Response:
+    row = await ConversionAttachmentService(session).read(book_id, user.id, conversion_id, attachment_id)
+    return Response(
+        content=row.data,
+        media_type=row.content_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(row.file_name)}",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.delete("/{book_id}/conversions/{conversion_id}/attachments/{attachment_id}", status_code=204)
+async def delete_conversion_attachment(
+    book_id: uuid.UUID, conversion_id: uuid.UUID, attachment_id: uuid.UUID,
+    user: CurrentUser, session: SessionDep,
+) -> None:
+    await ConversionAttachmentService(session).remove(book_id, user.id, conversion_id, attachment_id)
 
 
 # --------------------------------------------------------------- members

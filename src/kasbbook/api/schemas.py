@@ -320,6 +320,18 @@ class ConversionRequest(MoneyModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
+class ConversionUpdate(MoneyModel):
+    """Every part of a conversion may be corrected; whatever is left out stays."""
+
+    from_currency: Optional[str] = None
+    from_amount: Optional[Decimal] = Field(default=None, gt=0)
+    to_currency: Optional[str] = None
+    to_amount: Optional[Decimal] = Field(default=None, gt=0)
+    base_value: Optional[Decimal] = Field(default=None, gt=0)
+    occurred_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
 class ConversionResponse(MoneyModel):
     id: uuid.UUID
     occurred_on: date
@@ -330,6 +342,14 @@ class ConversionResponse(MoneyModel):
     base_value: Decimal
     base_currency: str
     note: Optional[str] = None
+    attachment_count: int = 0
+
+
+class ConversionPage(MoneyModel):
+    items: List[ConversionResponse]
+    total: int
+    page: int
+    per_page: int
 
 
 class TransactionRequest(MoneyModel):

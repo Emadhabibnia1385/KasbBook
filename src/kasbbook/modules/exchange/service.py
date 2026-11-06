@@ -14,12 +14,12 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..capital.models import CapitalMovement
 from ...shared import jalali
-from ...shared.errors import PermissionDenied, ValidationError
+from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission, Role
 from ..books.service import BookService
@@ -31,7 +31,7 @@ from ..recurring.models import RecurringRule
 from ..treasury.models import TreasuryFund
 from ..payroll.models import FinancialPeriod, Payment, Payslip
 from .catalog import BY_CODE
-from .models import BOT_MENU, CURRENCY_NAMES, OFFERED, BookCurrency, CurrencyConversion
+from .models import BOT_MENU, CURRENCY_NAMES, OFFERED, BookCurrency, ConversionAttachment, CurrencyConversion
 
 # Everything that records an amount in the book's base currency. A book with a row
 # in any of these has history that a different base would re-label.
@@ -460,3 +460,112 @@ class ExchangeService:
                 .limit(limit)
             )
         ).scalars().all()
+
+    async def conversion_page(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, page: int = 1, per_page: int = 20
+    ) -> tuple[List[CurrencyConversion], int, dict]:
+        """One page of conversions, newest first, with how many there are and how many files each has."""
+        await self.books.require(book_id, actor_user_id, Permission.VIEW_TRANSACTIONS)
+        total = await self.session.scalar(
+            select(func.count()).select_from(CurrencyConversion)
+            .where(CurrencyConversion.book_id == book_id)
+        ) or 0
+        rows = (
+            await self.session.execute(
+                select(CurrencyConversion)
+                .where(CurrencyConversion.book_id == book_id)
+                .order_by(CurrencyConversion.occurred_on.desc(), CurrencyConversion.created_at.desc())
+                .offset((max(page, 1) - 1) * per_page).limit(per_page)
+            )
+        ).scalars().all()
+        files: dict = {}
+        if rows:
+            counted = (
+                await self.session.execute(
+                    select(ConversionAttachment.conversion_id, func.count())
+                    .where(ConversionAttachment.conversion_id.in_([r.id for r in rows]))
+                    .group_by(ConversionAttachment.conversion_id)
+                )
+            ).all()
+            files = {cid: n for cid, n in counted}
+        return list(rows), total, files
+
+    async def _conversion(self, book_id: uuid.UUID, conversion_id: uuid.UUID) -> CurrencyConversion:
+        row = await self.session.get(CurrencyConversion, conversion_id)
+        if row is None or row.book_id != book_id:
+            raise NotFound("این تبدیل پیدا نشد")
+        return row
+
+    async def _nothing_goes_negative(self, book_id: uuid.UUID, codes: set) -> None:
+        """After a conversion changed or went, no unit of the wallet may be left below zero.
+
+        Taking a conversion away removes what it brought in, and that may already have been spent or
+        converted onward; saying so beats a wallet that quietly owes itself.
+        """
+        for balance in await self._balances(book_id):
+            if balance.code in codes and balance.amount < ZERO:
+                name = CURRENCY_NAMES.get(balance.code, balance.code)
+                raise ValidationError(
+                    f"با این تغییر موجودی {name} منفی می‌شود ({balance.amount}). اول خرج یا تبدیل‌های بعدی را اصلاح کن."
+                )
+
+    async def update_conversion(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, conversion_id: uuid.UUID,
+        from_currency: Optional[str] = None, from_amount=None,
+        to_currency: Optional[str] = None, to_amount=None, base_value=None,
+        occurred_on: Optional[date] = None, note: Optional[str] = None,
+    ) -> CurrencyConversion:
+        """Correct a conversion: either side, either amount, its worth in the book's currency, its day, its note."""
+        await self.books.require(book_id, actor_user_id, Permission.MANAGE_TREASURY)
+        row = await self._conversion(book_id, conversion_id)
+        book = await self.books.get_book(book_id)
+        from ..ledger.categories import CategoryService
+
+        await CategoryService(self.session).lock_book(book_id)
+        touched = {row.from_currency, row.to_currency}
+        src = (from_currency or row.from_currency).upper()
+        dst = (to_currency or row.to_currency).upper()
+        if src == dst:
+            raise ValidationError("مبدأ و مقصد تبدیل یکی است.")
+        allowed = await self.allowed(book_id)
+        for code in (src, dst):
+            if code not in allowed:
+                raise ValidationError(f"این دفتر {CURRENCY_NAMES.get(code, code)} را پشتیبانی نمی‌کند.")
+        out_amount = quantize(from_amount) if from_amount is not None else to_decimal(row.from_amount)
+        in_amount = quantize(to_amount) if to_amount is not None else to_decimal(row.to_amount)
+        if out_amount <= ZERO or in_amount <= ZERO:
+            raise ValidationError("مقدار تبدیل باید بیشتر از صفر باشد.")
+        if dst == book.base_currency:
+            base = in_amount
+        elif src == book.base_currency:
+            base = out_amount
+        elif base_value is not None:
+            base = quantize(base_value)
+            if base <= ZERO:
+                raise ValidationError("ارزش تبدیل باید بیشتر از صفر باشد.")
+        else:
+            # Neither side is the book's own currency: keep the worth it had unless the amounts moved.
+            base = to_decimal(row.base_value)
+        row.from_currency, row.to_currency = src, dst
+        row.from_amount, row.to_amount, row.base_value = out_amount, in_amount, base
+        row.base_currency = book.base_currency
+        if occurred_on is not None:
+            row.occurred_on = occurred_on
+        if note is not None:
+            row.note = note.strip() or None
+        await self.session.flush()
+        await self._nothing_goes_negative(book_id, touched | {src, dst})
+        return row
+
+    async def delete_conversion(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, conversion_id: uuid.UUID
+    ) -> None:
+        await self.books.require(book_id, actor_user_id, Permission.MANAGE_TREASURY)
+        row = await self._conversion(book_id, conversion_id)
+        from ..ledger.categories import CategoryService
+
+        await CategoryService(self.session).lock_book(book_id)
+        codes = {row.from_currency, row.to_currency}
+        await self.session.delete(row)
+        await self.session.flush()
+        await self._nothing_goes_negative(book_id, codes)

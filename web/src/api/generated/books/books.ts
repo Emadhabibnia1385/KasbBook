@@ -34,6 +34,7 @@ import type {
 	AttachmentResponse,
 	BaseCurrencyRequest,
 	BodyBooksAddAttachment,
+	BodyBooksAddConversionAttachment,
 	BookRequest,
 	BookResponse,
 	BookUpdate,
@@ -44,8 +45,10 @@ import type {
 	CategoryRequest,
 	CategoryResponse,
 	CategoryUpdate,
+	ConversionPage,
 	ConversionRequest,
 	ConversionResponse,
+	ConversionUpdate,
 	CostPolicyRequest,
 	CurrencyBalanceResponse,
 	CurrencyOptionResponse,
@@ -1234,14 +1237,15 @@ export const getBooksListConversionsUrl = (bookId: string, params?: BooksListCon
 };
 
 /**
+ * One page of this book's conversions, newest first, with the total and each one's file count.
  * @summary List Conversions
  */
 export const booksListConversions = async (
 	bookId: string,
 	params?: BooksListConversionsParams,
 	options?: Parameters<typeof apiFetch>[1],
-): Promise<ConversionResponse[]> => {
-	return apiFetch<ConversionResponse[]>(getBooksListConversionsUrl(bookId, params), {
+): Promise<ConversionPage> => {
+	return apiFetch<ConversionPage>(getBooksListConversionsUrl(bookId, params), {
 		...options,
 		method: "GET",
 	});
@@ -1483,6 +1487,744 @@ export const useBooksConvert = <TError = ErrorType<HTTPValidationError>, TContex
 > => {
 	return useMutation(getBooksConvertMutationOptions(options), queryClient);
 };
+export const getBooksDeleteConversionUrl = (bookId: string, conversionId: string) => {
+	return `/api/v1/books/${bookId}/conversions/${conversionId}`;
+};
+
+/**
+ * @summary Delete Conversion
+ */
+export const booksDeleteConversion = async (
+	bookId: string,
+	conversionId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+	return apiFetch<void>(getBooksDeleteConversionUrl(bookId, conversionId), {
+		...options,
+		method: "DELETE",
+	});
+};
+
+export const getBooksDeleteConversionMutationKey = () => ["booksDeleteConversion"] as const;
+
+export const getBooksDeleteConversionMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksDeleteConversion>>,
+		TError,
+		BooksDeleteConversionMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksDeleteConversion>>,
+	TError,
+	BooksDeleteConversionMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksDeleteConversionMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksDeleteConversion>>,
+		BooksDeleteConversionMutationVariables
+	> = (props) => {
+		const { bookId, conversionId } = props ?? {};
+
+		return booksDeleteConversion(bookId, conversionId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksDeleteConversionMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksDeleteConversion>>
+>;
+
+export type BooksDeleteConversionMutationError = ErrorType<HTTPValidationError>;
+export type BooksDeleteConversionMutationVariables = { bookId: string; conversionId: string };
+
+/**
+ * @summary Delete Conversion
+ */
+export const useBooksDeleteConversion = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksDeleteConversion>>,
+			TError,
+			BooksDeleteConversionMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksDeleteConversion>>,
+	TError,
+	BooksDeleteConversionMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksDeleteConversionMutationOptions(options), queryClient);
+};
+export const getBooksUpdateConversionUrl = (bookId: string, conversionId: string) => {
+	return `/api/v1/books/${bookId}/conversions/${conversionId}`;
+};
+
+/**
+ * Correct a conversion: its units, amounts, worth, day or note.
+ * @summary Update Conversion
+ */
+export const booksUpdateConversion = async (
+	bookId: string,
+	conversionId: string,
+	conversionUpdate: ConversionUpdate,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<ConversionResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<ConversionResponse>(getBooksUpdateConversionUrl(bookId, conversionId), {
+		...options,
+		method: "PATCH",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(conversionUpdate),
+	});
+};
+
+export const getBooksUpdateConversionMutationKey = () => ["booksUpdateConversion"] as const;
+
+export const getBooksUpdateConversionMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksUpdateConversion>>,
+		TError,
+		BooksUpdateConversionMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksUpdateConversion>>,
+	TError,
+	BooksUpdateConversionMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksUpdateConversionMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksUpdateConversion>>,
+		BooksUpdateConversionMutationVariables
+	> = (props) => {
+		const { bookId, conversionId, data } = props ?? {};
+
+		return booksUpdateConversion(bookId, conversionId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksUpdateConversionMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksUpdateConversion>>
+>;
+export type BooksUpdateConversionMutationBody = ConversionUpdate;
+export type BooksUpdateConversionMutationError = ErrorType<HTTPValidationError>;
+export type BooksUpdateConversionMutationVariables = {
+	bookId: string;
+	conversionId: string;
+	data: ConversionUpdate;
+};
+
+/**
+ * @summary Update Conversion
+ */
+export const useBooksUpdateConversion = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksUpdateConversion>>,
+			TError,
+			BooksUpdateConversionMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksUpdateConversion>>,
+	TError,
+	BooksUpdateConversionMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksUpdateConversionMutationOptions(options), queryClient);
+};
+export const getBooksListConversionAttachmentsUrl = (bookId: string, conversionId: string) => {
+	return `/api/v1/books/${bookId}/conversions/${conversionId}/attachments`;
+};
+
+/**
+ * @summary List Conversion Attachments
+ */
+export const booksListConversionAttachments = async (
+	bookId: string,
+	conversionId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<AttachmentResponse[]> => {
+	return apiFetch<AttachmentResponse[]>(
+		getBooksListConversionAttachmentsUrl(bookId, conversionId),
+		{
+			...options,
+			method: "GET",
+		},
+	);
+};
+
+export const getBooksListConversionAttachmentsQueryKey = (bookId: string, conversionId: string) => {
+	return [`/api/v1/books/${bookId}/conversions/${conversionId}/attachments`] as const;
+};
+
+export const useBooksListConversionAttachmentsQueryOptions = <
+	TData = Awaited<ReturnType<typeof booksListConversionAttachments>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksListConversionAttachments>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey =
+		queryOptions?.queryKey ?? getBooksListConversionAttachmentsQueryKey(bookId, conversionId);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof booksListConversionAttachments>>> = ({
+		signal,
+	}) => booksListConversionAttachments(bookId, conversionId, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled:
+			bookId !== null &&
+			bookId !== undefined &&
+			conversionId !== null &&
+			conversionId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof booksListConversionAttachments>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type BooksListConversionAttachmentsQueryResult = NonNullable<
+	Awaited<ReturnType<typeof booksListConversionAttachments>>
+>;
+export type BooksListConversionAttachmentsQueryError = ErrorType<HTTPValidationError>;
+
+export function useBooksListConversionAttachments<
+	TData = Awaited<ReturnType<typeof booksListConversionAttachments>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksListConversionAttachments>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof booksListConversionAttachments>>,
+					TError,
+					Awaited<ReturnType<typeof booksListConversionAttachments>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBooksListConversionAttachments<
+	TData = Awaited<ReturnType<typeof booksListConversionAttachments>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksListConversionAttachments>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof booksListConversionAttachments>>,
+					TError,
+					Awaited<ReturnType<typeof booksListConversionAttachments>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBooksListConversionAttachments<
+	TData = Awaited<ReturnType<typeof booksListConversionAttachments>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksListConversionAttachments>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary List Conversion Attachments
+ */
+
+export function useBooksListConversionAttachments<
+	TData = Awaited<ReturnType<typeof booksListConversionAttachments>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksListConversionAttachments>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useBooksListConversionAttachmentsQueryOptions(bookId, conversionId, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getBooksAddConversionAttachmentUrl = (bookId: string, conversionId: string) => {
+	return `/api/v1/books/${bookId}/conversions/${conversionId}/attachments`;
+};
+
+/**
+ * Keep a photo or a PDF (up to 1.5 MB) with a conversion. The type is read from the bytes.
+ * @summary Add Conversion Attachment
+ */
+export const booksAddConversionAttachment = async (
+	bookId: string,
+	conversionId: string,
+	bodyBooksAddConversionAttachment: BodyBooksAddConversionAttachment,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<AttachmentResponse> => {
+	const formData = new FormData();
+	formData.append(`file`, bodyBooksAddConversionAttachment.file);
+
+	return apiFetch<AttachmentResponse>(getBooksAddConversionAttachmentUrl(bookId, conversionId), {
+		...options,
+		method: "POST",
+		body: formData,
+	});
+};
+
+export const getBooksAddConversionAttachmentMutationKey = () =>
+	["booksAddConversionAttachment"] as const;
+
+export const getBooksAddConversionAttachmentMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksAddConversionAttachment>>,
+		TError,
+		BooksAddConversionAttachmentMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksAddConversionAttachment>>,
+	TError,
+	BooksAddConversionAttachmentMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksAddConversionAttachmentMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksAddConversionAttachment>>,
+		BooksAddConversionAttachmentMutationVariables
+	> = (props) => {
+		const { bookId, conversionId, data } = props ?? {};
+
+		return booksAddConversionAttachment(bookId, conversionId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksAddConversionAttachmentMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksAddConversionAttachment>>
+>;
+export type BooksAddConversionAttachmentMutationBody = BodyBooksAddConversionAttachment;
+export type BooksAddConversionAttachmentMutationError = ErrorType<HTTPValidationError>;
+export type BooksAddConversionAttachmentMutationVariables = {
+	bookId: string;
+	conversionId: string;
+	data: BodyBooksAddConversionAttachment;
+};
+
+/**
+ * @summary Add Conversion Attachment
+ */
+export const useBooksAddConversionAttachment = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksAddConversionAttachment>>,
+			TError,
+			BooksAddConversionAttachmentMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksAddConversionAttachment>>,
+	TError,
+	BooksAddConversionAttachmentMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksAddConversionAttachmentMutationOptions(options), queryClient);
+};
+export const getBooksDeleteConversionAttachmentUrl = (
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+) => {
+	return `/api/v1/books/${bookId}/conversions/${conversionId}/attachments/${attachmentId}`;
+};
+
+/**
+ * @summary Delete Conversion Attachment
+ */
+export const booksDeleteConversionAttachment = async (
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+	return apiFetch<void>(getBooksDeleteConversionAttachmentUrl(bookId, conversionId, attachmentId), {
+		...options,
+		method: "DELETE",
+	});
+};
+
+export const getBooksDeleteConversionAttachmentMutationKey = () =>
+	["booksDeleteConversionAttachment"] as const;
+
+export const getBooksDeleteConversionAttachmentMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksDeleteConversionAttachment>>,
+		TError,
+		BooksDeleteConversionAttachmentMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksDeleteConversionAttachment>>,
+	TError,
+	BooksDeleteConversionAttachmentMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksDeleteConversionAttachmentMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksDeleteConversionAttachment>>,
+		BooksDeleteConversionAttachmentMutationVariables
+	> = (props) => {
+		const { bookId, conversionId, attachmentId } = props ?? {};
+
+		return booksDeleteConversionAttachment(bookId, conversionId, attachmentId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksDeleteConversionAttachmentMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksDeleteConversionAttachment>>
+>;
+
+export type BooksDeleteConversionAttachmentMutationError = ErrorType<HTTPValidationError>;
+export type BooksDeleteConversionAttachmentMutationVariables = {
+	bookId: string;
+	conversionId: string;
+	attachmentId: string;
+};
+
+/**
+ * @summary Delete Conversion Attachment
+ */
+export const useBooksDeleteConversionAttachment = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksDeleteConversionAttachment>>,
+			TError,
+			BooksDeleteConversionAttachmentMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksDeleteConversionAttachment>>,
+	TError,
+	BooksDeleteConversionAttachmentMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksDeleteConversionAttachmentMutationOptions(options), queryClient);
+};
+export const getBooksDownloadConversionAttachmentUrl = (
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+) => {
+	return `/api/v1/books/${bookId}/conversions/${conversionId}/attachments/${attachmentId}`;
+};
+
+/**
+ * @summary Download Conversion Attachment
+ */
+export const booksDownloadConversionAttachment = async (
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+	return apiFetch<unknown>(
+		getBooksDownloadConversionAttachmentUrl(bookId, conversionId, attachmentId),
+		{
+			...options,
+			method: "GET",
+		},
+	);
+};
+
+export const getBooksDownloadConversionAttachmentQueryKey = (
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+) => {
+	return [
+		`/api/v1/books/${bookId}/conversions/${conversionId}/attachments/${attachmentId}`,
+	] as const;
+};
+
+export const useBooksDownloadConversionAttachmentQueryOptions = <
+	TData = Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadConversionAttachment>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey =
+		queryOptions?.queryKey ??
+		getBooksDownloadConversionAttachmentQueryKey(bookId, conversionId, attachmentId);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof booksDownloadConversionAttachment>>> = ({
+		signal,
+	}) =>
+		booksDownloadConversionAttachment(bookId, conversionId, attachmentId, {
+			signal,
+			...requestOptions,
+		});
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled:
+			bookId !== null &&
+			bookId !== undefined &&
+			conversionId !== null &&
+			conversionId !== undefined &&
+			attachmentId !== null &&
+			attachmentId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type BooksDownloadConversionAttachmentQueryResult = NonNullable<
+	Awaited<ReturnType<typeof booksDownloadConversionAttachment>>
+>;
+export type BooksDownloadConversionAttachmentQueryError = ErrorType<HTTPValidationError>;
+
+export function useBooksDownloadConversionAttachment<
+	TData = Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadConversionAttachment>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+					TError,
+					Awaited<ReturnType<typeof booksDownloadConversionAttachment>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBooksDownloadConversionAttachment<
+	TData = Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadConversionAttachment>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+					TError,
+					Awaited<ReturnType<typeof booksDownloadConversionAttachment>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBooksDownloadConversionAttachment<
+	TData = Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadConversionAttachment>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Download Conversion Attachment
+ */
+
+export function useBooksDownloadConversionAttachment<
+	TData = Awaited<ReturnType<typeof booksDownloadConversionAttachment>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	conversionId: string,
+	attachmentId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadConversionAttachment>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useBooksDownloadConversionAttachmentQueryOptions(
+		bookId,
+		conversionId,
+		attachmentId,
+		options,
+	);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getBooksSetCostPolicyUrl = (bookId: string) => {
 	return `/api/v1/books/${bookId}/cost-policy`;
 };

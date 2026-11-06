@@ -8,7 +8,7 @@ requirement explicit and to give migrations a single, obvious entry point.
 from .modules.books.models import Book, Membership, TeamInvitation
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
-from .modules.exchange.models import BookCurrency, CurrencyConversion
+from .modules.exchange.models import BookCurrency, ConversionAttachment, CurrencyConversion
 from .modules.identity.models import (
     ApiKey,
     AccountLoginChallenge,
@@ -65,6 +65,7 @@ __all__ = [
     "BookCurrency",
     "Budget",
     "CapitalMovement",
+    "ConversionAttachment",
     "Debt",
     "FinancialNote",
     "FinancialPeriod",

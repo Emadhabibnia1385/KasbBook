@@ -3,9 +3,13 @@ import { useRef, useState } from "react";
 import { Button, ConfirmDialog, Notice, toast } from "@nyxon/nasim";
 import {
 	getBooksListAttachmentsQueryKey,
+	getBooksListConversionAttachmentsQueryKey,
 	useBooksAddAttachment,
+	useBooksAddConversionAttachment,
 	useBooksDeleteAttachment,
+	useBooksDeleteConversionAttachment,
 	useBooksListAttachments,
+	useBooksListConversionAttachments,
 } from "@/api/generated/books/books";
 import type { AttachmentResponse } from "@/api/generated/model";
 import { formatAmount } from "@/shared/format";
@@ -28,15 +32,18 @@ export function AttachmentItem({
 	bookId,
 	transactionId,
 	file,
+	segment = "transactions",
 	onRemove,
 }: {
 	bookId: string;
 	transactionId: string;
 	file: AttachmentResponse;
+	/** Whose file this is: a transaction's or a conversion's. */
+	segment?: "transactions" | "conversions";
 	onRemove?: () => void;
 }) {
 	const isImage = file.content_type.startsWith("image/");
-	const url = useAttachmentUrl(bookId, transactionId, file.id, isImage);
+	const url = useAttachmentUrl(bookId, transactionId, file.id, isImage, segment);
 	return (
 		<li className="flex items-center gap-3 rounded-xl border border-border p-2">
 			{isImage && url ? (
@@ -63,7 +70,7 @@ export function AttachmentItem({
 					const { apiFetch } = await import("@/api/transport");
 					try {
 						const blob = await apiFetch<Blob>(
-							`/api/v1/books/${bookId}/transactions/${transactionId}/attachments/${file.id}`,
+							`/api/v1/books/${bookId}/${segment}/${transactionId}/attachments/${file.id}`,
 						);
 						window.open(URL.createObjectURL(blob), "_blank", "noopener");
 					} catch (error) {
@@ -89,21 +96,41 @@ export function AttachmentItem({
 export function AttachmentsField({
 	bookId,
 	transactionId,
+	segment = "transactions",
 	queue,
 	onQueue,
 }: {
 	bookId: string;
+	/** The id of what the files belong to (a transaction, or a conversion with `segment`). */
 	transactionId?: string;
+	segment?: "transactions" | "conversions";
 	queue: File[];
 	onQueue: (files: File[]) => void;
 }) {
+	const forConversion = segment === "conversions";
 	const queryClient = useQueryClient();
 	const input = useRef<HTMLInputElement>(null);
-	const list = useBooksListAttachments(bookId, transactionId ?? "", {
-		query: { enabled: Boolean(transactionId) },
+	const txList = useBooksListAttachments(bookId, transactionId ?? "", {
+		query: { enabled: Boolean(transactionId) && !forConversion },
 	});
-	const add = useBooksAddAttachment();
-	const remove = useBooksDeleteAttachment();
+	const convList = useBooksListConversionAttachments(bookId, transactionId ?? "", {
+		query: { enabled: Boolean(transactionId) && forConversion },
+	});
+	const list = forConversion ? convList : txList;
+	const addTx = useBooksAddAttachment();
+	const addConv = useBooksAddConversionAttachment();
+	const removeTx = useBooksDeleteAttachment();
+	const removeConv = useBooksDeleteConversionAttachment();
+	const refreshAfter = async (id: string) => {
+		await queryClient.invalidateQueries({
+			queryKey: forConversion
+				? getBooksListConversionAttachmentsQueryKey(bookId, id)
+				: getBooksListAttachmentsQueryKey(bookId, id),
+		});
+		await queryClient.invalidateQueries({
+			queryKey: [`/api/v1/books/${bookId}/${segment}`],
+		});
+	};
 	const [busy, setBusy] = useState(false);
 	const [problem, setProblem] = useState<string | null>(null);
 	const [removing, setRemoving] = useState<AttachmentResponse | null>(null);
@@ -122,13 +149,16 @@ export function AttachmentsField({
 				try {
 					const ready = await prepareFile(original);
 					if (transactionId) {
-						await add.mutateAsync({ bookId, transactionId, data: { file: ready } });
-						await queryClient.invalidateQueries({
-							queryKey: getBooksListAttachmentsQueryKey(bookId, transactionId),
-						});
-						await queryClient.invalidateQueries({
-							queryKey: [`/api/v1/books/${bookId}/transactions`],
-						});
+						if (forConversion) {
+							await addConv.mutateAsync({
+								bookId,
+								conversionId: transactionId,
+								data: { file: ready },
+							});
+						} else {
+							await addTx.mutateAsync({ bookId, transactionId, data: { file: ready } });
+						}
+						await refreshAfter(transactionId);
 					} else {
 						added.push(ready);
 					}
@@ -154,6 +184,7 @@ export function AttachmentsField({
 									key={file.id}
 									bookId={bookId}
 									transactionId={transactionId}
+									segment={segment}
 									file={file}
 									onRemove={() => setRemoving(file)}
 								/>
@@ -223,13 +254,16 @@ export function AttachmentsField({
 				tone="danger"
 				onConfirm={async () => {
 					if (!removing || !transactionId) return;
-					await remove.mutateAsync({ bookId, transactionId, attachmentId: removing.id });
-					await queryClient.invalidateQueries({
-						queryKey: getBooksListAttachmentsQueryKey(bookId, transactionId),
-					});
-					await queryClient.invalidateQueries({
-						queryKey: [`/api/v1/books/${bookId}/transactions`],
-					});
+					if (forConversion) {
+						await removeConv.mutateAsync({
+							bookId,
+							conversionId: transactionId,
+							attachmentId: removing.id,
+						});
+					} else {
+						await removeTx.mutateAsync({ bookId, transactionId, attachmentId: removing.id });
+					}
+					await refreshAfter(transactionId);
 				}}
 			/>
 		</div>

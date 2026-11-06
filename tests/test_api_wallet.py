@@ -99,7 +99,7 @@ async def test_a_conversion_moves_the_balances_over_http(api, db):
 
     listed = (await api.get(f"/api/v1/books/{book['id']}/conversions",
                             headers=headers)).json()
-    assert len(listed) == 1
+    assert listed["total"] == 1 and len(listed["items"]) == 1
 
 
 async def test_spending_a_token_the_book_does_not_hold_is_refused_over_http(api, db):
@@ -186,3 +186,92 @@ async def test_a_transaction_date_can_be_corrected_over_http(api, db):
     assert fixed.status_code == 200
     assert fixed.json()["occurred_on"] == "2026-09-19"
     assert fixed.json()["converted_amount"] == "1000000.0000"
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+
+async def _swap(api, headers, book, **extra):
+    await api.put(f"/api/v1/books/{book['id']}/currencies/USDT", headers=headers, json={"enabled": True})
+    await api.post(f"/api/v1/books/{book['id']}/transactions", headers=headers,
+                   json={"flow": "income", "category": "فروش", "amount": "100",
+                         "currency": "USDT", "conversion_rate": "228389", "occurred_on": DAY})
+    body = {"from_currency": "USDT", "from_amount": "40", "to_currency": "IRT",
+            "to_amount": "9135560", "occurred_on": DAY, **extra}
+    return (await api.post(f"/api/v1/books/{book['id']}/conversions", headers=headers, json=body)).json()
+
+
+async def test_a_conversion_can_be_corrected_in_every_part_including_its_day(api, db):
+    headers, book = await workspace(api)
+    swap = await _swap(api, headers, book)
+    url = f"/api/v1/books/{book['id']}/conversions/{swap['id']}"
+
+    fixed = await api.patch(url, headers=headers, json={
+        "from_amount": "50", "to_amount": "11400000", "occurred_on": "2026-01-02", "note": "اصلاح"})
+
+    assert fixed.status_code == 200, fixed.text
+    body = fixed.json()
+    assert body["from_amount"] == "50.0000" and body["occurred_on"] == "2026-01-02" and body["note"] == "اصلاح"
+    assert body["base_value"] == "11400000.0000"
+    wallet = {b["code"]: b["amount"] for b in (await api.get(f"/api/v1/books/{book['id']}/wallet", headers=headers)).json()}
+    assert wallet["USDT"] == "50.0000"
+
+
+async def test_a_correction_that_would_overdraw_the_wallet_is_refused(api, db):
+    headers, book = await workspace(api)
+    swap = await _swap(api, headers, book)
+    url = f"/api/v1/books/{book['id']}/conversions/{swap['id']}"
+
+    refused = await api.patch(url, headers=headers, json={"from_amount": "500"})
+
+    assert refused.status_code == 422
+    wallet = {b["code"]: b["amount"] for b in (await api.get(f"/api/v1/books/{book['id']}/wallet", headers=headers)).json()}
+    assert wallet["USDT"] == "60.0000"
+
+
+async def test_a_conversion_can_be_removed_and_its_effect_goes_with_it(api, db):
+    headers, book = await workspace(api)
+    swap = await _swap(api, headers, book)
+
+    gone = await api.delete(f"/api/v1/books/{book['id']}/conversions/{swap['id']}", headers=headers)
+
+    assert gone.status_code == 204
+    wallet = {b["code"]: b["amount"] for b in (await api.get(f"/api/v1/books/{book['id']}/wallet", headers=headers)).json()}
+    assert wallet["USDT"] == "100.0000"
+    listed = (await api.get(f"/api/v1/books/{book['id']}/conversions", headers=headers)).json()
+    assert listed["total"] == 0
+
+
+async def test_conversions_come_in_pages(api, db):
+    headers, book = await workspace(api)
+    await _swap(api, headers, book)
+    for _ in range(2):
+        await api.post(f"/api/v1/books/{book['id']}/conversions", headers=headers, json={
+            "from_currency": "USDT", "from_amount": "1", "to_currency": "IRT", "to_amount": "228389",
+            "occurred_on": DAY})
+
+    first = (await api.get(f"/api/v1/books/{book['id']}/conversions", headers=headers,
+                           params={"per_page": 2})).json()
+    second = (await api.get(f"/api/v1/books/{book['id']}/conversions", headers=headers,
+                            params={"per_page": 2, "page": 2})).json()
+
+    assert first["total"] == 3 and len(first["items"]) == 2 and len(second["items"]) == 1
+
+
+async def test_a_photo_can_be_kept_with_a_conversion_and_only_a_photo(api, db):
+    headers, book = await workspace(api)
+    swap = await _swap(api, headers, book)
+    base = f"/api/v1/books/{book['id']}/conversions/{swap['id']}/attachments"
+
+    added = await api.post(base, headers=headers, files={"file": ("slip.png", PNG, "image/png")})
+    refused = await api.post(base, headers=headers, files={"file": ("x.png", b"<script>alert(1)</script>", "image/png")})
+
+    assert added.status_code == 201, added.text and added.text
+    assert refused.status_code == 422
+    listed = (await api.get(base, headers=headers)).json()
+    assert len(listed) == 1 and listed[0]["content_type"] == "image/png"
+    got = await api.get(f"{base}/{listed[0]['id']}", headers=headers)
+    assert got.status_code == 200 and got.content == PNG
+    page = (await api.get(f"/api/v1/books/{book['id']}/conversions", headers=headers)).json()
+    assert page["items"][0]["attachment_count"] == 1
+    assert (await api.delete(f"{base}/{listed[0]['id']}", headers=headers)).status_code == 204

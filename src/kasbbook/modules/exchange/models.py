@@ -26,6 +26,8 @@ from sqlalchemy import (
     Date,
     ForeignKey,
     Index,
+    Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -105,3 +107,29 @@ class CurrencyConversion(UUIDPrimaryKey, Timestamped, Base):
     @property
     def to_rate(self) -> Decimal:
         return self.base_value / self.to_amount if self.to_amount else ZERO
+
+
+class ConversionAttachment(UUIDPrimaryKey, Timestamped, Base):
+    """A photo or PDF kept with a conversion: the exchange slip, the receipt of a transfer.
+
+    Held like a transaction's attachment (see `ledger.models.TransactionAttachment`): the bytes are ours,
+    typed by their first bytes, stored in the database so a backup carries them, and read only through
+    the service's gate.
+    """
+
+    __tablename__ = "conversion_attachments"
+    __table_args__ = (Index("ix_conversion_attachment", "conversion_id"),)
+
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    conversion_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("currency_conversions.id", ondelete="CASCADE"), nullable=False
+    )
+    uploaded_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    file_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
