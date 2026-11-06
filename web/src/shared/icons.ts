@@ -23,3 +23,6 @@ export { default as CheckIcon } from "~icons/solar/check-circle-bold";
 export { default as ChevronDownIcon } from "~icons/solar/alt-arrow-down-linear";
 export { default as EditIcon } from "~icons/solar/pen-linear";
 export { default as TrashIcon } from "~icons/solar/trash-bin-trash-linear";
+export { default as CalendarIcon } from "~icons/solar/calendar-linear";
+export { default as ArrowLeftIcon } from "~icons/solar/alt-arrow-left-linear";
+export { default as ArrowRightIcon } from "~icons/solar/alt-arrow-right-linear";

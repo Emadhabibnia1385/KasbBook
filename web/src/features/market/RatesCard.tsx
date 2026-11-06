@@ -6,64 +6,56 @@ import {
 	SectionCard,
 	StatusChip,
 } from "@nyxon/nasim";
-import type { MarketRateResponse } from "@/api/generated/model";
 import { formatAmount } from "@/shared/format";
 import { t } from "@/strings";
 import { currencyName } from "@/shared/format";
 import { ageText } from "./format";
-import { sourceName, useQuotes } from "./useQuotes";
-import { useRates } from "./useRates";
+import { useNowSeconds } from "@/shared/clock";
+import { useTickerCodes } from "./tickerPrefs";
+import { useQuotes } from "./useQuotes";
 
-const asset = (code: string) =>
-	t.market.assets[code] ? `${t.market.assets[code]} (${code})` : code;
-const quoteName = (code: string) => (code === "IRT" ? t.money.toman : code);
-
-// Toman prices are whole numbers in daily use; a USDT-quoted price (BTC) needs its places.
-const priceText = (rate: MarketRateResponse) =>
-	`${formatAmount(rate.value, rate.quote === "IRT" ? 0 : 4)} ${quoteName(rate.quote)}`;
-
-/** Live prices with their source and age; the age counts up by itself between refreshes. */
+/** Live prices of the chosen currencies, with their source and age; the age counts up by itself. */
 export function RatesCard() {
-	const rates = useRates();
-	const rows = rates.data ?? [];
+	const codes = useTickerCodes();
+	const quotes = useQuotes(codes, "IRT");
+	const now = useNowSeconds();
+	const rows = quotes.data ?? [];
 	const first = rows[0];
+	const approximate = rows.some((row) => !row.exact);
+	// Age as of this second: the server's age at fetch time plus however long ago that was received.
+	const ageOf = (age: number) => age + Math.max(0, now - Math.floor(quotes.dataUpdatedAt / 1000));
 	return (
 		<SectionCard
 			title={t.market.title}
 			description={t.market.lead}
-			actions={first?.stale ? <StatusChip tone="warning" label={t.market.staleShort} /> : undefined}
+			actions={approximate ? <StatusChip tone="warning" label={t.fx.estimateShort} /> : undefined}
 		>
-			{rates.isLoading ? (
+			{quotes.isLoading ? (
 				<PageSkeleton header={false} rows={3} label={t.market.loading} />
-			) : rates.isError && rows.length === 0 ? (
-				<ErrorState message={t.market.unavailable} onRetry={() => void rates.refetch()} />
+			) : quotes.isError && rows.length === 0 ? (
+				<ErrorState message={t.market.unavailable} onRetry={() => void quotes.refetch()} />
 			) : rows.length === 0 ? (
 				<EmptyState title={t.market.empty} />
 			) : (
 				<div className="flex flex-col gap-3">
-					{first?.stale ? (
-						<Notice tone="warning" title={t.market.staleTitle}>
-							{t.market.staleBody}
-						</Notice>
-					) : null}
-					{rates.isError ? <Notice tone="warning">{t.market.refreshFailed}</Notice> : null}
+					{quotes.isError ? <Notice tone="warning">{t.market.refreshFailed}</Notice> : null}
 					<ul className="flex flex-col">
 						{rows.map((rate) => (
 							<li
-								key={rate.pair}
+								key={rate.code}
 								className="flex items-center justify-between gap-3 border-b border-separator py-2 last:border-b-0"
 							>
-								<span className="font-medium">{asset(rate.base)}</span>
+								<span className="font-medium">{currencyName(rate.code)}</span>
 								<span dir="ltr" className="text-sm font-semibold tabular-nums">
-									{priceText(rate)}
+									{rate.exact ? "" : "≈ "}
+									{formatAmount(rate.value, 0)} {t.money.toman}
 								</span>
 							</li>
 						))}
 					</ul>
 					{first ? (
 						<p className="text-xs text-muted">
-							{t.market.sourceLabel}: {t.market.sources[first.source] ?? first.source} ·{" "}
-							{t.market.updated} {ageText(rates.ageOf(first.age_seconds))}
+							{t.market.updated} {ageText(ageOf(first.age_seconds ?? 0))}
 						</p>
 					) : null}
 				</div>
@@ -79,7 +71,6 @@ export function CountryRates() {
 	const quotes = useQuotes(COUNTRY_CODES, "IRT");
 	const rows = quotes.data ?? [];
 	if (rows.length === 0) return null;
-	const oldest = Math.max(...rows.map((row) => row.age_seconds ?? 0));
 	return (
 		<SectionCard
 			title={t.fx.countries}
@@ -103,10 +94,6 @@ export function CountryRates() {
 					</li>
 				))}
 			</ul>
-			<p className="mt-2 text-xs text-muted">
-				{t.fx.countriesNote} {t.market.sourceLabel}: {sourceName(rows[0]?.source ?? "")} ·{" "}
-				{ageText(oldest)}
-			</p>
 		</SectionCard>
 	);
 }

@@ -12,6 +12,7 @@ import {
 import { authLogoutEverywhere, useAuthMe, useAuthSessions } from "@/api/generated/auth/auth";
 import { useIdentitiesListIdentities } from "@/api/generated/identities/identities";
 import { clearSession } from "@/api/session";
+import { TickerSettings } from "@/features/market/TickerSettings";
 import { InstallButton } from "@/features/pwa/InstallButton";
 import { DigestForm } from "./DigestForm";
 import { formatFullDate } from "@/shared/format";
@@ -93,6 +94,7 @@ export function Account() {
 						{t.account.logoutEverywhere}
 					</Button>
 				</SectionCard>
+				<TickerSettings />
 				<SectionCard title={t.account.appearance}>
 					<div className="flex flex-col items-start gap-3">
 						<ThemeToggle lightLabel={t.theme.light} darkLabel={t.theme.dark} />

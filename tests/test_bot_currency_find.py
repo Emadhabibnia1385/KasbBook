@@ -89,7 +89,7 @@ async def test_the_prices_screen_labels_national_currencies_as_estimates(session
     owner, book, exchange, _ = await workspace(session, enable=())
     bot = Conversation(session, MemoryStateStore(), TG, rates=FakeMarket())
     reply = await bot.handle(press(f"cu:prices:{book.id}"))
-    assert "تخمینی" in reply.text and "دلار" in reply.text and "تتر" in reply.text
+    assert "حدودی" in reply.text and "دلار" in reply.text and "تتر" in reply.text
     assert any("تازه‌سازی" in label for label in labels(reply))
 
 
@@ -131,4 +131,4 @@ def test_a_payment_in_another_currency_is_shown_in_that_currency_first():
 def test_an_estimated_rate_is_labelled_and_an_exact_one_is_not():
     estimate, _ = screens.ask_description_with_rate("USD", Decimal("270000"), "IRT", Decimal("1"), estimate=True)
     exact, _ = screens.ask_description_with_rate("TON", Decimal("300000"), "IRT", Decimal("1"))
-    assert "تخمینی" in estimate and "تخمینی" not in exact
+    assert "حدودی" in estimate and "حدودی" not in exact

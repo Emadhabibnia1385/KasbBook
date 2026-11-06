@@ -57,7 +57,11 @@ export async function apiFetch<T>(url: string, init: RequestInit = {}): Promise<
 	}
 	const type = response.headers.get("content-type") ?? "";
 	const body: unknown =
-		response.status === 204 ? undefined : /\bjson\b/i.test(type) ? await response.json() : await response.blob();
+		response.status === 204
+			? undefined
+			: /\bjson\b/i.test(type)
+				? await response.json()
+				: await response.blob();
 	if (!response.ok) throw new ApiError(response.status, messageFor(response.status, body), body);
 	return body as T;
 }

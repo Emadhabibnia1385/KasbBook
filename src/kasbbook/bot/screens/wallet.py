@@ -124,14 +124,10 @@ def prices_screen(book: Book, crypto, countries, age_seconds: int) -> Screen:
     for code, quote in crypto:
         lines.append(f"• {CURRENCY_NAMES.get(code, code)}: {fmt(quote.value)}")
     if countries:
-        lines += ["", "ارزهای کشورها (تخمینی):"]
+        lines += ["", "ارزهای کشورها (حدودی):"]
         for code, quote in countries:
             lines.append(f"• {CURRENCY_NAMES.get(code, code)}: {fmt(quote.value)}")
-        lines += [
-            "",
-            "این‌ها قیمت بازار آزاد نیست: قیمت دلار از قیمت تتر و نرخ بین ارزها "
-            "از exchangerate-api می‌آید (روزی یک‌بار به‌روز می‌شود).",
-        ]
+        lines += ["", "این‌ها قیمت بازار آزاد نیست."]
     if age_seconds:
         lines.append(f"آخرین به‌روزرسانی: {age_seconds // 60 + 1} دقیقه پیش")
     return rtl("\n".join(lines)), [

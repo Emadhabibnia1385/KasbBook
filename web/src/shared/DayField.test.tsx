@@ -41,4 +41,27 @@ describe("DayField", () => {
 		fireEvent.click(screen.getByRole("button", { name: "امروز" }));
 		expect(screen.getByTestId("value").textContent).toMatch(/^\d{4}-\d{2}-\d{2}T12:00$/);
 	});
+
+	it("switches to the Gregorian calendar, rewriting the same day and reading what is typed there", () => {
+		localStorage.removeItem("kasbbook.calendar");
+		render(<Harness start="2026-11-06T12:00" />);
+		fireEvent.click(screen.getByRole("button", { name: "میلادی" }));
+		expect(screen.getByLabelText("از تاریخ")).toHaveValue("2026/11/06");
+		fireEvent.change(screen.getByLabelText("از تاریخ"), { target: { value: "2026/12/25" } });
+		expect(screen.getByTestId("value")).toHaveTextContent("2026-12-25T12:00");
+		fireEvent.change(screen.getByLabelText("از تاریخ"), { target: { value: "2026/02/30" } });
+		expect(screen.getByText(/تاریخ را مثل/)).toBeInTheDocument();
+		// The choice is remembered for the next field.
+		expect(localStorage.getItem("kasbbook.calendar")).toBe("gregorian");
+		localStorage.removeItem("kasbbook.calendar");
+	});
+
+	it("opens a calendar and takes the day that is picked", () => {
+		localStorage.removeItem("kasbbook.calendar");
+		render(<Harness start="2026-11-06T12:00" />);
+		fireEvent.click(screen.getByRole("button", { name: "انتخاب تاریخ" }));
+		fireEvent.click(screen.getByRole("button", { name: "2026-11-20" }));
+		expect(screen.getByTestId("value")).toHaveTextContent("2026-11-20T12:00");
+		expect(screen.getByLabelText("از تاریخ")).toHaveValue("۱۴۰۵/۰۸/۲۹");
+	});
 });

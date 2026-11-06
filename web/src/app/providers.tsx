@@ -23,7 +23,13 @@ function routerLinks(router: AnyRouter): RouterLinks {
 	return pair;
 }
 
-export function AppProviders({ queryClient, router }: { queryClient: QueryClient; router: AnyRouter }) {
+export function AppProviders({
+	queryClient,
+	router,
+}: {
+	queryClient: QueryClient;
+	router: AnyRouter;
+}) {
 	return (
 		<QueryClientProvider client={queryClient}>
 			<NasimProvider {...routerLinks(router)} defaultMode="system" accent={ACCENT}>

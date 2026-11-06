@@ -639,7 +639,7 @@ def ask_description_with_rate(code: str, rate, base_code: str, converted, estima
     return rtl(
         f"💱 نرخ امروز {name}: {fmt(rate, CURRENCY_NAMES.get(base_code, base_code))}\n"
         f"معادل: {fmt(converted, CURRENCY_NAMES.get(base_code, base_code))}\n"
-        + ("⚠️ این نرخ تخمینی است، نه قیمت بازار آزاد؛ اگر نرخ واقعی معامله فرق دارد، "
+        + ("⚠️ این نرخ حدودی است، نه قیمت بازار آزاد؛ اگر نرخ واقعی معامله فرق دارد، "
            "«نرخ دیگری دارم» را بزن.\n" if estimate else "")
         + "\n"
         "توضیحات تراکنش را بنویس (حداکثر 500 حرف)؛ مثلاً: «بابت مرداد».\n"

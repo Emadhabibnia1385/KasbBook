@@ -48,13 +48,11 @@ export const txFilterStrings = {
 		rate: "نرخ تبدیل",
 		equivalent: "معادل در دفتر",
 		needRate: "نرخ را به عدد و بیشتر از صفر بنویس",
-		estimateFrom: "تخمین از",
-		estimateWarning: "این تخمین است، نه قیمت بازار آزاد؛ نرخ واقعی معامله را جایگزین کن.",
+		estimateFrom: "حدودی از",
+		estimateWarning: "این نرخ حدودی است، نه قیمت بازار آزاد؛ نرخ واقعی معامله را جایگزین کن.",
 		recorded: "نرخ ثبت‌شده",
-		estimateShort: "تخمینی",
+		estimateShort: "حدودی",
 		today: "امروز معادل",
 		countries: "ارزهای کشورها",
-		countriesNote:
-			"تخمینی: قیمت دلار به تومان از قیمت تتر می‌آید و نرخ بین ارزها به‌صورت روزانه از exchangerate-api.",
 	},
 };

@@ -41,6 +41,44 @@ function safeZone(zone: string | undefined): string {
 	}
 }
 
+const numeric = new Map<string, { jalali: Intl.DateTimeFormat; gregorian: Intl.DateTimeFormat }>();
+
+const weekdays = new Map<string, Intl.DateTimeFormat>();
+
+/** «جمعه»: the day of the week, in words, in the given zone. */
+export function weekdayName(seconds: number, zone?: string): string {
+	const key = safeZone(zone);
+	let format = weekdays.get(key);
+	if (!format) {
+		format = new Intl.DateTimeFormat("fa-IR", { weekday: "long", timeZone: key });
+		weekdays.set(key, format);
+	}
+	return format.format(new Date(seconds * 1000));
+}
+
+/** Both calendars as numbers with slashes: «۱۴۰۵/۰۸/۱۵» and «2026/11/06», in the given zone. */
+export function numericDates(
+	seconds: number,
+	zone?: string,
+): { jalali: string; gregorian: string } {
+	const key = safeZone(zone);
+	let formats = numeric.get(key);
+	if (!formats) {
+		const parts = { year: "numeric", month: "2-digit", day: "2-digit", timeZone: key } as const;
+		formats = {
+			jalali: new Intl.DateTimeFormat("fa-IR-u-ca-persian", parts),
+			gregorian: new Intl.DateTimeFormat("en-CA-u-nu-latn", parts),
+		};
+		numeric.set(key, formats);
+	}
+	const at = new Date(seconds * 1000);
+	// fa-IR writes «۱۴۰۵/۰۸/۱۵» already; en-CA writes «2026-11-06», and the slash is what is asked for.
+	return {
+		jalali: formats.jalali.format(at),
+		gregorian: formats.gregorian.format(at).replaceAll("-", "/"),
+	};
+}
+
 /** «جمعه ۱۵ آبان ۱۴۰۵» in the given zone. */
 export function jalaliDate(seconds: number, zone?: string): string {
 	return formattersFor(safeZone(zone)).date.format(new Date(seconds * 1000));

@@ -1,11 +1,14 @@
-import { formatAmount } from "@/shared/format";
+import { currencyName, formatAmount } from "@/shared/format";
 import { t } from "@/strings";
-import { useRates } from "./useRates";
+import { useTickerCodes } from "./tickerPrefs";
+import { useQuotes } from "./useQuotes";
 
-// A strip of the prices a shop owner glances at, for the top bar of a wide screen. Silent when there is
-// nothing to show: a bar must not announce that a price service is down.
+// A strip of the prices a shop owner glances at, for the top bar of a wide screen: the currencies chosen
+// in the settings (Tether, Tron and TON until then). Silent when there is nothing to show: a bar must not
+// announce that a price service is down.
 export function RatesTicker() {
-	const { data } = useRates("USDT/IRT,BTC/IRT,TON/IRT");
+	const codes = useTickerCodes();
+	const { data } = useQuotes(codes, "IRT");
 	if (!data?.length) return null;
 	return (
 		<ul
@@ -13,12 +16,10 @@ export function RatesTicker() {
 			className="flex min-w-0 items-center gap-4 overflow-hidden text-xs"
 		>
 			{data.map((rate) => (
-				<li key={rate.pair} className="flex shrink-0 items-center gap-1">
-					<span className="text-muted">{t.market.assets[rate.base] ?? rate.base}</span>
-					<span
-						dir="ltr"
-						className={`font-semibold tabular-nums ${rate.stale ? "text-muted" : ""}`}
-					>
+				<li key={rate.code} className="flex shrink-0 items-center gap-1">
+					<span className="text-muted">{currencyName(rate.code)}</span>
+					<span dir="ltr" className="font-semibold tabular-nums">
+						{rate.exact ? "" : "≈ "}
 						{formatAmount(rate.value, 0)}
 					</span>
 				</li>

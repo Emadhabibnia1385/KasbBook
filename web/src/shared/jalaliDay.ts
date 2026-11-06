@@ -38,7 +38,7 @@ export function normalizeDayText(text: string): string {
 	return toAscii(text).replace(INVISIBLE, "").replace(SEPARATORS, "/");
 }
 
-function daysInJalaliMonth(year: number, month: number): number {
+export function daysInJalaliMonth(year: number, month: number): number {
 	const { starts_on, ends_on } = monthWindow(`${year}-${String(month).padStart(2, "0")}`);
 	return (
 		Math.round((Date.parse(`${ends_on}T12:00:00Z`) - Date.parse(`${starts_on}T12:00:00Z`)) / DAY) +
