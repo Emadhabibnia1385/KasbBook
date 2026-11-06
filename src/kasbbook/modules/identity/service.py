@@ -52,6 +52,8 @@ ANONYMISED_NAME = "حساب حذف‌شده"
 # Every account starts with one book, so the first thing a person does is record, not set up.
 DEFAULT_BOOK_NAME = "حساب‌داری شخصی"
 
+LAST_SEEN_EVERY_SECONDS = 60
+
 GUEST_NAME = "مهمان"
 GUEST_LIFETIME_HOURS = 24
 GUEST_REFUSAL = "حساب مهمان ذخیره نمی‌شود؛ برای نگه‌داشتن اطلاعات با تلگرام یا نام کاربری وارد شو"
@@ -508,7 +510,14 @@ class IdentityService:
         if identity is not None:
             identity.external_username = username
             # Every update from the messenger passes here, so this is also when it was last heard from.
-            identity.last_seen_at = utcnow()
+            # Written at most once a minute: a burst of taps should not queue up on one row.
+            now = utcnow()
+            seen = identity.last_seen_at
+            if seen is not None and seen.tzinfo is None:
+                # Some databases hand back a time without its zone; ours are always UTC.
+                seen = seen.replace(tzinfo=now.tzinfo)
+            if seen is None or (now - seen).total_seconds() >= LAST_SEEN_EVERY_SECONDS:
+                identity.last_seen_at = now
             await self.session.flush()
 
     async def owned_identity(self, user_id, identity_id):
@@ -676,6 +685,8 @@ class IdentityService:
             external_username=external_username,
             display_name=display_name,
             linked_at=utcnow(),
+            # Linking is itself the first word from this messenger.
+            last_seen_at=utcnow(),
         )
         self.session.add(identity)
         await self.session.flush()

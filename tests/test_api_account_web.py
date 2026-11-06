@@ -129,15 +129,23 @@ async def test_guest_creation_is_rate_limited(api):
 
 
 async def test_a_messenger_remembers_when_it_last_spoke(session):
+    from datetime import timedelta
+
     from kasbbook.modules.identity.models import Provider
     from kasbbook.modules.identity.service import IdentityService
+    from kasbbook.shared.security import utcnow
 
     identity = IdentityService(session)
     user = await identity.create_account_from_messenger(Provider.TELEGRAM, "777001")
-    before = await identity.find_identity(Provider.TELEGRAM, "777001")
-    assert before.last_seen_at is None
+    row = await identity.find_identity(Provider.TELEGRAM, "777001")
+    assert row.last_seen_at is not None and row.user_id == user.id
 
+    # A burst of updates inside a minute leaves the stamp alone; a later one moves it.
+    stamp = row.last_seen_at
     await identity.observe_username(Provider.TELEGRAM, "777001", "emad")
-
-    after = await identity.find_identity(Provider.TELEGRAM, "777001")
-    assert after.last_seen_at is not None and after.user_id == user.id
+    assert (await identity.find_identity(Provider.TELEGRAM, "777001")).last_seen_at == stamp
+    row.last_seen_at = utcnow() - timedelta(minutes=5)
+    await identity.observe_username(Provider.TELEGRAM, "777001", "emad")
+    moved = (await identity.find_identity(Provider.TELEGRAM, "777001")).last_seen_at
+    # SQLite hands times back without a zone; compare them the same way.
+    assert moved.replace(tzinfo=None) >= stamp.replace(tzinfo=None) - timedelta(seconds=1)
