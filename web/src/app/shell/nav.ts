@@ -50,7 +50,13 @@ export const TAB_NAV: NavItem[] = [
 	REPORTS,
 	DASHBOARD,
 	PLANNING,
-	{ to: "/more", label: t.nav.more, icon: MoreIcon },
+	// «بیشتر» holds the management section and the account, so it stays lit while either is open.
+	{
+		to: "/more",
+		label: t.nav.more,
+		icon: MoreIcon,
+		also: ["/manage", "/books", "/wallet", "/team", "/account"],
+	},
 ];
 
 // Everything, for the sidebar and the «بیشتر» page. The first four are the daily ones, home first;
