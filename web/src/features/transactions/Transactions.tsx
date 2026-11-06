@@ -181,9 +181,20 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 	const amountTyped = useWatch({ control: form.control, name: "amount" });
 	const rateTyped = useWatch({ control: form.control, name: "rate" });
 	const foreign = currency !== book.currency;
-	const options = (useBooksListCurrencies(book.id).data ?? [])
-		.filter((option) => option.enabled)
-		.map((option) => ({ value: option.code, label: `${option.name} (${option.code})` }));
+	const enabled = (useBooksListCurrencies(book.id).data ?? []).filter((option) => option.enabled);
+	// What one unit of each other currency is worth in the book's own, written right after its name in
+	// the menu, so the choice is made knowing roughly what it means. One request for all of them.
+	const others = enabled
+		.filter((option) => option.code !== book.currency)
+		.map((option) => option.code);
+	const worth = new Map(
+		(useQuotes(others, book.currency, others.length > 0).data ?? []).map((q) => [q.code, q.value]),
+	);
+	const options = enabled.map((option) => {
+		const value = worth.get(option.code);
+		const approx = value ? `  ≈ ${formatMoney(value, book.currency)}` : "";
+		return { value: option.code, label: `${option.name} (${option.code})${approx}` };
+	});
 	// The market's price for this currency in the book's own; offered once per currency, never over a typed rate.
 	const market = useQuotes([currency], book.currency, foreign);
 	const quote = foreign ? market.data?.[0] : undefined;
