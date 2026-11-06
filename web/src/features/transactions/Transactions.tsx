@@ -273,6 +273,9 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 					label={
 						foreign ? `${t.transactions.amount} (${currencyName(currency)})` : t.transactions.amount
 					}
+					// Right under the amount, as it is typed: what this many of the chosen currency come to in the
+					// book's own, at the rate below.
+					description={equivalent ? `≈ ${formatMoney(equivalent, book.currency)}` : undefined}
 					inputMode="decimal"
 					dir="ltr"
 					isRequired
@@ -293,12 +296,6 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 							dir="ltr"
 							isRequired
 						/>
-						{equivalent ? (
-							<p className="text-sm text-muted" aria-live="polite">
-								{t.fx.equivalent}:{" "}
-								<b className="text-foreground">{formatMoney(equivalent, book.currency)}</b>
-							</p>
-						) : null}
 					</>
 				) : null}
 				<DayField name="occurred_on" label={t.transactions.date} isRequired />
