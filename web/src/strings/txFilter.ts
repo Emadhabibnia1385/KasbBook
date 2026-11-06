@@ -22,6 +22,7 @@ export const txFilterStrings = {
 		clear: "پاک کردن فیلترها",
 		picked: "انتخاب",
 		matches: "تراکنش",
+		summary: "خلاصهٔ تراکنش‌های فیلترشده",
 		incomeSum: "جمع درآمد",
 		expenseSum: "جمع هزینه",
 		currency: "ارز",

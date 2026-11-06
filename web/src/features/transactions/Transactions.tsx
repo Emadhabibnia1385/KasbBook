@@ -248,27 +248,32 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 				}}
 			/>
 			{query.data && filtered ? (
-				<div className="flex flex-col gap-1 text-sm text-muted" aria-live="polite">
-					<span>
+				<section
+					aria-live="polite"
+					aria-label={t.txFilter.summary}
+					className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4"
+				>
+					<p className="text-sm font-medium">
 						{formatAmount(query.data.total)} {t.txFilter.matches}
-					</span>
+					</p>
 					{query.data.totals.map((line) => (
-						<p key={line.currency} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-							{Number(line.income) > 0 ? (
-								<span>
-									{t.txFilter.incomeSum}:{" "}
-									<b className="text-success">{formatMoney(line.income, line.currency)}</b>
-								</span>
-							) : null}
-							{Number(line.expense) > 0 ? (
-								<span>
-									{t.txFilter.expenseSum}:{" "}
-									<b className="text-foreground">{formatMoney(line.expense, line.currency)}</b>
-								</span>
-							) : null}
-						</p>
+						<dl
+							key={line.currency}
+							className="grid grid-cols-2 gap-3 border-t border-separator pt-3 first:border-t-0 first:pt-0"
+						>
+							<div className="flex min-w-0 flex-col gap-0.5">
+								<dt className="text-xs text-muted">{t.txFilter.incomeSum}</dt>
+								<dd className="font-semibold text-success">
+									{formatMoney(line.income, line.currency)}
+								</dd>
+							</div>
+							<div className="flex min-w-0 flex-col gap-0.5">
+								<dt className="text-xs text-muted">{t.txFilter.expenseSum}</dt>
+								<dd className="font-semibold">{formatMoney(line.expense, line.currency)}</dd>
+							</div>
+						</dl>
 					))}
-				</div>
+				</section>
 			) : null}
 			{narrow ? (
 				<CompactRows
