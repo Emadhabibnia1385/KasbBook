@@ -26,9 +26,7 @@ export function ManageTabs() {
 				tab("/wallet", t.manage.wallet),
 				tab("/planning", t.nav.planning),
 				// A person's own: a team's or a business's books have no holdings, assets or funds.
-				...(book.type !== "personal"
-					? []
-					: [tab("/portfolio", t.portfolio.tab), tab("/capital", t.capital.tab)]),
+				...(book.type !== "personal" ? [] : [tab("/portfolio", t.portfolio.tab)]),
 				...(book.type === "personal" ? [] : [tab("/team", t.manage.team)]),
 				tab("/books", t.manage.books),
 			]}

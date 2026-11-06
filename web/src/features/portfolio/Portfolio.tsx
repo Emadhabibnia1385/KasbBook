@@ -29,6 +29,7 @@ import type {
 	PortfolioHoldingResponse,
 } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { Assets, Overview } from "@/features/capital/Capital";
 import { PersonalOnly } from "@/features/manage/PersonalOnly";
 import { BookRequired } from "@/features/books/BookRequired";
 import { ManageTabs } from "@/features/manage/ManageTabs";
@@ -408,7 +409,9 @@ export function Portfolio() {
 			<ManageTabs />
 			<PageHeader title={t.portfolio.title} description={t.portfolio.lead} />
 			<PersonalOnly book={book}>
+				<Overview book={book} />
 				<Holdings book={book} instruments={instruments.data ?? []} />
+				<Assets book={book} />
 				<Notes book={book} />
 			</PersonalOnly>
 		</div>

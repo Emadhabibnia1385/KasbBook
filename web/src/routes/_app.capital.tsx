@@ -1,4 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Capital } from "@/features/capital/Capital";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_app/capital")({ component: Capital });
+// Assets went in with «سرمایه», and funds with the instalments in «برنامه‌ریزی».
+export const Route = createFileRoute("/_app/capital")({
+	beforeLoad: () => {
+		throw redirect({ to: "/portfolio" });
+	},
+});

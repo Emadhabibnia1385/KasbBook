@@ -40,6 +40,8 @@ import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { BudgetForm, DebtForm, LoanForm, SettleForm } from "./PlanningForms";
 import { daysUntil, dueText } from "./dueDates";
+import { Funds } from "@/features/capital/Capital";
+import { FundForm } from "@/features/capital/CapitalForms";
 import { BudgetsSummary, DebtsSummary, LoanSchedule, LoansSummary } from "./Summaries";
 
 function Bar({ label, percent }: { label: string; percent: number }) {
@@ -296,6 +298,7 @@ function Loans({ book }: { book: BookResponse }) {
 	const pay = usePlanningPayInstallment();
 	const remove = usePlanningDeleteLoan();
 	const [adding, setAdding] = useState(false);
+	const [addKind, setAddKind] = useState<"loan" | "fund">("loan");
 	const [paying, setPaying] = useState<LoanResponse | null>(null);
 	const [removing, setRemoving] = useState<LoanResponse | null>(null);
 	return (
@@ -307,7 +310,7 @@ function Loans({ book }: { book: BookResponse }) {
 				</Collapsible>
 			</div>
 			<LoansSummary book={book} rows={data} />
-			<AddBar label={t.planningForms.addLoan} onPress={() => setAdding(true)} />
+			<AddBar label={t.plan.addInstallment} onPress={() => setAdding(true)} />
 			{isLoading ? (
 				<PageSkeleton header={false} rows={3} />
 			) : !data.length ? (
@@ -359,8 +362,35 @@ function Loans({ book }: { book: BookResponse }) {
 					})}
 				</ul>
 			)}
-			<Modal isOpen={adding} onOpenChange={setAdding} title={t.planningForms.addLoan} size="sm">
-				<LoanForm book={book} onDone={() => setAdding(false)} />
+			{book.type === "personal" ? <Funds book={book} /> : null}
+			<Modal isOpen={adding} onOpenChange={setAdding} title={t.plan.addInstallment} size="sm">
+				<div className="flex flex-col gap-4">
+					{book.type === "personal" ? (
+						<div className="flex flex-col gap-1.5">
+							<span className="text-sm font-medium">{t.plan.installmentKind}</span>
+							<div className="flex flex-wrap gap-2">
+								{(["loan", "fund"] as const).map((kind) => (
+									<Button
+										key={kind}
+										size="sm"
+										variant={kind === addKind ? "primary" : "ghost"}
+										onPress={() => setAddKind(kind)}
+									>
+										{kind === "loan" ? t.plan.kindLoan : t.plan.kindFund}
+									</Button>
+								))}
+							</div>
+							<p className="text-sm text-muted">
+								{addKind === "loan" ? t.plan.kindLoanHint : t.plan.kindFundHint}
+							</p>
+						</div>
+					) : null}
+					{addKind === "fund" && book.type === "personal" ? (
+						<FundForm book={book} onDone={() => setAdding(false)} />
+					) : (
+						<LoanForm book={book} onDone={() => setAdding(false)} />
+					)}
+				</div>
 			</Modal>
 			<ConfirmDialog
 				isOpen={paying !== null}

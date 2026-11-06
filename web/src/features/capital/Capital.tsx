@@ -4,10 +4,7 @@ import { useState } from "react";
 import {
 	Button,
 	ConfirmDialog,
-	ErrorState,
 	Modal,
-	PageHeader,
-	PageSkeleton,
 	ProgressBar,
 	SectionCard,
 	StatCard,
@@ -25,10 +22,6 @@ import {
 	useCapitalOverview,
 } from "@/api/generated/capital/capital";
 import type { AssetResponse, BookResponse, CircleResponse } from "@/api/generated/model";
-import { useActiveBook } from "@/features/books/useActiveBook";
-import { PersonalOnly } from "@/features/manage/PersonalOnly";
-import { BookRequired } from "@/features/books/BookRequired";
-import { ManageTabs } from "@/features/manage/ManageTabs";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
@@ -38,7 +31,7 @@ const Figure = ({ children }: { children: string }) => (
 	<span className="text-lg sm:text-xl">{children}</span>
 );
 
-function Overview({ book }: { book: BookResponse }) {
+export function Overview({ book }: { book: BookResponse }) {
 	const { data } = useCapitalOverview(book.id);
 	if (!data) return null;
 	return (
@@ -66,7 +59,7 @@ function Overview({ book }: { book: BookResponse }) {
 	);
 }
 
-function Assets({ book }: { book: BookResponse }) {
+export function Assets({ book }: { book: BookResponse }) {
 	const queryClient = useQueryClient();
 	const { data = [], isLoading } = useCapitalListAssets(book.id);
 	const remove = useCapitalDeleteAsset();
@@ -186,7 +179,7 @@ function Assets({ book }: { book: BookResponse }) {
 	);
 }
 
-function Funds({ book }: { book: BookResponse }) {
+export function Funds({ book }: { book: BookResponse }) {
 	const queryClient = useQueryClient();
 	const { data = [], isLoading } = useCapitalListFunds(book.id);
 	const remove = useCapitalDeleteFund();
@@ -323,23 +316,5 @@ function Funds({ book }: { book: BookResponse }) {
 				}}
 			/>
 		</SectionCard>
-	);
-}
-
-export function Capital() {
-	const { book, isLoading, isError, refetch } = useActiveBook();
-	if (isLoading) return <PageSkeleton />;
-	if (isError) return <ErrorState onRetry={() => void refetch()} />;
-	if (!book) return <BookRequired />;
-	return (
-		<div className="flex flex-col gap-5">
-			<ManageTabs />
-			<PageHeader title={t.capital.title} description={t.capital.lead} />
-			<PersonalOnly book={book}>
-				<Overview book={book} />
-				<Assets book={book} />
-				<Funds book={book} />
-			</PersonalOnly>
-		</div>
 	);
 }
