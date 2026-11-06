@@ -4,6 +4,7 @@ import { analyticsStrings } from "./analytics";
 import { foreignStrings } from "./foreign";
 import { manageStrings } from "./manage";
 import { planStrings } from "./plan";
+import { portfolioStrings } from "./portfolio";
 import { repeatStrings } from "./repeat";
 import { currencyStrings } from "./currencies";
 import { marketStrings } from "./market";
@@ -29,6 +30,7 @@ export const t = {
 	...foreignStrings,
 	...manageStrings,
 	...planStrings,
+	...portfolioStrings,
 	...repeatStrings,
 	github: { label: "کسب‌بوک در گیت‌هاب (باز شدن در تب جدید)" },
 	brand: "کسب‌بوک",

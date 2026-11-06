@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..rates.board import RateSource
 from ..rates.fiat import OpenErRates
+from ..rates.metals import MetalPrices
 from ..rates.swapwallet import SwapWalletRates
 from ..shared.database import Database
 from ..shared.settings import Settings
@@ -35,6 +36,7 @@ from .routers import (
     market,
     payroll,
     planning,
+    portfolio,
     recurring,
     reports,
     webhooks,
@@ -82,6 +84,7 @@ def create_app(
     limiter: Optional[RateLimiter] = None,
     rates: Optional[RateSource] = None,
     fiat: Optional[object] = None,
+    metals: Optional[object] = None,
 ) -> FastAPI:
     resolved = settings or Settings.from_env()
 
@@ -112,6 +115,7 @@ def create_app(
         # becoming a polling provider.
         app.state.rates = rates or SwapWalletRates()
         app.state.fiat = fiat or OpenErRates()
+        app.state.metals = metals or MetalPrices()
 
         # Empty unless this process is meant to receive updates, and an empty
         # map means every webhook path answers 404 — so a misconfigured deploy
@@ -185,6 +189,8 @@ def create_app(
     app.include_router(analytics.router, prefix=api)
     app.include_router(planning.router, prefix=api)
     app.include_router(capital.router, prefix=api)
+    app.include_router(portfolio.router, prefix=api)
+    app.include_router(portfolio.market, prefix=api)
     app.include_router(payroll.router, prefix=api)
     app.include_router(recurring.router, prefix=api)
     app.include_router(recurring.everywhere, prefix=api)

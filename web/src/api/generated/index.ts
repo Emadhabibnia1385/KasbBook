@@ -9,6 +9,7 @@ export * from "./invitations/invitations";
 export * from "./market/market";
 export * from "./payroll/payroll";
 export * from "./planning/planning";
+export * from "./portfolio/portfolio";
 export * from "./recurring/recurring";
 export * from "./reports/reports";
 export * from "./transactions/transactions";

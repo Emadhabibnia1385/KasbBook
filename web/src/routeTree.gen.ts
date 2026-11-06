@@ -18,6 +18,7 @@ import { Route as AppCapitalRouteImport } from './routes/_app.capital'
 import { Route as AppManageRouteImport } from './routes/_app.manage'
 import { Route as AppMoreRouteImport } from './routes/_app.more'
 import { Route as AppPlanningRouteImport } from './routes/_app.planning'
+import { Route as AppPortfolioRouteImport } from './routes/_app.portfolio'
 import { Route as AppRecurringRouteImport } from './routes/_app.recurring'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
 import { Route as AppTeamRouteImport } from './routes/_app.team'
@@ -71,6 +72,11 @@ const AppMoreRoute = AppMoreRouteImport.update({
 const AppPlanningRoute = AppPlanningRouteImport.update({
   id: '/planning',
   path: '/planning',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPortfolioRoute = AppPortfolioRouteImport.update({
+  id: '/portfolio',
+  path: '/portfolio',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRecurringRoute = AppRecurringRouteImport.update({
@@ -133,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/manage': typeof AppManageRoute
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
+  '/portfolio': typeof AppPortfolioRoute
   '/recurring': typeof AppRecurringRoute
   '/reports': typeof AppReportsRoute
   '/team': typeof AppTeamRouteWithChildren
@@ -152,6 +159,7 @@ export interface FileRoutesByTo {
   '/manage': typeof AppManageRoute
   '/more': typeof AppMoreRoute
   '/planning': typeof AppPlanningRoute
+  '/portfolio': typeof AppPortfolioRoute
   '/recurring': typeof AppRecurringRoute
   '/reports': typeof AppReportsRoute
   '/transactions': typeof AppTransactionsRoute
@@ -173,6 +181,7 @@ export interface FileRoutesById {
   '/_app/manage': typeof AppManageRoute
   '/_app/more': typeof AppMoreRoute
   '/_app/planning': typeof AppPlanningRoute
+  '/_app/portfolio': typeof AppPortfolioRoute
   '/_app/recurring': typeof AppRecurringRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/team': typeof AppTeamRouteWithChildren
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
     | '/manage'
     | '/more'
     | '/planning'
+    | '/portfolio'
     | '/recurring'
     | '/reports'
     | '/team'
@@ -215,6 +225,7 @@ export interface FileRouteTypes {
     | '/manage'
     | '/more'
     | '/planning'
+    | '/portfolio'
     | '/recurring'
     | '/reports'
     | '/transactions'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
     | '/_app/manage'
     | '/_app/more'
     | '/_app/planning'
+    | '/_app/portfolio'
     | '/_app/recurring'
     | '/_app/reports'
     | '/_app/team'
@@ -316,6 +328,13 @@ declare module '@tanstack/react-router' {
       path: '/planning'
       fullPath: '/planning'
       preLoaderRoute: typeof AppPlanningRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/portfolio': {
+      id: '/_app/portfolio'
+      path: '/portfolio'
+      fullPath: '/portfolio'
+      preLoaderRoute: typeof AppPortfolioRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/recurring': {
@@ -417,6 +436,7 @@ interface AppRouteChildren {
   AppManageRoute: typeof AppManageRoute
   AppMoreRoute: typeof AppMoreRoute
   AppPlanningRoute: typeof AppPlanningRoute
+  AppPortfolioRoute: typeof AppPortfolioRoute
   AppRecurringRoute: typeof AppRecurringRoute
   AppReportsRoute: typeof AppReportsRoute
   AppTeamRoute: typeof AppTeamRouteWithChildren
@@ -432,6 +452,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppManageRoute: AppManageRoute,
   AppMoreRoute: AppMoreRoute,
   AppPlanningRoute: AppPlanningRoute,
+  AppPortfolioRoute: AppPortfolioRoute,
   AppRecurringRoute: AppRecurringRoute,
   AppReportsRoute: AppReportsRoute,
   AppTeamRoute: AppTeamRouteWithChildren,

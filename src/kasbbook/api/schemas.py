@@ -890,3 +890,98 @@ class CapitalOverviewResponse(MoneyModel):
     fund_claims: Decimal
     liabilities: Decimal
     net: Decimal
+
+
+# ------------------------------------------------ portfolio and financial notes
+class InstrumentResponse(MoneyModel):
+    code: str
+    name: str
+    unit: str
+    group: str
+    source: str
+    # Toman for one unit, when the market can price it.
+    price: Optional[Decimal] = None
+    exact: bool = False
+    price_source: str = ""
+    as_of: Optional[datetime] = None
+
+
+class PortfolioHoldingRequest(MoneyModel):
+    instrument: str = Field(min_length=1, max_length=16)
+    quantity: Decimal = Field(gt=0)
+    cost: Optional[Decimal] = Field(default=None, ge=0)
+    acquired_on: Optional[date] = None
+    label: Optional[str] = Field(default=None, max_length=80)
+    # Only for an instrument with no feed ("other"): what one unit is worth, in the book's currency.
+    unit_price: Optional[Decimal] = Field(default=None, gt=0)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class PortfolioHoldingUpdate(MoneyModel):
+    quantity: Optional[Decimal] = Field(default=None, gt=0)
+    cost: Optional[Decimal] = Field(default=None, ge=0)
+    unit_price: Optional[Decimal] = Field(default=None, gt=0)
+    label: Optional[str] = Field(default=None, max_length=80)
+    note: Optional[str] = Field(default=None, max_length=500)
+    acquired_on: Optional[date] = None
+
+
+class PortfolioHoldingResponse(MoneyModel):
+    id: uuid.UUID
+    instrument: str
+    name: str
+    unit: str
+    group: str
+    quantity: Decimal
+    cost: Optional[Decimal] = None
+    acquired_on: Optional[date] = None
+    note: Optional[str] = None
+    price: Optional[Decimal] = None
+    value: Optional[Decimal] = None
+    profit: Optional[Decimal] = None
+    profit_percent: Optional[Decimal] = None
+    price_source: str = ""
+    exact: bool = False
+    as_of: Optional[datetime] = None
+
+
+class PortfolioResponse(MoneyModel):
+    currency: str
+    holdings: List[PortfolioHoldingResponse]
+    total_value: Decimal
+    total_cost: Decimal
+    total_profit: Decimal
+    unpriced: int
+
+
+class FinancialNoteRequest(MoneyModel):
+    title: str = Field(min_length=1, max_length=120)
+    text: Optional[str] = Field(default=None, max_length=2000)
+
+
+class NoteEntryRequest(MoneyModel):
+    # "spent" puts money into the thing, "value" says what it is worth, "note" is only words.
+    kind: str
+    occurred_on: date
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    memo: Optional[str] = Field(default=None, max_length=1000)
+
+
+class NoteEntryResponse(MoneyModel):
+    id: uuid.UUID
+    kind: str
+    occurred_on: date
+    amount: Optional[Decimal] = None
+    memo: Optional[str] = None
+
+
+class FinancialNoteResponse(MoneyModel):
+    id: uuid.UUID
+    title: str
+    text: Optional[str] = None
+    entries: List[NoteEntryResponse]
+    spent: Decimal
+    value: Optional[Decimal] = None
+    value_on: Optional[date] = None
+    gain: Optional[Decimal] = None
+

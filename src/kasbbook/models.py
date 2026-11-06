@@ -21,6 +21,7 @@ from .modules.identity.models import (
 )
 from .modules.capital.models import Asset, CapitalMovement, Fund
 from .modules.loans.models import Loan, LoanPayment
+from .modules.portfolio.models import FinancialNote, Holding, NoteEntry
 from .modules.recurring.models import RecurringOccurrence, RecurringRule
 from .modules.ledger.models import (
     Account,
@@ -65,8 +66,10 @@ __all__ = [
     "Budget",
     "CapitalMovement",
     "Debt",
+    "FinancialNote",
     "FinancialPeriod",
     "Fund",
+    "Holding",
     "Identity",
     "JournalEntry",
     "JournalLine",
@@ -74,6 +77,7 @@ __all__ = [
     "Loan",
     "LoanPayment",
     "Membership",
+    "NoteEntry",
     "Payment",
     "Payslip",
     "PerformanceRecord",

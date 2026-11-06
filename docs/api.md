@@ -176,6 +176,27 @@ expense. A `capital` loan's installment repays the debt and leaves the wallet, a
 it above its share of the principal (the interest) is recorded as an expense (category «سود وام»).
 A capital loan is deleted by deleting the asset it bought.
 
+
+### Portfolio and financial notes
+
+What a person holds, valued at today's price, and notes on what they put money into. Nothing here touches
+the ledger or the income and expense reports.
+
+| | |
+|---|---|
+| `GET /portfolio/instruments` | everything that can be held (`gold18`, `gold24`, `mesghal`, the coins, `silver`, the world ounces `XAU` `XAG` `XPT` `XPD`, currencies, crypto, and `other`), each with today's price in toman, whether it is `exact`, its source and when it was fetched |
+| `GET /books/{id}/portfolio` | the holdings with `price`, `value`, `profit` and `profit_percent`, in the book's currency, and the totals; `unpriced` counts holdings nobody could price |
+| `POST /books/{id}/portfolio/holdings`, `PATCH`/`DELETE …/holdings/{id}` | `instrument`, `quantity`, optional `cost` (all of it, in the book's currency; the basis for profit and loss), `acquired_on`, `note`. `other` has no feed: it takes a `label` and the `unit_price` the person gives |
+| `GET`/`POST /books/{id}/portfolio/notes` | a note on one thing (a plot, a house); `DELETE …/notes/{id}` |
+| `POST …/notes/{id}/entries`, `DELETE …/entries/{id}` | a line: `kind` `spent` (money put in), `value` (what it is worth then) or `note` (words only), with `occurred_on`. The note reports `spent` (the sum), the latest `value` by date, and the `gain` between them |
+
+Prices come from two open feeds, cached for five minutes, with the last good table kept when one is down:
+the Iranian market (tgju's public indicator feed: gold by the gram and mithqal, the coins, silver; rials,
+shown here as toman) and gold-api.com (the ounce of gold, silver, platinum and palladium in dollars, turned
+into toman through the dollar-pegged USDT, so those are estimates). When the Iranian feed is down the gram
+prices of gold and silver are estimated from the ounce and marked `world-estimate`; the coins are not.
+Currencies and crypto use the same quote function as `/market/quotes`.
+
 ### Keys for programs
 
 ```bash
