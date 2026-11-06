@@ -507,6 +507,8 @@ class IdentityService:
         identity = await self.find_identity(provider, external_id)
         if identity is not None:
             identity.external_username = username
+            # Every update from the messenger passes here, so this is also when it was last heard from.
+            identity.last_seen_at = utcnow()
             await self.session.flush()
 
     async def owned_identity(self, user_id, identity_id):

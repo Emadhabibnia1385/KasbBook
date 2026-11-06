@@ -20,6 +20,7 @@ export interface IdentityResponse {
 	external_id: string;
 	external_username?: string | null;
 	id: string;
+	last_seen_at?: string | null;
 	linked_at: string;
 	provider: string;
 }

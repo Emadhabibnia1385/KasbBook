@@ -2184,6 +2184,18 @@
             "title": "Id",
             "type": "string"
           },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
           "linked_at": {
             "format": "date-time",
             "title": "Linked At",

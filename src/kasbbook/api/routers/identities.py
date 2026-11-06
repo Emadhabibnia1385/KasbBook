@@ -45,7 +45,7 @@ async def list_identities(user: CurrentUser, session: SessionDep) -> List[Identi
         IdentityResponse(
             id=row.id, provider=row.provider.value, external_id=row.external_id,
             external_username=row.external_username, display_name=row.display_name,
-            linked_at=row.linked_at,
+            linked_at=row.linked_at, last_seen_at=row.last_seen_at,
         )
         for row in rows
     ]
@@ -89,6 +89,7 @@ async def claim_link(
         id=identity.id, provider=identity.provider.value,
         external_id=identity.external_id, external_username=identity.external_username,
         display_name=identity.display_name, linked_at=identity.linked_at,
+        last_seen_at=identity.last_seen_at,
     )
 
 

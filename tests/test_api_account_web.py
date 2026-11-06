@@ -126,3 +126,18 @@ async def test_guest_creation_is_rate_limited(api):
         assert (await api.post("/api/v1/auth/guest")).status_code == 201
 
     assert (await api.post("/api/v1/auth/guest")).status_code == 429
+
+
+async def test_a_messenger_remembers_when_it_last_spoke(session):
+    from kasbbook.modules.identity.models import Provider
+    from kasbbook.modules.identity.service import IdentityService
+
+    identity = IdentityService(session)
+    user = await identity.create_account_from_messenger(Provider.TELEGRAM, "777001")
+    before = await identity.find_identity(Provider.TELEGRAM, "777001")
+    assert before.last_seen_at is None
+
+    await identity.observe_username(Provider.TELEGRAM, "777001", "emad")
+
+    after = await identity.find_identity(Provider.TELEGRAM, "777001")
+    assert after.last_seen_at is not None and after.user_id == user.id

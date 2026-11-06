@@ -131,6 +131,8 @@ class Identity(UUIDPrimaryKey, Timestamped, Base):
     external_username: Mapped[Optional[str]] = mapped_column(String(120))
     display_name: Mapped[Optional[str]] = mapped_column(String(120))
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # The last time this messenger account sent the bot anything; null until it has.
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="identities", lazy="selectin")
 

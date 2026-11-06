@@ -142,6 +142,7 @@ class IdentityResponse(Model):
     external_username: Optional[str] = None
     display_name: Optional[str] = None
     linked_at: datetime
+    last_seen_at: Optional[datetime] = None
 
 
 class StartLinkRequest(Model):

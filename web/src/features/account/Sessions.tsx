@@ -3,12 +3,13 @@ import { useState } from "react";
 import { Button, ConfirmDialog, toast } from "@nyxon/nasim";
 import {
 	authLogoutEverywhere,
+	useAuthMe,
 	authSignOutSession,
 	getAuthSessionsQueryKey,
 	useAuthSessions,
 } from "@/api/generated/auth/auth";
 import { clearSession } from "@/api/session";
-import { formatFullDate } from "@/shared/format";
+import { formatStamp } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { describeAgent } from "./userAgent";
@@ -17,6 +18,7 @@ import { describeAgent } from "./userAgent";
 export function Sessions() {
 	const queryClient = useQueryClient();
 	const sessions = useAuthSessions();
+	const zone = useAuthMe().data?.timezone;
 	const [confirming, setConfirming] = useState(false);
 	const [busy, setBusy] = useState<string | null>(null);
 
@@ -46,7 +48,7 @@ export function Sessions() {
 								{describeAgent(session.user_agent, t.acct.unknownBrowser)}
 							</span>
 							<span className="text-sm text-muted">
-								{t.account.since} {formatFullDate(session.created_at.slice(0, 10))}
+								{t.acct.lastActive}: <bdi dir="ltr">{formatStamp(session.created_at, zone)}</bdi>
 							</span>
 						</span>
 						<Button

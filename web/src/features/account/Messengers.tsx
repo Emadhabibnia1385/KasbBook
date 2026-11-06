@@ -1,12 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Button, toast } from "@nyxon/nasim";
+import { useAuthMe } from "@/api/generated/auth/auth";
 import {
 	getIdentitiesListIdentitiesQueryKey,
 	identitiesListIdentities,
 	useIdentitiesListIdentities,
 	useIdentitiesStartLink,
 } from "@/api/generated/identities/identities";
+import { formatStamp } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -27,6 +29,7 @@ export function Messengers() {
 	const start = useIdentitiesStartLink();
 	const [waiting, setWaiting] = useState<string | null>(null);
 	const linked = identities.data ?? [];
+	const zone = useAuthMe().data?.timezone;
 
 	useEffect(() => {
 		if (!waiting) return;
@@ -77,11 +80,23 @@ export function Messengers() {
 							<span className="flex flex-col">
 								<span className="font-medium">{label}</span>
 								{identity ? (
-									<span dir="ltr" className="text-start text-sm text-muted">
-										{identity.external_username
-											? `@${identity.external_username}`
-											: identity.external_id}
-									</span>
+									<>
+										<span dir="ltr" className="text-start text-sm text-muted">
+											{identity.external_username
+												? `@${identity.external_username}`
+												: identity.external_id}
+										</span>
+										<span className="text-sm text-muted">
+											{identity.last_seen_at ? (
+												<>
+													{t.acct.lastBot}:{" "}
+													<bdi dir="ltr">{formatStamp(identity.last_seen_at, zone)}</bdi>
+												</>
+											) : (
+												t.acct.neverBot
+											)}
+										</span>
+									</>
 								) : waiting === id ? (
 									<span className="text-sm text-muted">{t.acct.waiting}</span>
 								) : null}

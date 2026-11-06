@@ -108,6 +108,33 @@ export function formatFullDate(iso: string): string {
 	return fullFormat.format(new Date(`${iso}T12:00:00`));
 }
 
+/**
+ * A moment in full, in the Jalali calendar and the person's own time zone: ۱۴۰۵/۰۸/۱۵ - ۱۴:۲۰:۳۵.
+ * A server time without a zone is read as UTC, which is what the server writes.
+ */
+export function formatStamp(iso: string, zone?: string): string {
+	const value = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`;
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return "—";
+	let parts: Intl.DateTimeFormatPart[];
+	try {
+		parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+			timeZone: zone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hourCycle: "h23",
+		}).formatToParts(date);
+	} catch {
+		return "—";
+	}
+	const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+	return `${get("year")}/${get("month")}/${get("day")} - ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
 /** Western digits as typed on a phone's Persian keyboard, back to ASCII for the API. */
 export function toAscii(text: string): string {
 	return text
