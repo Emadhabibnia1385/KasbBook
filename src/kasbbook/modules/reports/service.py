@@ -11,7 +11,7 @@ import csv
 import io
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import List, Optional, Sequence, Tuple
 
@@ -59,6 +59,21 @@ def week(
     return Period(label, start, end, f"w:{offset}", cal.name)
 
 
+MAX_RANGE_DAYS = 3660
+
+
+def custom(start: date, end: date, cal: Calendar = calendars.JALALI) -> Period:
+    """Any stretch of days the person picked, first to last day inclusive."""
+    if end < start:
+        raise ValueError("a range cannot end before it starts")
+    if (end - start).days + 1 > MAX_RANGE_DAYS:
+        raise ValueError("a range is at most ten years")
+    return Period(
+        f"{cal.to_text(start)} تا {cal.to_text(end)}", start, end,
+        f"r:{start.isoformat()}:{end.isoformat()}", cal.name,
+    )
+
+
 def parse_spec(
     spec: str, today: Optional[date] = None, cal: Calendar = calendars.JALALI
 ) -> Optional[Period]:
@@ -73,6 +88,8 @@ def parse_spec(
             return year(int(parts[1]), cal)
         if kind == "w":
             return week(today, int(parts[1]) if len(parts) > 1 else 0, cal)
+        if kind == "r" and len(parts) >= 3:
+            return custom(date.fromisoformat(parts[1]), date.fromisoformat(parts[2]), cal)
     except (ValueError, TypeError):
         return None
     return None
@@ -331,6 +348,14 @@ class ReportService:
             return year(int(parts[1]) - 1, cal)
         if parts[0] == "w":
             return week(offset=int(parts[1]) + 1, cal=cal)
+        if parts[0] == "r":
+            # The stretch of the same length straight before this one.
+            days = (period.ends_on - period.starts_on).days + 1
+            end = period.starts_on - timedelta(days=1)
+            try:
+                return custom(end - timedelta(days=days - 1), end, cal)
+            except (ValueError, OverflowError):
+                return None
         return None
 
     async def search(

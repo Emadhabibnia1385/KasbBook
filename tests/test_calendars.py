@@ -184,3 +184,44 @@ async def test_a_new_account_in_another_zone_starts_with_its_region(session):
 
     books = await BookService(session).books_for_user(user.id)
     assert (books[0].base_currency, books[0].calendar) == ("EUR", "gregorian")
+
+
+# ------------------------------------------------------ a custom range
+async def test_a_custom_range_reports_exactly_those_days(api):
+    tokens = await register(api)
+    book = (await make_book(api, tokens, calendar="gregorian")).json()
+    for on in ("2026-09-30", "2026-10-01", "2026-10-15", "2026-10-20", "2026-10-21"):
+        await record(api, tokens, book["id"], on)
+
+    inside = (await api.get(f"/api/v1/books/{book['id']}/reports/summary",
+                            headers=bearer(tokens), params={"period": "2026-10-01..2026-10-20"})).json()
+
+    assert inside["transaction_count"] == 3
+
+
+async def test_a_custom_range_compares_with_the_stretch_before_it(api):
+    tokens = await register(api)
+    book = (await make_book(api, tokens, calendar="gregorian")).json()
+    # Ten days, and the ten days before them.
+    for on in ("2026-10-02", "2026-10-12", "2026-10-13"):
+        await record(api, tokens, book["id"], on)
+
+    compare = (await api.get(f"/api/v1/books/{book['id']}/analytics/compare",
+                             headers=bearer(tokens), params={"period": "2026-10-11..2026-10-20"})).json()
+
+    assert compare["period"] == "2026-10-11..2026-10-20"
+    assert compare["previous_period"] == "2026-10-01..2026-10-10"
+    assert compare["current"]["transaction_count"] == 2
+    assert compare["previous"]["transaction_count"] == 1
+
+
+async def test_a_bad_range_is_refused(api):
+    tokens = await register(api)
+    book = (await make_book(api, tokens)).json()
+
+    backwards = await api.get(f"/api/v1/books/{book['id']}/reports/summary",
+                              headers=bearer(tokens), params={"period": "2026-10-20..2026-10-01"})
+    nonsense = await api.get(f"/api/v1/books/{book['id']}/reports/summary",
+                             headers=bearer(tokens), params={"period": "soon..later"})
+
+    assert backwards.status_code == 422 and nonsense.status_code == 422

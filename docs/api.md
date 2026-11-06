@@ -37,6 +37,8 @@ what a new book would start with for the time zone the account is in.
 | `1403-05` | one month of the book's calendar |
 | `1403` | one year of the book's calendar |
 | `week` | the current week |
+| `w:N` | the week N weeks back (`w:0` is this one, `w:1` last week) |
+| `2026-10-01..2026-10-31` | any stretch of days, first to last inclusive (at most ten years); its comparison period is the same number of days straight before it |
 | *(omitted)* | everything |
 
 ### Errors

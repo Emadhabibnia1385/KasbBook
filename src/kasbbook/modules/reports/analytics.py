@@ -31,7 +31,7 @@ from ..books.service import BookService
 from ..budgets.service import BudgetService, BudgetStatus
 from ..exchange.service import ExchangeService
 from ..ledger.models import Flow, Scope, Transaction
-from .service import Period, ReportService, month, week, year
+from .service import Period, ReportService, custom, month, week, year
 
 # The Iranian week starts on Saturday, which is also where `jalali.week_range`
 # starts it, so a weekday chart and a "this week" report agree on day one.
@@ -89,6 +89,13 @@ def previous_period(period: Period, today: date) -> Period:
         return year(int(parts[1]) - 1, cal)
     if parts[0] == "w":
         return week(today, int(parts[1]) + 1, cal)
+    if parts[0] == "r":
+        days = days_in(period)
+        end = period.starts_on - timedelta(days=1)
+        try:
+            return custom(end - timedelta(days=days - 1), end, cal)
+        except (ValueError, OverflowError):
+            raise ValidationError("this period has no earlier period to compare with") from None
     raise ValidationError("this period has no earlier period to compare with")
 
 

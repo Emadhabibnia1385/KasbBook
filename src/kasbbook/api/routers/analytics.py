@@ -59,7 +59,7 @@ async def _period(session, book_id, spec: Optional[str], today: date) -> Period:
     if period is None:
         raise ValidationError(
             "period should look like 1405-08 for a month, 1405 for a year, "
-            "or 'week' for the current week"
+            "'week' for the current week, or 2026-10-01..2026-10-31 for a range"
         )
     return period
 
@@ -71,6 +71,8 @@ def _spec_text(period: Period) -> str:
         return f"{parts[1]}-{parts[2]}"
     if parts[0] == "y":
         return parts[1]
+    if parts[0] == "r":
+        return f"{parts[1]}..{parts[2]}"
     return "week" if period.spec == "w:0" else period.spec
 
 

@@ -42,6 +42,10 @@ def _as_spec(text: str) -> str:
     """
     if text == "week":
         return "w:0"
+    # A custom stretch: 2026-10-01..2026-10-31, first to last day.
+    first, dots, last = text.partition("..")
+    if dots and first and last:
+        return f"r:{first}:{last}"
     year, dash, month = text.partition("-")
     if year.isdigit() and len(year) == 4:
         if not dash:
@@ -60,7 +64,7 @@ async def _period(session, book_id, spec: Optional[str]):
     if period is None:
         raise ValidationError(
             "period should look like 1403-05 for a month, 1403 for a year, "
-            "or 'week' for the current week"
+            "'week' for the current week, or 2026-10-01..2026-10-31 for a range"
         )
     return period
 
