@@ -5,6 +5,7 @@ import { ageText } from "@/features/market/format";
 import { sourceName, useQuotes } from "@/features/market/useQuotes";
 import { multiply } from "@/features/payroll/decimal";
 import { Amount } from "./Amount";
+import { CategoryField, FlowSwitch } from "./FormControls";
 import { AttachmentsField } from "./AttachmentsField";
 import { CompactRows } from "./CompactRows";
 import { FilterBar } from "./FilterBar";
@@ -21,7 +22,6 @@ import {
 	Modal,
 	useIsNarrow,
 	PageHeader,
-	RadioGroupField,
 	SelectField,
 	SubmitButton,
 	TextField,
@@ -36,7 +36,6 @@ import {
 	useBooksRecordTransaction,
 } from "@/api/generated/books/books";
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
-import { CategoryChips } from "@/features/books/CategoryChips";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
@@ -142,13 +141,12 @@ function EditForm({
 					dir="ltr"
 					isRequired
 				/>
-				<TextField name="category" label={t.transactions.category} isRequired />
-				<CategoryChips
+				<CategoryField
+					name="category"
 					bookId={book.id}
 					flow={flow}
-					onPick={(name) =>
-						form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
-					}
+					label={t.transactions.category}
+					isRequired
 				/>
 				<DayField name="occurred_on" label={t.transactions.date} isRequired />
 			</div>
@@ -255,14 +253,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 			}}
 		>
 			<div className="flex flex-col gap-4">
-				<RadioGroupField
-					name="flow"
-					label={t.transactions.kind}
-					options={[
-						{ value: "expense", label: t.common.expense },
-						{ value: "income", label: t.common.income },
-					]}
-				/>
+				<FlowSwitch name="flow" />
 				{options.length > 1 ? (
 					<SelectField name="currency" label={t.fx.currency} options={options} />
 				) : null}
@@ -302,13 +293,12 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 				<DayField name="occurred_on" label={t.transactions.date} isRequired />
 			</div>
 			<div className="flex flex-col gap-4">
-				<TextField name="category" label={t.transactions.category} isRequired />
-				<CategoryChips
+				<CategoryField
+					name="category"
 					bookId={book.id}
 					flow={flow}
-					onPick={(name) =>
-						form.setValue("category", name, { shouldValidate: true, shouldDirty: true })
-					}
+					label={t.transactions.category}
+					isRequired
 				/>
 				<TextField name="description" label={t.transactions.note} />
 				<AttachmentsField bookId={book.id} queue={files} onQueue={setFiles} />

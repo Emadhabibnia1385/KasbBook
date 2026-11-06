@@ -25,7 +25,10 @@ describe("header preferences", () => {
 	});
 
 	it("keeps the default for a part a saved choice never mentioned, and ignores junk", async () => {
-		localStorage.setItem("kasbbook.header", JSON.stringify({ time: false, weekday: "no", extra: true }));
+		localStorage.setItem(
+			"kasbbook.header",
+			JSON.stringify({ time: false, weekday: "no", extra: true }),
+		);
 		const { useHeaderPrefs } = await fresh();
 		const prefs = renderHook(() => useHeaderPrefs()).result.current;
 		expect(prefs.time).toBe(false);
