@@ -159,7 +159,6 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 							{t.guest.button}
 						</Button>
 					</div>
-					<p className="text-xs text-muted">{t.login.remembered}</p>
 				</div>
 			</div>
 			<DeveloperFooter />
