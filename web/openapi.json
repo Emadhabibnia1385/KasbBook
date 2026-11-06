@@ -1939,9 +1939,27 @@
             ],
             "title": "Note"
           },
+          "paid": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid",
+            "type": "string"
+          },
           "person": {
             "title": "Person",
             "type": "string"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
           }
         },
         "required": [
@@ -1956,6 +1974,22 @@
       },
       "DebtSettleRequest": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
           "record_transaction": {
             "default": false,
             "title": "Record Transaction",
@@ -2374,6 +2408,15 @@
       },
       "LoanResponse": {
         "properties": {
+          "due_dates": {
+            "default": [],
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Due Dates",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",

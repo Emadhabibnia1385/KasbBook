@@ -178,7 +178,7 @@ export function DebtForm({ book, onDone }: { book: BookResponse; onDone: () => v
 	);
 }
 
-const settleSchema = z.object({ record_transaction: z.boolean() });
+const settleSchema = z.object({ amount: amountRule, record_transaction: z.boolean() });
 type SettleValues = z.input<typeof settleSchema>;
 
 /** Settling only marks the debt paid; booking the money moving as a transaction is a separate, opt-in choice. */
@@ -195,28 +195,45 @@ export function SettleForm({
 	const settle = usePlanningSettleDebt();
 	const form = useForm<SettleValues>({
 		resolver: zodResolver(settleSchema),
-		defaultValues: { record_transaction: false },
+		defaultValues: {
+			// Everything that is left, unless the person writes less: then it is a part payment.
+			amount: String(Number(debt.remaining ?? debt.amount)),
+			record_transaction: false,
+		},
 	});
 	return (
 		<FormRoot
 			form={form}
 			className="flex flex-col gap-4"
-			onSubmit={async (values) => {
+			onSubmit={async (raw) => {
+				const values = settleSchema.parse(raw);
 				try {
 					await settle.mutateAsync({
 						bookId: book.id,
 						debtId: debt.id,
-						data: { record_transaction: values.record_transaction },
+						data: { record_transaction: values.record_transaction, amount: values.amount },
 					});
 					await queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) });
 					if (values.record_transaction) await refreshMoney(queryClient, book.id);
-					toast.success(t.planning.settledToast);
+					toast.success(
+						Number(values.amount) >= Number(debt.remaining ?? debt.amount)
+							? t.planning.settledToast
+							: t.plan.partDone,
+					);
 					onDone();
 				} catch (error) {
 					reportFailure(error);
 				}
 			}}
 		>
+			<TextField
+				name="amount"
+				label={t.plan.partAmount}
+				description={t.plan.partHint}
+				inputMode="decimal"
+				dir="ltr"
+				isRequired
+			/>
 			<SwitchField
 				name="record_transaction"
 				label={t.planningForms.recordTransaction}

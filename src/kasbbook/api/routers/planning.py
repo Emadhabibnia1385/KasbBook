@@ -117,8 +117,9 @@ async def settle_debt(
     recording the payment too counts it twice. The bot asks the same question.
     """
     record = body.record_transaction if body else False
+    amount = body.amount if body else None
     return _debt(await DebtService(session).settle(book_id, user.id, debt_id,
-                                                   record_transaction=record))
+                                                   record_transaction=record, amount=amount))
 
 
 @router.delete("/debts/{debt_id}", status_code=204)
@@ -177,6 +178,7 @@ async def delete_loan(
 def _debt(row) -> DebtResponse:
     return DebtResponse(
         id=row.id, person=row.person, amount=row.amount,
+        paid=row.paid_amount or 0, remaining=row.remaining,
         direction=row.direction.value, is_settled=row.settled_at is not None,
         due_on=row.due_on, note=row.note,
     )
@@ -190,5 +192,5 @@ def _loan(progress) -> LoanResponse:
         installment_count=loan.installment_count,
         paid_count=progress.paid_count, paid_amount=progress.paid_amount,
         remaining=progress.remaining_amount, percent_paid=progress.percent,
-        next_due_on=progress.next_due,
+        next_due_on=progress.next_due, due_dates=progress.due_dates,
     )

@@ -44,3 +44,12 @@ class Debt(UUIDPrimaryKey, Timestamped, Base):
     due_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     # Settled debts stay for history but leave the outstanding totals.
     settled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What has been paid towards it so far; the debt is settled when this reaches `amount`.
+    paid_amount: Mapped[Money] = mapped_column(
+        Money, nullable=False, default=0, server_default="0"
+    )
+
+    @property
+    def remaining(self):
+        """What is still outstanding."""
+        return max(self.amount - (self.paid_amount or 0), 0)

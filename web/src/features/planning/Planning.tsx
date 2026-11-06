@@ -38,6 +38,8 @@ import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { BudgetForm, DebtForm, LoanForm, SettleForm } from "./PlanningForms";
+import { daysUntil, dueText } from "./dueDates";
+import { BudgetsSummary, DebtsSummary, LoanSchedule, LoansSummary } from "./Summaries";
 
 function Bar({ label, percent }: { label: string; percent: number }) {
 	return (
@@ -73,6 +75,11 @@ function Actions({ children }: { children: React.ReactNode }) {
 	return <div className="flex flex-wrap gap-2">{children}</div>;
 }
 
+/** What a tab is for, in a sentence or two, above everything in it. */
+function Intro({ children }: { children: string }) {
+	return <p className="mb-4 text-sm leading-relaxed text-muted">{children}</p>;
+}
+
 /** The button that opens a tab's "new …" form, set apart from its list. */
 function AddBar({ label, onPress }: { label: string; onPress: () => void }) {
 	return (
@@ -92,6 +99,8 @@ function Budgets({ book }: { book: BookResponse }) {
 	const [removing, setRemoving] = useState<BudgetResponse | null>(null);
 	return (
 		<>
+			<Intro>{t.plan.budgetsIntro}</Intro>
+			<BudgetsSummary book={book} rows={data} />
 			<AddBar label={t.planningForms.addBudget} onPress={() => setAdding(true)} />
 			{isLoading ? (
 				<PageSkeleton header={false} rows={3} />
@@ -167,6 +176,8 @@ function Debts({ book }: { book: BookResponse }) {
 	const [removing, setRemoving] = useState<DebtResponse | null>(null);
 	return (
 		<>
+			<Intro>{t.plan.debtsIntro}</Intro>
+			<DebtsSummary book={book} rows={data} />
 			<AddBar label={t.planningForms.addDebt} onPress={() => setAdding(true)} />
 			{isLoading ? (
 				<PageSkeleton header={false} rows={3} />
@@ -191,17 +202,40 @@ function Debts({ book }: { book: BookResponse }) {
 								/>
 							}
 						>
-							<p className="text-lg font-semibold">{formatMoney(debt.amount, book.currency)}</p>
+							<p className="text-lg font-semibold">
+								{formatMoney(
+									debt.is_settled ? debt.amount : (debt.remaining ?? debt.amount),
+									book.currency,
+								)}
+							</p>
+							{Number(debt.paid ?? 0) > 0 && !debt.is_settled ? (
+								<>
+									<Bar
+										label={debt.person}
+										percent={(Number(debt.paid) / Number(debt.amount)) * 100}
+									/>
+									<p className="text-sm text-muted">
+										{t.plan.paidOf} {formatMoney(debt.paid ?? "0", book.currency)} · {t.plan.leftOf}{" "}
+										{formatMoney(debt.remaining ?? debt.amount, book.currency)} ·{" "}
+										{formatMoney(debt.amount, book.currency)}
+									</p>
+								</>
+							) : null}
 							{debt.due_on ? (
-								<p className="text-sm text-muted">
+								<p
+									className={`text-sm ${
+										!debt.is_settled && daysUntil(debt.due_on) < 0 ? "text-danger" : "text-muted"
+									}`}
+								>
 									{t.planning.due} {formatFullDate(debt.due_on)}
+									{debt.is_settled ? "" : ` · ${dueText(debt.due_on)}`}
 								</p>
 							) : null}
 							{debt.note ? <p className="text-sm text-muted">{debt.note}</p> : null}
 							<Actions>
 								{debt.is_settled ? null : (
 									<Button size="sm" variant="secondary" onPress={() => setSettling(debt)}>
-										{t.planning.settle}
+										{t.plan.partPay}
 									</Button>
 								)}
 								<Button size="sm" variant="ghost" onPress={() => setRemoving(debt)}>
@@ -218,7 +252,7 @@ function Debts({ book }: { book: BookResponse }) {
 			<Modal
 				isOpen={settling !== null}
 				onOpenChange={(open) => !open && setSettling(null)}
-				title={settling ? `${t.planningForms.settleTitle} ${settling.person}` : t.planning.settle}
+				title={settling ? `${t.plan.partTitle} ${settling.person}` : t.plan.partPay}
 				size="sm"
 			>
 				{settling ? (
@@ -265,6 +299,8 @@ function Loans({ book }: { book: BookResponse }) {
 	const [removing, setRemoving] = useState<LoanResponse | null>(null);
 	return (
 		<>
+			<Intro>{t.plan.loansIntro}</Intro>
+			<LoansSummary book={book} rows={data} />
 			<AddBar label={t.planningForms.addLoan} onPress={() => setAdding(true)} />
 			{isLoading ? (
 				<PageSkeleton header={false} rows={3} />
@@ -294,6 +330,7 @@ function Loans({ book }: { book: BookResponse }) {
 										{t.planning.next} {formatFullDate(loan.next_due_on)}
 									</p>
 								) : null}
+								<LoanSchedule loan={loan} />
 								<Actions>
 									{finished ? (
 										<StatusChip tone="success" label={t.planningForms.allPaid} />

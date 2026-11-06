@@ -23,5 +23,8 @@ export interface DebtResponse {
 	id: string;
 	is_settled: boolean;
 	note?: string | null;
+	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
+	paid?: string;
 	person: string;
+	remaining?: string | null;
 }

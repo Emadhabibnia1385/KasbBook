@@ -16,5 +16,6 @@
  */
 
 export interface DebtSettleRequest {
+	amount?: number | string | null;
 	record_transaction?: boolean;
 }

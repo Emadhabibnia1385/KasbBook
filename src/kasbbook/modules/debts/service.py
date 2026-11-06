@@ -79,8 +79,12 @@ class DebtService:
         user_id: uuid.UUID,
         debt_id: uuid.UUID,
         record_transaction: bool = False,
+        amount=None,
     ) -> Debt:
-        """Close the debt, and — only when asked — record the money moving.
+        """Pay the debt, in whole or in part, and — only when asked — record the money moving.
+
+        With no `amount` the whole of what is left is paid and the debt closes.
+        A smaller amount is a part payment: the debt stays open with less left.
 
         Whether settling is income or expense depends on what was recorded
         when the debt arose: if the sale on credit, or the purchase, is already
@@ -95,6 +99,13 @@ class DebtService:
             # A second press must not record the money a second time.
             raise ValidationError(f"«{debt.person}» قبلاً تسویه شده است.")
 
+        remaining = quantize(debt.remaining)
+        value = remaining if amount is None else quantize(to_decimal(amount))
+        if value <= ZERO:
+            raise ValidationError("مبلغ باید بیشتر از صفر باشد")
+        if value > remaining:
+            raise ValidationError("این مبلغ از باقی‌ماندهٔ بدهی بیشتر است.")
+
         if record_transaction:
             from ..ledger.models import Flow
             from ..ledger.service import LedgerService
@@ -108,11 +119,13 @@ class DebtService:
                 flow=Flow.INCOME if received else Flow.EXPENSE,
                 scope=SCOPE_FOR_BOOK[book.type],
                 category="تسویه طلب" if received else "تسویه بدهی",
-                amount=debt.amount,
+                amount=value,
                 description=f"تسویه با {debt.person}",
             )
 
-        debt.settled_at = datetime.now(timezone.utc)
+        debt.paid_amount = quantize(to_decimal(debt.paid_amount or 0) + value)
+        if value == remaining:
+            debt.settled_at = datetime.now(timezone.utc)
         await self.session.flush()
         return debt
 
@@ -145,9 +158,11 @@ class DebtService:
         mine = ZERO
 
         for debt in await self.list_debts(book_id, user_id, include_settled=False):
+            # What is still outstanding, not what it started as.
+            left = debt.remaining
             if debt.direction is Direction.OWED_TO_ME:
-                owed += debt.amount
+                owed += left
             else:
-                mine += debt.amount
+                mine += left
 
         return DebtTotals(quantize(owed), quantize(mine))

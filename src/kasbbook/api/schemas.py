@@ -564,12 +564,16 @@ class DebtSettleRequest(Model):
     # Off unless asked: if the original sale or purchase is already recorded,
     # recording the payment as well counts the same money twice.
     record_transaction: bool = False
+    # A part payment: how much of what is left was paid. Left out, the whole of it is.
+    amount: Optional[Decimal] = Field(default=None, gt=0)
 
 
 class DebtResponse(MoneyModel):
     id: uuid.UUID
     person: str
     amount: Decimal
+    paid: Decimal = Decimal("0")
+    remaining: Optional[Decimal] = None
     direction: str
     is_settled: bool
     due_on: Optional[date] = None
@@ -595,6 +599,8 @@ class LoanResponse(MoneyModel):
     remaining: Decimal
     percent_paid: int
     next_due_on: Optional[date] = None
+    # Every instalment's due date, in order: the first `paid_count` are the paid ones.
+    due_dates: List[date] = []
 
 
 class HealthResponse(Model):

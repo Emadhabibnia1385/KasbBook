@@ -16,6 +16,7 @@
  */
 
 export interface LoanResponse {
+	due_dates?: string[];
 	id: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	installment_amount: string;
