@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useController } from "react-hook-form";
 import { Button, TextField } from "@nyxon/nasim";
-import { monthWindow } from "@/features/payroll/calendar";
 import { CalendarIcon } from "@/shared/icons";
 import { t } from "@/strings";
 import { CalendarPopup, KindSwitch } from "./CalendarPopup";
 import { type CalendarKind, parseGregorianDay, writeDay } from "./calendar";
 import { pickedDay, toPicker } from "./dates";
-import { type DayParse, jalaliOfIso, parseJalaliDay, shiftIso } from "./jalaliDay";
+import { type DayParse, parseJalaliDay, shiftIso } from "./jalaliDay";
 
 type DayFieldProps = { label: string; isRequired?: boolean } & (
 	| { name: string }
@@ -111,11 +110,6 @@ function DayInput({
 		onChange(toPicker(iso));
 	};
 	const today = todayIso();
-	const mine = jalaliOfIso(today);
-	const monthStart = mine
-		? monthWindow(`${mine.year}-${String(mine.month).padStart(2, "0")}`).starts_on
-		: today;
-
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex items-end gap-2">
@@ -145,16 +139,13 @@ function DayInput({
 					<CalendarIcon aria-hidden />
 				</Button>
 			</div>
-			<div className="flex flex-wrap items-center gap-2">
+			<div className="flex items-center gap-2">
 				<KindSwitch kind={kind} onChange={setKind} />
 				<Button size="sm" variant="secondary" onPress={() => set(today)}>
 					{t.days.today}
 				</Button>
 				<Button size="sm" variant="secondary" onPress={() => set(shiftIso(today, -1))}>
 					{t.days.yesterday}
-				</Button>
-				<Button size="sm" variant="secondary" onPress={() => set(monthStart)}>
-					{t.days.monthStart}
 				</Button>
 			</div>
 			<CalendarPopup
