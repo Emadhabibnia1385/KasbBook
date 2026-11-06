@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
-	ConfirmDialog,
 	CopyField,
 	FormRoot,
 	Modal,
@@ -42,60 +41,46 @@ const schema = z.object({
 });
 type Values = z.input<typeof schema>;
 
-type Health = { status: string; database: string; version: string };
+type Health = { status: string; database: string };
 
-const readHealth = async (path: string): Promise<Health | null> => {
+const readHealth = async (): Promise<Health | null> => {
 	try {
-		const response = await fetch(path, { headers: { Accept: "application/json" } });
+		const response = await fetch("/readyz", { headers: { Accept: "application/json" } });
 		return response.ok || response.status === 503 ? ((await response.json()) as Health) : null;
 	} catch {
 		return null;
 	}
 };
 
-function SystemInfo({
-	isOpen,
-	onOpenChange,
-}: {
-	isOpen: boolean;
-	onOpenChange: (o: boolean) => void;
-}) {
+/** The service's health, in the open at the top of the page: no button to press to see it. */
+function Status() {
 	const info = useQuery({
 		queryKey: ["system-info"],
-		queryFn: () => readHealth("/readyz"),
-		enabled: isOpen,
-		staleTime: 0,
+		queryFn: readHealth,
+		refetchInterval: 60_000,
 	});
 	const health = info.data;
-	const rows: [string, string][] = [
-		[
-			t.acct.systemStatus,
-			info.isLoading
-				? t.common.loading
-				: health?.status === "ok"
-					? t.acct.systemOk
-					: t.acct.systemDown,
-		],
-		[
-			t.acct.systemDatabase,
-			health ? (health.database === "reachable" ? t.acct.systemReachable : health.database) : "—",
-		],
-		[t.acct.systemVersion, health?.version ?? "—"],
-		[t.acct.systemAddress, `${window.location.origin}/api/v1`],
-	];
+	const ok = health?.status === "ok";
+	const database = health
+		? health.database === "reachable"
+			? t.acct.systemReachable
+			: health.database
+		: "—";
+	const dot = (good: boolean) => (
+		<span aria-hidden className={`size-2 rounded-full ${good ? "bg-success" : "bg-danger"}`} />
+	);
 	return (
-		<Modal isOpen={isOpen} onOpenChange={onOpenChange} title={t.acct.systemTitle} size="sm">
-			<dl className="flex flex-col gap-3">
-				{rows.map(([label, value]) => (
-					<div key={label} className="flex items-center justify-between gap-4 text-sm">
-						<dt className="text-muted">{label}</dt>
-						<dd dir="ltr" className="break-all font-medium">
-							{value}
-						</dd>
-					</div>
-				))}
-			</dl>
-		</Modal>
+		<div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+			<span className="flex items-center gap-2">
+				{info.isLoading ? null : dot(ok)}
+				<span className="text-muted">{t.acct.systemStatus}:</span>
+				<b>{info.isLoading ? t.common.loading : ok ? t.acct.systemOk : t.acct.systemDown}</b>
+			</span>
+			<span className="flex items-center gap-2">
+				<span className="text-muted">{t.acct.systemDatabase}:</span>
+				<b>{info.isLoading ? "…" : database}</b>
+			</span>
+		</div>
 	);
 }
 
@@ -109,7 +94,7 @@ function CreateKey({ onCreated }: { onCreated: (key: string) => void }) {
 	return (
 		<FormRoot
 			form={form}
-			className="grid gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end"
+			className="flex flex-col gap-3"
 			onSubmit={async (values) => {
 				try {
 					const made = await create.mutateAsync({
@@ -127,33 +112,50 @@ function CreateKey({ onCreated }: { onCreated: (key: string) => void }) {
 			}}
 		>
 			<TextField name="name" label={t.acct.keyName} placeholder={t.acct.keyNameHint} isRequired />
-			<SelectField name="expiry" label={t.acct.keyExpiry} options={EXPIRY} />
-			<SubmitButton>{t.acct.createKey}</SubmitButton>
+			<div className="grid grid-cols-[1fr_auto] items-end gap-3">
+				<SelectField name="expiry" label={t.acct.keyExpiry} options={EXPIRY} />
+				<SubmitButton>{t.acct.createKey}</SubmitButton>
+			</div>
 		</FormRoot>
 	);
 }
 
-/** The API: keys for programs, and the three places to read about it or look at it. */
+/** The API: where it lives and how to read about it, then the keys programs use to reach it. */
 export function ApiTab() {
 	const queryClient = useQueryClient();
 	const keys = useAuthListApiKeys();
-	const revoke = useAuthRevokeApiKey();
+	const remove = useAuthRevokeApiKey();
 	const [fresh, setFresh] = useState<string | null>(null);
-	const [revoking, setRevoking] = useState<ApiKeyResponse | null>(null);
-	const [system, setSystem] = useState(false);
+	const [busy, setBusy] = useState<string | null>(null);
+
+	// A key is deleted on the press: it stops working at once and leaves the list.
+	const deleteKey = async (key: ApiKeyResponse) => {
+		setBusy(key.id);
+		try {
+			await remove.mutateAsync({ keyId: key.id });
+			await queryClient.invalidateQueries({ queryKey: getAuthListApiKeysQueryKey() });
+			toast.success(t.acct.revoked);
+		} catch (error) {
+			reportFailure(error);
+		} finally {
+			setBusy(null);
+		}
+	};
+
 	return (
 		<div className="flex flex-col gap-5">
 			<SectionCard title={t.acct.resources}>
-				<div className="flex flex-wrap gap-2">
-					<Button variant="secondary" onPress={() => window.open(DOCS_URL, "_blank", "noopener")}>
-						{t.acct.docs}
-					</Button>
-					<Button variant="secondary" onPress={() => window.open("/docs", "_blank", "noopener")}>
-						{t.acct.openapi}
-					</Button>
-					<Button variant="secondary" onPress={() => setSystem(true)}>
-						{t.acct.system}
-					</Button>
+				<div className="flex flex-col gap-4">
+					<Status />
+					<CopyField label={t.acct.systemAddress} value={`${window.location.origin}/api/v1`} />
+					<div className="grid grid-cols-2 gap-3">
+						<Button variant="secondary" onPress={() => window.open(DOCS_URL, "_blank", "noopener")}>
+							{t.acct.docs}
+						</Button>
+						<Button variant="secondary" onPress={() => window.open("/docs", "_blank", "noopener")}>
+							{t.acct.openapi}
+						</Button>
+					</div>
 				</div>
 			</SectionCard>
 			<SectionCard title={t.acct.keys} description={t.acct.keysLead}>
@@ -166,11 +168,19 @@ export function ApiTab() {
 							{(keys.data ?? []).map((key) => (
 								<li
 									key={key.id}
-									className="flex items-center justify-between gap-3 rounded-xl border border-border p-3"
+									className="flex items-center gap-3 rounded-xl border border-border p-3"
 								>
-									<span className="flex min-w-0 flex-col gap-0.5">
+									<Button
+										size="sm"
+										variant="danger-soft"
+										isPending={busy === key.id}
+										onPress={() => void deleteKey(key)}
+									>
+										{t.common.delete}
+									</Button>
+									<span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
 										<span className="truncate font-medium">{key.name}</span>
-										<span dir="ltr" className="text-start text-xs text-muted">
+										<span dir="ltr" className="text-xs text-muted">
 											{key.prefix}…
 										</span>
 										<span className="text-xs text-muted">
@@ -182,9 +192,6 @@ export function ApiTab() {
 												: ""}
 										</span>
 									</span>
-									<Button size="sm" variant="danger-soft" onPress={() => setRevoking(key)}>
-										{t.acct.revoke}
-									</Button>
 								</li>
 							))}
 						</ul>
@@ -202,26 +209,6 @@ export function ApiTab() {
 					{fresh ? <CopyField label={t.acct.keyField} value={fresh} /> : null}
 				</div>
 			</Modal>
-			<ConfirmDialog
-				isOpen={revoking !== null}
-				onOpenChange={(open) => !open && setRevoking(null)}
-				title={t.acct.revoke}
-				description={revoking?.name}
-				confirmLabel={t.acct.revoke}
-				tone="danger"
-				onConfirm={async () => {
-					if (!revoking) return;
-					try {
-						await revoke.mutateAsync({ keyId: revoking.id });
-						await queryClient.invalidateQueries({ queryKey: getAuthListApiKeysQueryKey() });
-						toast.success(t.acct.revoked);
-					} catch (error) {
-						reportFailure(error);
-						throw error;
-					}
-				}}
-			/>
-			<SystemInfo isOpen={system} onOpenChange={setSystem} />
 		</div>
 	);
 }
