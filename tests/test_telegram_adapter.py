@@ -485,6 +485,7 @@ CALLS = {
     "set_webhook": lambda a: a.set_webhook("https://example.test/hook"),
     "delete_webhook": lambda a: a.delete_webhook(),
     "get_me": lambda a: a.get_me(),
+    "download_file": lambda a: a.download_file("PHOTO-1", 1000),
     "fetch_updates": lambda a: a.fetch_updates(offset=1, timeout=0),
     "aclose": lambda a: a.aclose(),
 }

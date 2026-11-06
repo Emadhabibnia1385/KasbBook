@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, File, Query, Request, UploadFile
 from fastapi.responses import Response
 from urllib.parse import quote
 
@@ -21,11 +21,11 @@ from ...modules.identity.models import MESSENGERS, Provider
 from ...modules.identity.service import IdentityService
 from ...modules.ledger.models import Flow, Scope
 from ...modules.exchange.service import ExchangeService
-from ...modules.ledger.attachments import MAX_BYTES, AttachmentService
+from ...modules.ledger.attachments import MAX_BYTES, AttachmentService, sniff
 from ...modules.ledger.service import LedgerService
 from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
-from ..deps import CurrentUser, SessionDep
+from ..deps import CurrentUser, SessionDep, SettingsDep
 from ..schemas import (
     AttachmentResponse,
     BaseCurrencyRequest,
@@ -462,3 +462,58 @@ async def delete_attachment(
     user: CurrentUser, session: SessionDep,
 ) -> None:
     await AttachmentService(session).remove(book_id, user.id, transaction_id, attachment_id)
+
+
+# ----------------------------------------------- receipts held by the messenger
+RECEIPT_MAX_BYTES = 8_000_000
+RECEIPT_GONE = "این رسید از پیام‌رسان گرفته نشد؛ شاید حذف شده یا در پنل وب قابل نمایش نیست."
+
+
+@router.get("/{book_id}/transactions/{transaction_id}/receipt")
+async def download_receipt(
+    book_id: uuid.UUID, transaction_id: uuid.UUID, request: Request, user: CurrentUser,
+    session: SessionDep, settings: SettingsDep,
+) -> Response:
+    """The receipt the bot stored, fetched from the messenger that holds it.
+
+    The receipt is the messenger's own file id, never our bytes, so this asks the provider for the
+    file on the person's behalf, after the usual book gate, and hands it over without keeping it.
+    Only a receipt held by the provider this process speaks to can be fetched; any other, and any
+    failure to fetch, is one answer: it is not available.
+    """
+    row = await LedgerService(session).get_transaction(book_id, user.id, transaction_id)
+    if not row.receipt_file_id or row.receipt_provider != settings.provider.value:
+        raise NotFound(RECEIPT_GONE)
+
+    from dataclasses import replace
+
+    adapter = getattr(request.app.state, "adapters", {}).get(settings.provider.value)
+    temporary = adapter is None
+    if temporary:
+        from apps.bot.runner import build_adapter
+
+        if not settings.token:
+            raise NotFound(RECEIPT_GONE)
+        adapter = build_adapter(replace(settings))
+    try:
+        data = await adapter.download_file(row.receipt_file_id, RECEIPT_MAX_BYTES)
+    finally:
+        if temporary:
+            await adapter.aclose()
+    if data is None:
+        raise NotFound(RECEIPT_GONE)
+    # What it is comes from its bytes, as for an upload. Anything that is not a photo or a PDF is
+    # handed over as a download and never rendered.
+    content_type = sniff(data)
+    return Response(
+        content=data,
+        media_type=content_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": (
+                "inline" if content_type else "attachment"
+            ) + f"; filename*=UTF-8''{quote(row.receipt_file_name or 'receipt')}",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            "Cache-Control": "private, no-store",
+        },
+    )

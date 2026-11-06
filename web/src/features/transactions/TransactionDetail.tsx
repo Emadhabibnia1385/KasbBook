@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { apiFetch } from "@/api/transport";
 import { BottomSheet, Button, KeyValueList, Modal, useIsNarrow } from "@nyxon/nasim";
 import { useBooksListAttachments } from "@/api/generated/books/books";
 import type { BookResponse, TransactionResponse } from "@/api/generated/model";
@@ -6,6 +8,41 @@ import { multiply } from "@/features/payroll/decimal";
 import { currencyName, formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 import { AttachmentItem } from "./AttachmentsField";
+
+// The receipt the bot stored lives at the messenger; this asks for it on the person's behalf.
+function ReceiptRow({ book, row }: { book: BookResponse; row: TransactionResponse }) {
+	const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
+	return (
+		<div className="flex flex-col gap-2">
+			<span className="text-sm font-medium">{t.attach.botReceipt}</span>
+			<div className="flex items-center justify-between gap-3 rounded-xl border border-border p-2">
+				<span dir="ltr" className="min-w-0 truncate text-start text-sm">
+					{row.receipt_file_name ?? row.receipt_kind ?? "receipt"}
+				</span>
+				<Button
+					size="sm"
+					variant="secondary"
+					isPending={state === "loading"}
+					onPress={async () => {
+						setState("loading");
+						try {
+							const blob = await apiFetch<Blob>(
+								`/api/v1/books/${book.id}/transactions/${row.id}/receipt`,
+							);
+							window.open(URL.createObjectURL(blob), "_blank", "noopener");
+							setState("idle");
+						} catch {
+							setState("failed");
+						}
+					}}
+				>
+					{t.attach.open}
+				</Button>
+			</div>
+			{state === "failed" ? <p className="text-sm text-danger">{t.attach.receiptGone}</p> : null}
+		</div>
+	);
+}
 
 function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
 	const files = useBooksListAttachments(book.id, row.id, {
@@ -73,6 +110,7 @@ function Body({ book, row }: { book: BookResponse; row: TransactionResponse }) {
 						: null,
 				]}
 			/>
+			{row.has_receipt ? <ReceiptRow book={book} row={row} /> : null}
 			{(row.attachment_count ?? 0) > 0 ? (
 				<div className="flex flex-col gap-2">
 					<span className="text-sm font-medium">{t.attach.title}</span>

@@ -138,3 +138,59 @@ async def test_a_file_does_not_open_under_another_books_path(api):
         "flow": "expense", "scope": "work", "category": "اجاره", "amount": "5"})).json()["id"]
     assert (await api.get(url(other_book, other_tx, attachment), headers=headers)).status_code == 404
     assert (await api.get(url(book, other_tx, attachment), headers=headers)).status_code == 404
+
+
+# ---------------------------------------------------------------- bot receipts
+class FakeDownloader:
+    """Stands in for the adapter the API holds in webhook mode."""
+
+    def __init__(self, data):
+        self.data, self.asked = data, []
+
+    async def download_file(self, file_id, max_bytes):
+        self.asked.append((file_id, max_bytes))
+        return self.data
+
+    async def aclose(self):
+        pass
+
+
+async def with_receipt(api, db, provider="telegram", email="r@example.com"):
+    headers, book, tx = await workspace(api, email)
+    from sqlalchemy import update
+
+    from kasbbook.modules.ledger.models import Transaction
+
+    async for session in db.session():
+        await session.execute(update(Transaction).where(Transaction.id == __import__("uuid").UUID(tx)).values(
+            receipt_file_id="PHOTO-1", receipt_provider=provider, receipt_file_name="رسید.jpg"))
+        await session.commit()
+    return headers, book, tx
+
+
+async def test_a_receipt_the_bot_stored_is_fetched_from_the_messenger(api, db):
+    headers, book, tx = await with_receipt(api, db)
+    fake = FakeDownloader(PNG)
+    api._transport.app.state.adapters = {"telegram": fake}
+    got = await api.get(f"/api/v1/books/{book}/transactions/{tx}/receipt", headers=headers)
+    assert got.status_code == 200 and got.content == PNG
+    assert got.headers["content-type"] == "image/png" and got.headers["x-content-type-options"] == "nosniff"
+    assert fake.asked == [("PHOTO-1", 8_000_000)]
+
+
+async def test_a_receipt_that_cannot_be_fetched_is_simply_not_available(api, db):
+    headers, book, tx = await with_receipt(api, db)
+    api._transport.app.state.adapters = {"telegram": FakeDownloader(None)}
+    assert (await api.get(f"/api/v1/books/{book}/transactions/{tx}/receipt", headers=headers)).status_code == 404
+    # A receipt held by a messenger this process does not speak to is the same answer.
+    headers, book, tx = await with_receipt(api, db, provider="bale", email="r2@example.com")
+    api._transport.app.state.adapters = {"telegram": FakeDownloader(PNG)}
+    assert (await api.get(f"/api/v1/books/{book}/transactions/{tx}/receipt", headers=headers)).status_code == 404
+
+
+async def test_a_receipt_is_only_for_those_who_can_see_the_book(api, db):
+    headers, book, tx = await with_receipt(api, db)
+    api._transport.app.state.adapters = {"telegram": FakeDownloader(PNG)}
+    stranger = await signed_in(api, "x@example.com")
+    assert (await api.get(f"/api/v1/books/{book}/transactions/{tx}/receipt", headers=stranger)).status_code == 404
+    assert (await api.get(f"/api/v1/books/{book}/transactions/{tx}/receipt")).status_code == 401

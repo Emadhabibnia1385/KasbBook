@@ -13091,6 +13091,90 @@
         ]
       }
     },
+    "/api/v1/books/{book_id}/transactions/{transaction_id}/receipt": {
+      "get": {
+        "description": "The receipt the bot stored, fetched from the messenger that holds it.\n\nThe receipt is the messenger's own file id, never our bytes, so this asks the provider for the\nfile on the person's behalf, after the usual book gate, and hands it over without keeping it.\nOnly a receipt held by the provider this process speaks to can be fetched; any other, and any\nfailure to fetch, is one answer: it is not available.",
+        "operationId": "books_download_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Receipt",
+        "tags": [
+          "books"
+        ]
+      }
+    },
     "/api/v1/books/{book_id}/wallet": {
       "get": {
         "description": "What the book holds, in the currency it holds it in.",

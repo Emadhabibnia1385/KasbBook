@@ -177,6 +177,11 @@ field `file`) adds one, `GET /{attachment}` downloads it and `DELETE
 transaction; the type is read from the bytes, so a renamed file is refused.
 `attachment_count` on the transaction says how many there are.
 
+A receipt the bot stored is not one of these files: it is the messenger's, and
+`GET /books/{id}/transactions/{tx}/receipt` fetches it from Telegram for the
+caller (up to 8 MB, type read from the bytes, nothing kept). Any failure — a
+deleted file, a receipt held by a different messenger — is a 404.
+
 `scope` is optional and defaults from the book type. `currency` defaults to the
 book's own, and a different one must be a currency the book has enabled and
 must carry `conversion_rate` — that rate is frozen on the transaction and never

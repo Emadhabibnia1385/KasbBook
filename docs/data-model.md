@@ -87,9 +87,13 @@ Transaction
 `scope` exists so a team book never accidentally records someone's personal
 groceries. It defaults from the book type and can be overridden.
 
-Receipts store the **provider's file id**, never the bytes. Showing one sends
-that id back. Nothing is downloaded, nothing is stored, and there is no bucket
-of other people's photographs to secure.
+Receipts store the **provider's file id**, never the bytes. In the bot, showing
+one sends that id back: nothing is downloaded, nothing is stored, and there is
+no bucket of other people's photographs to secure. The web panel cannot send an
+id, so `GET .../receipt` asks Telegram for the file on the person's behalf, after
+the usual book gate, and hands it over without keeping it. Only Telegram is
+wired for that; a receipt held by another messenger is reported as not
+available.
 
 The web panel has no messenger to hold a file, so a file attached there is a
 different thing: `TransactionAttachment` stores the **bytes**, in the database,

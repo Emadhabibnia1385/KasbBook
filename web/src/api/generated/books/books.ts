@@ -3202,6 +3202,162 @@ export function useBooksDownloadAttachment<
 	return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getBooksDownloadReceiptUrl = (bookId: string, transactionId: string) => {
+	return `/api/v1/books/${bookId}/transactions/${transactionId}/receipt`;
+};
+
+/**
+ * The receipt the bot stored, fetched from the messenger that holds it.
+ *
+ * The receipt is the messenger's own file id, never our bytes, so this asks the provider for the
+ * file on the person's behalf, after the usual book gate, and hands it over without keeping it.
+ * Only a receipt held by the provider this process speaks to can be fetched; any other, and any
+ * failure to fetch, is one answer: it is not available.
+ * @summary Download Receipt
+ */
+export const booksDownloadReceipt = async (
+	bookId: string,
+	transactionId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<unknown> => {
+	return apiFetch<unknown>(getBooksDownloadReceiptUrl(bookId, transactionId), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getBooksDownloadReceiptQueryKey = (bookId: string, transactionId: string) => {
+	return [`/api/v1/books/${bookId}/transactions/${transactionId}/receipt`] as const;
+};
+
+export const useBooksDownloadReceiptQueryOptions = <
+	TData = Awaited<ReturnType<typeof booksDownloadReceipt>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	transactionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadReceipt>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getBooksDownloadReceiptQueryKey(bookId, transactionId);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof booksDownloadReceipt>>> = ({ signal }) =>
+		booksDownloadReceipt(bookId, transactionId, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled:
+			bookId !== null &&
+			bookId !== undefined &&
+			transactionId !== null &&
+			transactionId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof booksDownloadReceipt>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type BooksDownloadReceiptQueryResult = NonNullable<
+	Awaited<ReturnType<typeof booksDownloadReceipt>>
+>;
+export type BooksDownloadReceiptQueryError = ErrorType<HTTPValidationError>;
+
+export function useBooksDownloadReceipt<
+	TData = Awaited<ReturnType<typeof booksDownloadReceipt>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	transactionId: string,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadReceipt>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof booksDownloadReceipt>>,
+					TError,
+					Awaited<ReturnType<typeof booksDownloadReceipt>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBooksDownloadReceipt<
+	TData = Awaited<ReturnType<typeof booksDownloadReceipt>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	transactionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadReceipt>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof booksDownloadReceipt>>,
+					TError,
+					Awaited<ReturnType<typeof booksDownloadReceipt>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBooksDownloadReceipt<
+	TData = Awaited<ReturnType<typeof booksDownloadReceipt>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	transactionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadReceipt>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Download Receipt
+ */
+
+export function useBooksDownloadReceipt<
+	TData = Awaited<ReturnType<typeof booksDownloadReceipt>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	transactionId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof booksDownloadReceipt>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useBooksDownloadReceiptQueryOptions(bookId, transactionId, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getBooksWalletUrl = (bookId: string) => {
 	return `/api/v1/books/${bookId}/wallet`;
 };

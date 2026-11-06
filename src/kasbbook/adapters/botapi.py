@@ -231,6 +231,37 @@ class BotApiAdapter:
             return None
         return body.get("result")
 
+    # Whether this provider's file downloads are known to work the way Telegram's do. Bale speaks the
+    # same dialect but its download path has not been checked against its documentation, so it stays off
+    # until it is: a guess here would be a second guess stacked on the first.
+    downloads_files: bool = False
+
+    async def download_file(self, file_id: str, max_bytes: int) -> Optional[bytes]:
+        """The bytes of a file the provider holds, or None when they cannot be had.
+
+        None covers every way it can fail — unsupported here, unknown id, too big, network — because
+        the caller has the same answer for all of them: the file is not available.
+        """
+        if not self.downloads_files:
+            return None
+        try:
+            info = await self._call("getFile", file_id=file_id)
+            path = (info or {}).get("file_path")
+            size = (info or {}).get("file_size")
+            if not path or (size is not None and size > max_bytes):
+                return None
+            data = bytearray()
+            async with self._client.stream("GET", f"{self.api_root}/file/bot{self.token}/{path}") as response:
+                if response.status_code != 200:
+                    return None
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > max_bytes:
+                        return None
+            return bytes(data)
+        except httpx.HTTPError:
+            return None
+
     async def fetch_updates(
         self, offset: Optional[int] = None, timeout: int = 25
     ) -> UpdateBatch:

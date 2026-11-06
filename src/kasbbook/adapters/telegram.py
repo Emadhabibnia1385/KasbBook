@@ -33,3 +33,5 @@ class TelegramAdapter(BotApiAdapter):
     deep_link_template = "https://t.me/{username}?start={payload}"
     secret_header = "X-Telegram-Bot-Api-Secret-Token"
     capabilities = Capabilities(spoiler=True, button_style=True)
+    # getFile and /file/bot<token>/<path> are Telegram's documented download path.
+    downloads_files = True
