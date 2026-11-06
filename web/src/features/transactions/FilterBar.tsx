@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { tv } from "tailwind-variants";
 import { BottomSheet, Button, Modal, SearchBox, useIsNarrow } from "@nyxon/nasim";
-import { useBooksListCategories } from "@/api/generated/books/books";
+import { useBooksListCategories, useBooksListCurrencies } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
 import { ChevronDownIcon } from "@/shared/icons";
 import { DayField } from "@/shared/DayField";
-import { formatAmount } from "@/shared/format";
+import { currencyName, formatAmount } from "@/shared/format";
 import { t } from "@/strings";
 import {
 	activeCount,
@@ -13,6 +13,7 @@ import {
 	type FlowKey,
 	NO_FILTERS,
 	type RangeKey,
+	type SortKey,
 	toggle,
 } from "./filters";
 
@@ -41,6 +42,13 @@ const RANGES: { value: RangeKey; label: string }[] = [
 	{ value: "d90", label: t.txFilter.d90 },
 	{ value: "year", label: t.txFilter.year },
 	{ value: "custom", label: t.txFilter.custom },
+];
+const SORTS: { value: SortKey; label: string }[] = [
+	{ value: "newest", label: t.txFilter.sortNewest },
+	{ value: "oldest", label: t.txFilter.sortOldest },
+	{ value: "amount_desc", label: t.txFilter.sortLargest },
+	{ value: "amount_asc", label: t.txFilter.sortSmallest },
+	{ value: "category", label: t.txFilter.sortCategory },
 ];
 const FLOW_LABEL: Record<FlowKey, string> = {
 	expense: t.txFilter.onlyExpense,
@@ -103,12 +111,18 @@ export function FilterBar({
 	book,
 	value,
 	onChange,
+	leading,
 }: {
 	book: BookResponse;
 	value: Filters;
 	onChange: (next: Filters) => void;
+	leading?: React.ReactNode;
 }) {
 	const categories = useBooksListCategories(book.id).data ?? [];
+	// The money a payment can have been in: the book's own, then whatever it holds.
+	const currencyOptions = (useBooksListCurrencies(book.id).data ?? [])
+		.filter((option) => option.enabled)
+		.map((option) => option.code);
 	// What is typed is shown at once; what the list asks for follows after a pause.
 	const [typed, setTyped] = useState(value.q);
 	const settled = useDebounced(typed);
@@ -129,17 +143,24 @@ export function FilterBar({
 		value.range === "custom" && value.since && value.until && value.since > value.until;
 	const clearAll = () => {
 		setTyped("");
-		onChange(NO_FILTERS);
+		// The order is the person's way of reading, not a narrowing: it survives clearing.
+		onChange({ ...NO_FILTERS, sort: value.sort });
 	};
 
 	return (
 		<div className="flex flex-col gap-3">
-			<SearchBox
-				label={t.txFilter.search}
-				placeholder={t.txFilter.searchHint}
-				value={typed}
-				onChange={setTyped}
-			/>
+			<div className="flex items-center gap-3">
+				{/* The main action sits first in the row, at the reading start, beside what is searched. */}
+				{leading}
+				<div className="min-w-0 flex-1">
+					<SearchBox
+						label={t.txFilter.search}
+						placeholder={t.txFilter.searchHint}
+						value={typed}
+						onChange={setTyped}
+					/>
+				</div>
+			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<Picker
 					label={t.txFilter.range}
@@ -227,6 +248,55 @@ export function FilterBar({
 						</div>
 					</Picker>
 				) : null}
+				{currencyOptions.length > 1 ? (
+					<Picker
+						label={t.txFilter.currency}
+						summary={
+							value.currencies.length
+								? value.currencies.map((code) => currencyName(code)).join("، ")
+								: t.common.all
+						}
+						active={value.currencies.length > 0}
+						title={t.txFilter.currency}
+					>
+						<div className="flex flex-col gap-1">
+							{currencyOptions.map((code) => (
+								<button
+									key={code}
+									type="button"
+									aria-pressed={value.currencies.includes(code)}
+									className={row({ on: value.currencies.includes(code) })}
+									onClick={() => onChange({ ...value, currencies: toggle(value.currencies, code) })}
+								>
+									{currencyName(code)}
+									<span dir="ltr" className="text-xs text-muted">
+										{code}
+									</span>
+								</button>
+							))}
+						</div>
+					</Picker>
+				) : null}
+				<Picker
+					label={t.txFilter.sort}
+					summary={SORTS.find((item) => item.value === value.sort)?.label ?? ""}
+					active={value.sort !== "newest"}
+					title={t.txFilter.sort}
+				>
+					<div className="flex flex-col gap-1">
+						{SORTS.map((item) => (
+							<button
+								key={item.value}
+								type="button"
+								aria-pressed={value.sort === item.value}
+								className={row({ on: value.sort === item.value })}
+								onClick={() => onChange({ ...value, sort: item.value })}
+							>
+								{item.label}
+							</button>
+						))}
+					</div>
+				</Picker>
 				{count > 0 ? (
 					<Button size="sm" variant="ghost" onPress={clearAll}>
 						{t.txFilter.clear}

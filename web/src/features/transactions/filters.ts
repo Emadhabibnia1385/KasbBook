@@ -12,6 +12,7 @@ export type RangeKey =
 	| "year"
 	| "custom";
 export type FlowKey = "income" | "expense";
+export type SortKey = "newest" | "oldest" | "amount_desc" | "amount_asc" | "category";
 
 export type Filters = {
 	q: string;
@@ -21,6 +22,10 @@ export type Filters = {
 	until: string;
 	flows: FlowKey[];
 	categories: string[];
+	/** The money it was paid in: «only the TON ones». */
+	currencies: string[];
+	/** Not a filter: it orders what is shown, so «clear filters» leaves it alone. */
+	sort: SortKey;
 };
 
 export const NO_FILTERS: Filters = {
@@ -30,6 +35,8 @@ export const NO_FILTERS: Filters = {
 	until: "",
 	flows: [],
 	categories: [],
+	currencies: [],
+	sort: "newest",
 };
 
 // «۳ روز اخیر» counts today as one of the days, so «۷ روز اخیر» is today and the six before it.
@@ -73,7 +80,8 @@ export function activeCount(filters: Filters): number {
 		(filters.q.trim().length >= 2 ? 1 : 0) +
 		(filters.range !== "all" ? 1 : 0) +
 		filters.flows.length +
-		filters.categories.length
+		filters.categories.length +
+		filters.currencies.length
 	);
 }
 

@@ -36,7 +36,15 @@ export type BooksListTransactionsParams = {
 	 */
 	category?: string[] | null;
 	/**
+	 * the money it was paid in; repeat for several
+	 */
+	currency?: string[] | null;
+	/**
 	 * words in the category or the note
 	 */
 	q?: string | null;
+	/**
+	 * newest, oldest, amount_desc, amount_asc or category
+	 */
+	sort?: string;
 };

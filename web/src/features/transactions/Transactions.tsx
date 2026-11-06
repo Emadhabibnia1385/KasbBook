@@ -1,9 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { useQuotes } from "@/features/market/useQuotes";
-import { multiply } from "@/features/payroll/decimal";
+import { useState } from "react";
+import { PlusIcon } from "@/shared/icons";
 import { Amount } from "./Amount";
+import { MoneyFields } from "./MoneyFields";
 import { CategoryField, FlowSwitch } from "./FormControls";
 import { AttachmentsField } from "./AttachmentsField";
 import { CompactRows } from "./CompactRows";
@@ -21,14 +21,12 @@ import {
 	Modal,
 	useIsNarrow,
 	PageHeader,
-	SelectField,
 	SubmitButton,
 	TextField,
 	toast,
 } from "@nyxon/nasim";
 import {
 	booksAddAttachment,
-	useBooksListCurrencies,
 	useBooksDeleteTransaction,
 	useBooksEditTransaction,
 	useBooksListTransactions,
@@ -38,7 +36,7 @@ import type { BookResponse, TransactionResponse } from "@/api/generated/model";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
-import { currencyName, formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
+import { formatAmount, formatDay, formatMoney, toAscii } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -66,6 +64,9 @@ const schema = z.object({
 type Values = z.input<typeof schema>;
 
 const editSchema = z.object({
+	flow: z.enum(["income", "expense"]),
+	currency: z.string(),
+	rate: z.string().transform(toAscii),
 	amount: amountRule,
 	category: z.string().trim().min(1, { error: t.transactions.needCategory }).max(80),
 	description: z.string().max(300),
@@ -74,6 +75,11 @@ const editSchema = z.object({
 type EditValues = z.input<typeof editSchema>;
 
 /** "1500000.0000" → "1500000": the amount as a person would type it back. */
+/** "300000.0000" → "300000"; a rate keeps what places it has, so a small one is not rounded away. */
+function plainRate(value: string): string {
+	return value.includes(".") ? value.replace(/\.?0+$/, "") : value;
+}
+
 function plainAmount(value: string): string {
 	return value.includes(".") ? value.replace(/\.?0+$/, "") : value;
 }
@@ -92,21 +98,38 @@ function EditForm({
 	const form = useForm<EditValues>({
 		resolver: zodResolver(editSchema),
 		defaultValues: {
+			flow: row.flow === "income" ? "income" : "expense",
+			currency: row.original_currency,
+			rate: plainRate(row.conversion_rate),
 			amount: plainAmount(row.original_amount),
 			category: row.category,
 			description: row.description ?? "",
 			occurred_on: toPicker(row.occurred_on),
 		},
 	});
-	const flow = row.flow === "income" ? "income" : "expense";
+	const flow = useWatch({ control: form.control, name: "flow" });
 	return (
 		<FormRoot
 			form={form}
 			className="grid gap-x-8 gap-y-4 md:grid-cols-2"
 			onSubmit={async (raw) => {
 				const values = editSchema.parse(raw);
+				const other = values.currency !== book.currency;
+				if (other && !(/^\d+(\.\d+)?$/.test(values.rate) && Number(values.rate) > 0)) {
+					form.setError("rate", { message: t.fx.needRate });
+					return;
+				}
 				// Only what changed is sent: an unchanged amount would be re-checked against the wallet for nothing.
 				const changes: Record<string, string | null> = {};
+				if (values.flow !== row.flow) changes.flow = values.flow;
+				if (values.currency !== row.original_currency) changes.currency = values.currency;
+				// The rate is sent when it changed, and with any new currency: a new currency has none to inherit.
+				if (
+					other &&
+					(values.currency !== row.original_currency ||
+						values.rate !== plainRate(row.conversion_rate))
+				)
+					changes.conversion_rate = values.rate;
 				if (values.amount !== plainAmount(row.original_amount)) changes.amount = values.amount;
 				if (values.category !== row.category) changes.category = values.category;
 				if ((values.description || null) !== (row.description || null))
@@ -128,17 +151,11 @@ function EditForm({
 			}}
 		>
 			<div className="flex flex-col gap-4">
-				<TextField
-					name="amount"
-					label={t.transactions.amount}
-					description={
-						row.original_currency === book.currency
-							? undefined
-							: `${t.txExtra.foreignCurrency} ${currencyName(row.original_currency)}`
-					}
-					inputMode="decimal"
-					dir="ltr"
-					isRequired
+				<FlowSwitch name="flow" />
+				<MoneyFields
+					book={book}
+					initialCurrency={row.original_currency}
+					initialRate={plainRate(row.conversion_rate)}
 				/>
 				<CategoryField
 					name="category"
@@ -176,42 +193,6 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 		},
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
-	const currency = useWatch({ control: form.control, name: "currency" });
-	const amountTyped = useWatch({ control: form.control, name: "amount" });
-	const rateTyped = useWatch({ control: form.control, name: "rate" });
-	const foreign = currency !== book.currency;
-	const enabled = (useBooksListCurrencies(book.id).data ?? []).filter((option) => option.enabled);
-	// What one unit of each other currency is worth in the book's own, written right after its name in
-	// the menu, so the choice is made knowing roughly what it means. One request for all of them.
-	const others = enabled
-		.filter((option) => option.code !== book.currency)
-		.map((option) => option.code);
-	const worth = new Map(
-		(useQuotes(others, book.currency, others.length > 0).data ?? []).map((q) => [q.code, q.value]),
-	);
-	const options = enabled.map((option) => {
-		const value = worth.get(option.code);
-		const approx = value ? `  ≈ ${formatMoney(value, book.currency)}` : "";
-		return { value: option.code, label: `${option.name} (${option.code})${approx}` };
-	});
-	// The market's price for this currency in the book's own; offered once per currency, never over a typed rate.
-	const market = useQuotes([currency], book.currency, foreign);
-	const quote = foreign ? market.data?.[0] : undefined;
-	const filledFor = useRef<string | null>(null);
-	useEffect(() => {
-		if (!foreign) {
-			filledFor.current = null;
-			return;
-		}
-		if (quote && filledFor.current !== currency && !form.getValues("rate")) {
-			form.setValue("rate", quote.value, { shouldDirty: true });
-			filledFor.current = currency;
-		}
-	}, [foreign, quote, currency, form]);
-	const rateOk = /^\d+(\.\d+)?$/.test(toAscii(rateTyped)) && Number(toAscii(rateTyped)) > 0;
-	const amountOk = /^\d+(\.\d{1,4})?$/.test(toAscii(amountTyped));
-	const equivalent =
-		foreign && rateOk && amountOk ? multiply(toAscii(amountTyped), toAscii(rateTyped)) : null;
 	// Files chosen before the transaction exists wait here and are sent once it does.
 	const [files, setFiles] = useState<File[]>([]);
 	return (
@@ -264,43 +245,7 @@ function AddForm({ book, onDone }: { book: BookResponse; onDone: () => void }) {
 		>
 			<div className="flex flex-col gap-4">
 				<FlowSwitch name="flow" />
-				{options.length > 1 ? (
-					<SelectField name="currency" label={t.fx.currency} options={options} />
-				) : null}
-				<TextField
-					name="amount"
-					label={
-						foreign ? `${t.transactions.amount} (${currencyName(currency)})` : t.transactions.amount
-					}
-					// Right under the amount, as it is typed: what this many of the chosen currency come to in the
-					// book's own, at the rate below.
-					description={equivalent ? `≈ ${formatMoney(equivalent, book.currency)}` : undefined}
-					inputMode="decimal"
-					dir="ltr"
-					isRequired
-				/>
-				{foreign ? (
-					<>
-						<TextField
-							name="rate"
-							label={`${t.fx.rate} (${currencyName(currency)} → ${currencyName(book.currency)})`}
-							description={
-								// Said only when there is something to be careful about: a rate that is an estimate, or
-								// none at all. A market price is just the number.
-								quote
-									? quote.exact
-										? undefined
-										: t.fx.estimateWarning
-									: market.isLoading
-										? undefined
-										: t.rateNote.missing
-							}
-							inputMode="decimal"
-							dir="ltr"
-							isRequired
-						/>
-					</>
-				) : null}
+				<MoneyFields book={book} initialCurrency={book.currency} initialRate="" />
 				<DayField name="occurred_on" label={t.transactions.date} isRequired />
 			</div>
 			<div className="flex flex-col gap-4">
@@ -336,6 +281,7 @@ function List({ book }: { book: BookResponse }) {
 			dates.until ||
 			filters.flows.length ||
 			filters.categories.length ||
+			filters.currencies.length ||
 			text.length >= 2,
 	);
 	const query = useBooksListTransactions(book.id, {
@@ -343,6 +289,8 @@ function List({ book }: { book: BookResponse }) {
 		flow: filters.flows.length ? filters.flows : undefined,
 		category: filters.categories.length ? filters.categories : undefined,
 		q: text.length >= 2 ? text : undefined,
+		currency: filters.currencies.length ? filters.currencies : undefined,
+		sort: filters.sort,
 		page,
 		per_page: PER_PAGE,
 	});
@@ -355,13 +303,15 @@ function List({ book }: { book: BookResponse }) {
 
 	return (
 		<div className="flex flex-col gap-5">
-			<PageHeader
-				title={t.nav.transactions}
-				description={book.name}
-				actions={<Button onPress={() => setAdding(true)}>{t.transactions.add}</Button>}
-			/>
+			<PageHeader title={t.nav.transactions} description={book.name} />
 			<FilterBar
 				book={book}
+				leading={
+					<Button className="hidden shrink-0 md:inline-flex" onPress={() => setAdding(true)}>
+						<PlusIcon aria-hidden />
+						{t.transactions.add}
+					</Button>
+				}
 				value={filters}
 				onChange={(next) => {
 					setFilters(next);
@@ -492,6 +442,16 @@ function List({ book }: { book: BookResponse }) {
 					pagination={{ page, pageCount: pages, onPageChange: setPage }}
 				/>
 			)}
+			{/* A phone's thumb is at the bottom: the main action floats above the tab bar, at the reading start. */}
+			<button
+				type="button"
+				aria-label={t.transactions.add}
+				className="fixed bottom-[calc(var(--nasim-bottom-bar,4.5rem)+1rem)] start-4 z-20 flex h-14 items-center gap-2 rounded-full bg-accent px-5 text-sm font-semibold text-accent-foreground shadow-lg md:hidden"
+				onClick={() => setAdding(true)}
+			>
+				<PlusIcon aria-hidden className="size-6" />
+				{t.transactions.add}
+			</button>
 			<TransactionDetail
 				book={book}
 				row={opened}

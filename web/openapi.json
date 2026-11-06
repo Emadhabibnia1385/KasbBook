@@ -3902,6 +3902,11 @@
             "title": "Category",
             "type": "string"
           },
+          "conversion_rate": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Conversion Rate",
+            "type": "string"
+          },
           "converted_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Converted Amount",
@@ -3985,6 +3990,7 @@
           "category",
           "original_amount",
           "original_currency",
+          "conversion_rate",
           "converted_amount",
           "occurred_on",
           "created_at",
@@ -4061,6 +4067,35 @@
             ],
             "title": "Category"
           },
+          "conversion_rate": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversion Rate"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
           "description": {
             "anyOf": [
               {
@@ -4072,6 +4107,17 @@
               }
             ],
             "title": "Description"
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flow"
           },
           "occurred_on": {
             "anyOf": [
@@ -12313,6 +12359,27 @@
             }
           },
           {
+            "description": "the money it was paid in; repeat for several",
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the money it was paid in; repeat for several",
+              "title": "Currency"
+            }
+          },
+          {
             "description": "words in the category or the note",
             "in": "query",
             "name": "q",
@@ -12329,6 +12396,18 @@
               ],
               "description": "words in the category or the note",
               "title": "Q"
+            }
+          },
+          {
+            "description": "newest, oldest, amount_desc, amount_asc or category",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "newest",
+              "description": "newest, oldest, amount_desc, amount_asc or category",
+              "title": "Sort",
+              "type": "string"
             }
           },
           {

@@ -2057,7 +2057,7 @@ export const getBooksListTransactionsUrl = (
 	const normalizedParams = new URLSearchParams();
 
 	Object.entries(params || {}).forEach(([key, value]) => {
-		const explodeParameters = ["flow", "category"];
+		const explodeParameters = ["flow", "category", "currency"];
 
 		if (Array.isArray(value) && explodeParameters.includes(key)) {
 			value.forEach((v) => {

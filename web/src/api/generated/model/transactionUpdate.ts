@@ -18,6 +18,9 @@
 export interface TransactionUpdate {
 	amount?: number | string | null;
 	category?: string | null;
+	conversion_rate?: number | string | null;
+	currency?: string | null;
 	description?: string | null;
+	flow?: string | null;
 	occurred_on?: string | null;
 }

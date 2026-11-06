@@ -21,6 +21,8 @@ export interface TransactionResponse {
 	attachment_count?: number;
 	category: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
+	conversion_rate: string;
+	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	converted_amount: string;
 	created_at: string;
 	description?: string | null;
