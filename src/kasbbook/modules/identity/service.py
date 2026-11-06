@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 from zoneinfo import ZoneInfo
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence
 
 from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import delete, func, select
@@ -459,6 +459,42 @@ class IdentityService:
         )
 
     async def delete_account(self, user_id: uuid.UUID) -> bool:
+        """Close an account (see `_delete_account`); a guest's demo colleagues go with it."""
+        user = await self.get_user(user_id)
+        colleagues = await self._release_demo_members(user_id) if user.is_guest else []
+        gone = await self._delete_account(user_id)
+        for member_id in colleagues:
+            await self._delete_account(member_id)
+        return gone
+
+    async def _release_demo_members(self, owner_id: uuid.UUID) -> List[uuid.UUID]:
+        """The made-up colleagues of a guest's demo books: take them off so the books can go.
+
+        A guest cannot add members (see `BookService._refuse_guest`), so anyone else on a guest's book is a
+        demo colleague with no way to sign in. They are returned so they can be removed once the books
+        are gone.
+        """
+        from ..books.models import Book, Membership
+
+        books = (
+            await self.session.execute(select(Book.id).where(Book.owner_user_id == owner_id))
+        ).scalars().all()
+        if not books:
+            return []
+        others = (
+            await self.session.execute(
+                select(Membership.user_id).where(
+                    Membership.book_id.in_(books), Membership.user_id != owner_id
+                ).distinct()
+            )
+        ).scalars().all()
+        await self.session.execute(
+            delete(Membership).where(Membership.book_id.in_(books), Membership.user_id != owner_id)
+        )
+        await self.session.flush()
+        return list(others)
+
+    async def _delete_account(self, user_id: uuid.UUID) -> bool:
         """Close an account. Returns True if the row went, False if it stayed.
 
         Books nobody else is on are destroyed with everything in them. Books

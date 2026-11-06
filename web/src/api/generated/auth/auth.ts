@@ -380,6 +380,65 @@ export const useAuthRevokeApiKey = <TError = ErrorType<HTTPValidationError>, TCo
 > => {
 	return useMutation(getAuthRevokeApiKeyMutationOptions(options), queryClient);
 };
+export const getAuthDemoUrl = () => {
+	return `/api/v1/auth/demo`;
+};
+
+/**
+ * A guest account with four books of a year's worth of made-up data, to see the whole panel.
+ *
+ * Like any guest it is removed when the visitor signs out (and after a day), and so are the made-up
+ * colleagues. Making it writes a thousand rows, so it is limited harder than a plain guest.
+ * @summary Demo
+ */
+export const authDemo = async (
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<TokenResponse> => {
+	return apiFetch<TokenResponse>(getAuthDemoUrl(), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getAuthDemoMutationKey = () => ["authDemo"] as const;
+
+export const getAuthDemoMutationOptions = <
+	TError = ErrorType<unknown>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<Awaited<ReturnType<typeof authDemo>>, TError, void, TContext>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<Awaited<ReturnType<typeof authDemo>>, TError, void, TContext> => {
+	const mutationKey = getAuthDemoMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<Awaited<ReturnType<typeof authDemo>>, void> = () => {
+		return authDemo(requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type AuthDemoMutationResult = NonNullable<Awaited<ReturnType<typeof authDemo>>>;
+
+export type AuthDemoMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Demo
+ */
+export const useAuthDemo = <TError = ErrorType<unknown>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<Awaited<ReturnType<typeof authDemo>>, TError, void, TContext>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof authDemo>>, TError, void, TContext> => {
+	return useMutation(getAuthDemoMutationOptions(options), queryClient);
+};
 export const getAuthGuestUrl = () => {
 	return `/api/v1/auth/guest`;
 };

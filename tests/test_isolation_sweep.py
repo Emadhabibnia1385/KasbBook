@@ -72,6 +72,7 @@ async def test_no_book_route_answers_without_signing_in(api):
 # The routes that may be reached without signing in, and why. Anything else that appears here is a hole.
 PUBLIC = {
     ("POST", "/api/v1/auth/guest"),           # a throwaway account for looking around
+    ("POST", "/api/v1/auth/demo"),            # the same, with a year of made-up books to look at
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),          # an unknown token is simply signed out
     ("POST", "/api/v1/auth/refresh"),

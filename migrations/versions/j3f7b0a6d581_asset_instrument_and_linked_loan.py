@@ -23,7 +23,7 @@ def upgrade() -> None:
     with op.batch_alter_table("assets") as batch:
         batch.add_column(sa.Column("instrument", sa.String(length=16), nullable=True))
         batch.add_column(
-            sa.Column("loan_linked", sa.Boolean(), nullable=False, server_default=sa.text("0"))
+            sa.Column("loan_linked", sa.Boolean(), nullable=False, server_default=sa.false())
         )
 
 

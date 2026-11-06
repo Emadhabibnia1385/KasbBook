@@ -12,7 +12,7 @@ import {
 	SubmitButton,
 	TextField,
 } from "@nyxon/nasim";
-import { authGuest, authLogin } from "@/api/generated/auth/auth";
+import { authDemo, authGuest, authLogin } from "@/api/generated/auth/auth";
 import { saveSession } from "@/api/session";
 import { DeveloperFooter } from "@/features/shell/DeveloperFooter";
 import { TelegramIcon } from "@/shared/icons";
@@ -44,6 +44,7 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 	const qr = useMemo(() => (link ? qrcodeToSvg(link) : null), [link]);
 	const [problem, setProblem] = useState<string | null>(null);
 	const [askingGuest, setAskingGuest] = useState(false);
+	const [makingDemo, setMakingDemo] = useState(false);
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
 		defaultValues: { username: "", password: "" },
@@ -158,6 +159,24 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 						<Button variant="outline" className="w-full" onPress={() => setAskingGuest(true)}>
 							{t.guest.button}
 						</Button>
+						<Button
+							variant="secondary"
+							className="w-full"
+							isPending={makingDemo}
+							onPress={async () => {
+								setMakingDemo(true);
+								setProblem(null);
+								try {
+									enter(await authDemo());
+								} catch (error) {
+									setProblem(error instanceof Error ? error.message : t.errors.unknown);
+									setMakingDemo(false);
+								}
+							}}
+						>
+							{makingDemo ? t.guest.demoMaking : t.guest.demoButton}
+						</Button>
+						<p className="text-center text-xs text-muted">{t.guest.demoHint}</p>
 					</div>
 				</div>
 			</div>

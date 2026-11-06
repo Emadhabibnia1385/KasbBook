@@ -14,6 +14,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
+import sqlalchemy as sa
 from sqlalchemy import Date, Enum, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,7 +54,7 @@ class Asset(UUIDPrimaryKey, Timestamped, Base):
     )
     # True when the loan was one already made under the instalments and was tied to this purchase, so removing
     # the purchase gives the loan back as it was instead of deleting it.
-    loan_linked: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="0")
+    loan_linked: Mapped[bool] = mapped_column(default=False, nullable=False, server_default=sa.false())
     # What it is, when it is something with a market price (gold, a coin, a currency): then it is valued at
     # today's price beside what it cost. Empty for a house or a car, which are carried at their cost.
     instrument: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)

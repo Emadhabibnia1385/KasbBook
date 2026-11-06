@@ -119,6 +119,30 @@ async def guest(
     return TokenResponse(**pair.__dict__)
 
 
+DEMO_LIMIT, DEMO_WINDOW = 4, 3600
+
+
+@router.post("/demo", response_model=TokenResponse, status_code=201)
+async def demo(
+    request: Request, session: SessionDep, auth: AuthDep, limiter: LimiterDep
+) -> TokenResponse:
+    """A guest account with four books of a year's worth of made-up data, to see the whole panel.
+
+    Like any guest it is removed when the visitor signs out (and after a day), and so are the made-up
+    colleagues. Making it writes a thousand rows, so it is limited harder than a plain guest.
+    """
+    from ...modules.demo.seed import seed_demo
+
+    fingerprint = client_fingerprint(request)
+    await _enforce(limiter, f"demo:{fingerprint}", DEMO_LIMIT, DEMO_WINDOW)
+    await IdentityService(session).purge_guests()
+    user, _ = await seed_demo(session)
+    pair = await auth.issue_pair(
+        user, user_agent=request.headers.get("user-agent"), ip_address=fingerprint
+    )
+    return TokenResponse(**pair.__dict__)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     body: LoginRequest,
