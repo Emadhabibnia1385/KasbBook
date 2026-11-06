@@ -177,7 +177,6 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 								{currency}
 							</span>
 						</Button>
-						<p className="text-sm text-muted">{t.books.baseCurrencyHint}</p>
 					</div>
 					<div className="flex flex-col gap-1.5">
 						<SelectField
@@ -188,7 +187,6 @@ export function Books({ presetCurrency }: { presetCurrency?: string | undefined 
 						/>
 						<p className="text-sm text-muted">{t.books.calendarHint}</p>
 					</div>
-					<p className="text-xs text-muted">{t.books.suggestedNote}</p>
 					<SubmitButton>{t.common.save}</SubmitButton>
 				</FormRoot>
 			</Modal>
