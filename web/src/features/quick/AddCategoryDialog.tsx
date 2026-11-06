@@ -1,6 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { FormRoot, Modal, SubmitButton, TextField, toast } from "@nyxon/nasim";
@@ -9,9 +8,9 @@ import {
 	useBooksCreateCategory,
 } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
+import { lastBook } from "@/features/books/lastBook";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { BookField, FlowSwitch } from "@/features/transactions/FormControls";
-import { BookIcon } from "@/shared/icons";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -68,31 +67,13 @@ function Fields({
 
 function Body({ onDone }: { onDone: () => void }) {
 	const { books, book } = useActiveBook();
-	const [picked, setPicked] = useState<string | null>(null);
-	const initial = picked ?? book?.id ?? null;
-	if (initial) return <Fields books={books} initial={initial} onDone={onDone} />;
-	return (
-		<div className="flex flex-col gap-3">
-			<p className="text-sm text-muted">{t.quick.categoryBookTitle}</p>
-			<ul className="flex flex-col gap-2">
-				{books.map((item) => (
-					<li key={item.id}>
-						<button
-							type="button"
-							className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 text-start transition-colors hover:bg-surface-secondary"
-							onClick={() => setPicked(item.id)}
-						>
-							<BookIcon aria-hidden className="size-5 shrink-0 text-muted" />
-							<span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-						</button>
-					</li>
-				))}
-			</ul>
-		</div>
-	);
+	const remembered = lastBook();
+	const initial =
+		book?.id ?? (books.some((b) => b.id === remembered) ? remembered : books[0]?.id) ?? null;
+	return initial ? <Fields books={books} initial={initial} onDone={onDone} /> : null;
 }
 
-/** A category from anywhere: asks which book first unless one is in view. */
+/** A category from anywhere: the book is the form's first field, on the one in view or the one used last. */
 export function AddCategoryDialog({
 	isOpen,
 	onOpenChange,

@@ -293,6 +293,18 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 					emptyTitle={emptyTitle}
 					empty={empty}
 					columns={[
+						...(showBook
+							? [
+									{
+										id: "book",
+										header: t.scope.book,
+										className: "w-28",
+										cell: (row: BookedTransactionResponse) => (
+											<bdi className="block truncate text-sm font-medium">{row.book_name}</bdi>
+										),
+									},
+								]
+							: []),
 						{
 							id: "category",
 							header: t.transactions.category,
@@ -316,9 +328,6 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 											</span>
 										) : null}
 									</span>
-									{showBook ? (
-										<span className="truncate text-xs text-muted">{row.book_name}</span>
-									) : null}
 								</span>
 							),
 						},

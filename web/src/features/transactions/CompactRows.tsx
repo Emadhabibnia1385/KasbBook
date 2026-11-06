@@ -67,10 +67,16 @@ export function CompactRows({
 								</span>
 								<span className="flex min-w-0 flex-1 flex-col">
 									<span className="truncate font-medium">{item.category}</span>
-									<span className="truncate text-xs text-muted">
-										{showBook ? `${item.book_name} · ` : ""}
-										{formatDay(item.occurred_on)}
-										{item.description ? ` · ${item.description}` : ""}
+									<span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
+										{showBook ? (
+											<bdi className="max-w-[40%] shrink-0 truncate rounded-full bg-surface-secondary px-2 py-0.5">
+												{item.book_name}
+											</bdi>
+										) : null}
+										<span className="shrink-0">{formatDay(item.occurred_on)}</span>
+										{item.description ? (
+											<bdi className="min-w-0 truncate">{item.description}</bdi>
+										) : null}
 									</span>
 								</span>
 								<Amount row={item} book={{ id: item.book_id, currency: item.book_currency }} />

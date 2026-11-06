@@ -6,11 +6,11 @@ import { z } from "zod";
 import { FormRoot, Modal, SubmitButton, TextField, toast } from "@nyxon/nasim";
 import { booksAddAttachment, useBooksRecordTransaction } from "@/api/generated/books/books";
 import type { BookResponse } from "@/api/generated/model";
+import { lastBook, rememberBook } from "@/features/books/lastBook";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
 import { toAscii } from "@/shared/format";
-import { BookIcon } from "@/shared/icons";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { AttachmentsField } from "./AttachmentsField";
@@ -33,29 +33,6 @@ const schema = z.object({
 	occurred_on: z.string().min(1, { error: t.days.needDate }),
 });
 type Values = z.input<typeof schema>;
-
-// With every book in view there is no book to assume: the first thing asked is which one.
-function BookChooser({ books, onPick }: { books: BookResponse[]; onPick: (id: string) => void }) {
-	return (
-		<div className="flex flex-col gap-3">
-			<p className="text-sm text-muted">{t.scope.bookFor}</p>
-			<ul className="flex flex-col gap-2">
-				{books.map((book) => (
-					<li key={book.id}>
-						<button
-							type="button"
-							className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 text-start transition-colors hover:bg-surface-secondary"
-							onClick={() => onPick(book.id)}
-						>
-							<BookIcon aria-hidden className="size-5 shrink-0 text-muted" />
-							<span className="min-w-0 flex-1 truncate font-medium">{book.name}</span>
-						</button>
-					</li>
-				))}
-			</ul>
-		</div>
-	);
-}
 
 function Fields({
 	books,
@@ -134,6 +111,7 @@ function Fields({
 							unsent += 1;
 						}
 					}
+					rememberBook(book.id);
 					await refreshMoney(queryClient, book.id);
 					toast.success(t.transactions.saved);
 					// The transaction is saved either way; a file that did not go is said plainly, and can be added by editing.
@@ -169,25 +147,19 @@ function Fields({
 	);
 }
 
-/**
- * Recording an entry. With one book chosen (or only one to choose) it opens on that book, still
- * changeable in the form; with all of them in view it first asks which book it is for.
- */
 function Body({ onDone }: { onDone: () => void }) {
 	const { books, book } = useActiveBook();
-	const [picked, setPicked] = useState<string | null>(null);
-	const initial = picked ?? book?.id ?? null;
-	return initial ? (
-		<Fields books={books} initial={initial} onDone={onDone} />
-	) : (
-		<BookChooser books={books} onPick={setPicked} />
-	);
+	// The chosen book; with all of them in view, the one used last. The form's own book menu changes it.
+	const remembered = lastBook();
+	const initial =
+		book?.id ?? (books.some((b) => b.id === remembered) ? remembered : books[0]?.id) ?? null;
+	return initial ? <Fields books={books} initial={initial} onDone={onDone} /> : null;
 }
 
 /**
- * Recording an entry. With one book chosen (or only one to choose) it opens on that book, still
- * changeable in the form; with all of them in view it first asks which book it is for. The body is only
- * there while the dialog is open, so each opening starts over.
+ * Recording an entry. It opens straight on the form, with the book as its first field: the chosen
+ * book, or the one used last when all of them are in view. The body is only there while the dialog is
+ * open, so each opening starts over.
  */
 export function AddTransactionDialog({
 	isOpen,
