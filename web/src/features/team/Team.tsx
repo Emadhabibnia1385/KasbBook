@@ -45,6 +45,7 @@ import {
 	shareBasisLabel,
 	shareValueText,
 } from "@/features/payroll/shared";
+import { PayrollGuide } from "@/features/payroll/PayrollGuide";
 import { ActionMenu, Figure, ItemCard, type MenuItem } from "@/features/payroll/ui";
 import { isPayrollBook } from "@/features/payroll/shared";
 import { formatAmount, formatFullDate, formatMoney, toAscii } from "@/shared/format";
@@ -82,6 +83,11 @@ const shareSchema = z.object({
 });
 type ShareValues = z.input<typeof shareSchema>;
 
+function BasisExplain({ basis }: { basis: string }) {
+	const text = (t.payroll.shares.explain as Record<string, string>)[basis];
+	return text ? <Notice tone="info">{text}</Notice> : null;
+}
+
 function ShareForm({
 	book,
 	member,
@@ -102,7 +108,8 @@ function ShareForm({
 			value: current ? plain(current.value) : "",
 		},
 	});
-	const copy = valueCopy(useWatch({ control: form.control, name: "basis" }));
+	const basis = useWatch({ control: form.control, name: "basis" });
+	const copy = valueCopy(basis);
 	return (
 		<FormRoot
 			form={form}
@@ -128,6 +135,7 @@ function ShareForm({
 				description={t.payroll.shares.basisHelp}
 				options={BASES}
 			/>
+			<BasisExplain basis={basis} />
 			<TextField
 				name="value"
 				label={copy.label}
@@ -208,7 +216,8 @@ function AddMember({
 		},
 	});
 	const access = useWatch({ control: form.control, name: "access" });
-	const copy = valueCopy(useWatch({ control: form.control, name: "basis" }));
+	const basis = useWatch({ control: form.control, name: "basis" });
+	const copy = valueCopy(basis);
 	return (
 		<FormRoot
 			form={form}
@@ -276,6 +285,7 @@ function AddMember({
 						<p className="text-xs text-muted">{t.team.shareLater}</p>
 					</div>
 					<SelectField name="basis" label={t.payroll.shares.basis} options={BASES} />
+					<BasisExplain basis={basis} />
 					<TextField
 						name="value"
 						label={copy.label}
@@ -502,6 +512,7 @@ function Members({ book }: { book: BookResponse }) {
 				actions={<Button onPress={() => setAdding(true)}>{t.team.invite}</Button>}
 			/>
 			{showShare ? <Summary shares={shares.data ?? []} /> : null}
+			{showShare ? <PayrollGuide /> : null}
 			<SectionCard title={t.team.members} description={showShare ? t.team.lead : t.team.leadSolo}>
 				{people.length === 0 ? (
 					<EmptyState title={t.payroll.noMembers} />
