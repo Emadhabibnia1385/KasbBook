@@ -170,6 +170,28 @@ function ConvertForm({
 		}
 	}, [suggested, conversion, form, toAmount]);
 
+	// The same for the worth in the book's own currency, which is only asked when neither side is it.
+	const baseQuote = useQuotes(
+		needsBase && from && baseCode ? [from] : [],
+		baseCode ?? "IRT",
+		!conversion,
+	).data?.[0];
+	const baseValue = useWatch({ control: form.control, name: "baseValue" });
+	const suggestedBase =
+		baseQuote && /^\d+(\.\d+)?$/.test(fromAmount) ? multiplyMoney(fromAmount, baseQuote.value) : "";
+	const lastSuggestedBase = useRef("");
+	useEffect(() => {
+		if (conversion || !needsBase || !suggestedBase || Number(suggestedBase) <= 0) return;
+		const current = toAscii(baseValue ?? "");
+		if (current === "" || current === lastSuggestedBase.current) {
+			// Whole units for a big figure (toman), the four places the API keeps for a small one.
+			const figure = Number(suggestedBase);
+			const shown = String(figure >= 1000 ? Math.round(figure) : figure);
+			lastSuggestedBase.current = shown;
+			form.setValue("baseValue", shown, { shouldValidate: false });
+		}
+	}, [suggestedBase, conversion, needsBase, form, baseValue]);
+
 	const choices = held.map((option) => ({
 		value: option.code,
 		label: `${option.name} (${option.code})`,
@@ -261,7 +283,7 @@ function ConvertForm({
 				<TextField
 					name="baseValue"
 					label={`${t.wallet.baseValue} (${currencyName(baseCode ?? book.currency)})`}
-					description={t.wallet.baseValueHint}
+					description={baseQuote && !conversion ? t.wallet.baseValueAuto : t.wallet.baseValueHint}
 					inputMode="decimal"
 					dir="ltr"
 					isRequired
