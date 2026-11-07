@@ -1,4 +1,4 @@
-import { calendarOfBook, formatDay, formatOtherCalendar } from "@/shared/format";
+import { type CalendarName, calendarOfBook, formatDay, formatOtherCalendar } from "@/shared/format";
 
 /**
  * A day in its book's calendar with the same day in the other calendar under it, so a list never makes
@@ -7,13 +7,15 @@ import { calendarOfBook, formatDay, formatOtherCalendar } from "@/shared/format"
 export function DayPair({
 	iso,
 	bookId,
+	cal: given,
 	inline,
 }: {
 	iso: string;
-	bookId: string;
+	bookId?: string;
+	cal?: CalendarName;
 	inline?: boolean;
 }) {
-	const cal = calendarOfBook(bookId);
+	const cal = given ?? calendarOfBook(bookId);
 	const other = (
 		<bdi dir="ltr" className="tabular-nums text-muted">
 			{formatOtherCalendar(iso, cal)}

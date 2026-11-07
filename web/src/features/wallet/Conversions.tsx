@@ -1,3 +1,4 @@
+import { DayPair } from "@/shared/DayPair";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -34,14 +35,7 @@ import { prepareFile } from "@/features/transactions/attachments";
 import { pickedDay, todayPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
 import { multiplyMoney } from "@/shared/decimal";
-import {
-	calendarOf,
-	currencyName,
-	formatAmount,
-	formatDay,
-	formatMoney,
-	toAscii,
-} from "@/shared/format";
+import { calendarOf, currencyName, formatAmount, formatMoney, toAscii } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -291,7 +285,7 @@ export function Conversions({
 						isRowHeader: true,
 						align: "center",
 						className: "w-28 whitespace-nowrap",
-						cell: (row) => formatDay(row.occurred_on, cal),
+						cell: (row) => <DayPair iso={row.occurred_on} cal={cal} />,
 					},
 					{
 						id: "from",

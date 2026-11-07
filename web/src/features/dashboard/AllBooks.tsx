@@ -1,3 +1,4 @@
+import { DayPair } from "@/shared/DayPair";
 import { Link } from "@tanstack/react-router";
 import { useQueries } from "@tanstack/react-query";
 import { SectionCard, StaticTable, StatCard } from "@nyxon/nasim";
@@ -29,7 +30,6 @@ import {
 	currentPeriod,
 	formatAmount,
 	formatCompact,
-	formatDay,
 	formatMoney,
 } from "@/shared/format";
 import { periodLabel } from "@/shared/periods";
@@ -318,7 +318,7 @@ export function AllBooksDashboard({ books }: { books: BookResponse[] }) {
 												{tx.flow === "income" ? "+" : "−"}
 												{formatMoney(tx.converted_amount, tx.book_currency)}
 											</span>,
-											formatDay(tx.occurred_on),
+											<DayPair key="d" iso={tx.occurred_on} bookId={tx.book_id} />,
 										],
 									}))}
 								/>

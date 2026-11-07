@@ -1,3 +1,4 @@
+import { DayPair } from "@/shared/DayPair";
 import { CountryRates, RatesCard } from "@/features/market/RatesCard";
 import { Collapsible, useIsNarrow } from "@nyxon/nasim";
 import { Link } from "@tanstack/react-router";
@@ -23,7 +24,7 @@ import { KpiRow, OverviewRow } from "@/features/analytics/kpis";
 import { BudgetGauges, TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { AllBooksDashboard } from "./AllBooks";
-import { calendarOf, currentPeriod, formatDay, formatMoney } from "@/shared/format";
+import { calendarOf, currentPeriod, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
 
 function Recent({ book }: { book: BookResponse }) {
@@ -52,7 +53,7 @@ function Recent({ book }: { book: BookResponse }) {
 								{tx.flow === "income" ? "+" : "−"}
 								{formatMoney(tx.converted_amount, book.currency)}
 							</span>,
-							formatDay(tx.occurred_on),
+							<DayPair key="d" iso={tx.occurred_on} bookId={book.id} />,
 						],
 					}))}
 				/>
