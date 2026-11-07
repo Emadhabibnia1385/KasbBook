@@ -5,7 +5,6 @@ import {
 	SearchBox,
 	SectionCard,
 	SelectField,
-	StatCard,
 	StatusChip,
 	toast,
 } from "@nyxon/nasim";
@@ -36,17 +35,20 @@ type Filter = {
 };
 const NONE: Filter = { category: ALL, via: ALL, who: ALL, book: ALL, q: "", start: "", end: "" };
 
-/** The filters as the API takes them: nothing sent for «all». */
+/**
+ * The filters as the API takes them. A filter that is not set is left out altogether: the generated client
+ * writes a `null` as the word "null", which the server would read as a category called that.
+ */
 function toParams(f: Filter) {
-	return {
-		category: f.category === ALL ? null : f.category,
-		via: f.via === ALL ? null : f.via,
-		who: f.who === ALL ? null : f.who,
-		book_id: f.book === ALL ? null : f.book,
-		q: f.q.trim() || null,
-		start: pickedDay(f.start) || null,
-		end: pickedDay(f.end) || null,
-	};
+	const params: Record<string, string> = {};
+	if (f.category !== ALL) params.category = f.category;
+	if (f.via !== ALL) params.via = f.via;
+	if (f.who !== ALL) params.who = f.who;
+	if (f.book !== ALL) params.book_id = f.book;
+	if (f.q.trim()) params.q = f.q.trim();
+	if (pickedDay(f.start)) params.start = pickedDay(f.start);
+	if (pickedDay(f.end)) params.end = pickedDay(f.end);
+	return params;
 }
 
 const viaTone = (via: string) => (via === "api" ? "info" : via === "bot" ? "success" : "neutral");
@@ -64,23 +66,6 @@ function Who({ row }: { row: ActivityItem }) {
 				<StatusChip tone={viaTone(row.via)} label={row.via_label} />
 			)}
 		</span>
-	);
-}
-
-/** One bar per day of the last month: a glance at when things happen. */
-function Days({ days }: { days: readonly { day: string; count: number }[] }) {
-	const top = Math.max(1, ...days.map((d) => d.count));
-	return (
-		<div className="flex h-16 items-end gap-0.5" dir="ltr" aria-hidden>
-			{days.map((d) => (
-				<span
-					key={d.day}
-					title={`${d.day}: ${formatAmount(d.count, 0)} ${t.events.perDay}`}
-					className="min-w-0 flex-1 rounded-t bg-accent/70"
-					style={{ height: `${Math.max(d.count ? 8 : 2, (d.count / top) * 100)}%` }}
-				/>
-			))}
-		</div>
 	);
 }
 
@@ -131,41 +116,15 @@ export function ActivityTab() {
 
 	return (
 		<div className="flex flex-col gap-5">
-			<SectionCard title={t.events.title} description={t.events.lead}>
+			<SectionCard
+				title={t.events.filters}
+				actions={
+					<Button variant="secondary" isPending={exporting} onPress={() => void download()}>
+						{exporting ? t.events.exporting : t.events.export}
+					</Button>
+				}
+			>
 				<div className="flex flex-col gap-4">
-					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-						<StatCard label={t.events.total} value={formatAmount(summary.data?.total ?? 0, 0)} />
-						{(summary.data?.by_via ?? []).slice(0, 3).map((row) => (
-							<StatCard key={row.key} label={row.label} value={formatAmount(row.count, 0)} />
-						))}
-					</div>
-					<span className="sr-only">{t.events.byDay}</span>
-					{summary.data ? <Days days={summary.data.by_day} /> : null}
-					<fieldset className="m-0 flex min-w-0 flex-wrap gap-2 border-0 p-0">
-						<legend className="sr-only">{t.events.byCategory}</legend>
-						<Button
-							size="sm"
-							variant={filter.category === ALL ? "primary" : "secondary"}
-							onPress={() => set({ category: ALL })}
-						>
-							{t.events.allCategories}
-						</Button>
-						{(summary.data?.by_category ?? []).map((row) => (
-							<Button
-								key={row.key}
-								size="sm"
-								variant={filter.category === row.key ? "primary" : "secondary"}
-								onPress={() => set({ category: row.key })}
-							>
-								{row.label} · {formatAmount(row.count, 0)}
-							</Button>
-						))}
-					</fieldset>
-				</div>
-			</SectionCard>
-
-			<SectionCard title={t.events.filters}>
-				<div className="flex flex-col gap-3">
 					<SearchBox
 						label={t.events.search}
 						placeholder={t.events.searchHint}
@@ -173,6 +132,18 @@ export function ActivityTab() {
 						onChange={(q) => set({ q })}
 					/>
 					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+						<SelectField
+							label={t.events.category}
+							value={filter.category}
+							onChange={(category) => set({ category: category ?? ALL })}
+							options={[
+								{ value: ALL, label: t.events.allCategories },
+								...(summary.data?.by_category ?? []).map((row) => ({
+									value: row.key,
+									label: `${row.label} (${formatAmount(row.count, 0)})`,
+								})),
+							]}
+						/>
 						<SelectField
 							label={t.events.via}
 							value={filter.via}
@@ -191,25 +162,24 @@ export function ActivityTab() {
 							onChange={(book) => set({ book: book ?? ALL })}
 							options={pick(options.data?.books ?? [], t.events.allBooks)}
 						/>
-						<div className="grid gap-3 sm:col-span-2 lg:col-span-1">
-							<DayField
-								label={t.events.from}
-								value={filter.start}
-								onChange={(start) => set({ start })}
-							/>
-							<DayField label={t.events.to} value={filter.end} onChange={(end) => set({ end })} />
-						</div>
 					</div>
-					<div className="flex flex-wrap gap-2">
-						<Button variant="secondary" isPending={exporting} onPress={() => void download()}>
-							{exporting ? t.events.exporting : t.events.export}
+					<div className="grid gap-3 sm:grid-cols-2">
+						<DayField
+							label={t.events.from}
+							value={filter.start}
+							onChange={(start) => set({ start })}
+						/>
+						<DayField label={t.events.to} value={filter.end} onChange={(end) => set({ end })} />
+					</div>
+					{filtered ? (
+						<Button
+							className="self-start"
+							variant="ghost"
+							onPress={() => (setFilter(NONE), setPage(1))}
+						>
+							{t.events.clear}
 						</Button>
-						{filtered ? (
-							<Button variant="ghost" onPress={() => (setFilter(NONE), setPage(1))}>
-								{t.events.clear}
-							</Button>
-						) : null}
-					</div>
+					) : null}
 				</div>
 			</SectionCard>
 

@@ -15,7 +15,7 @@ export const activityStrings = {
 		viaSystem: "سیستم",
 		empty: "هنوز رویدادی ثبت نشده.",
 		emptyFiltered: "رویدادی با این فیلترها پیدا نشد.",
-		filters: "فیلترها",
+		filters: "فیلتر و گزارش‌گیری",
 		search: "جست‌وجو در عملیات",
 		searchHint: "مثلاً مبلغ، نام دسته یا کلمهٔ «حذف»",
 		allCategories: "همهٔ گروه‌ها",
