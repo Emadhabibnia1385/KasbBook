@@ -36,14 +36,14 @@ const segment = tv({
 	],
 });
 
-/** Expense or income, as two buttons side by side: the one choice every entry starts with. */
+/** Income or expense, as two buttons side by side (income first, so on the right in this right-to-left page): the one choice every entry starts with. */
 export function FlowSwitch({ name }: { name: string }) {
 	const { field } = useController({ name });
 	return (
 		<fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
 			<legend className="mb-1.5 text-sm font-medium">{t.transactions.kind}</legend>
 			<div className="flex rounded-full border border-border bg-surface p-1">
-				{(["expense", "income"] as const).map((flow) => (
+				{(["income", "expense"] as const).map((flow) => (
 					<button
 						key={flow}
 						type="button"

@@ -69,7 +69,7 @@ function Fields({
 		resolver: zodResolver(schema),
 		defaultValues: {
 			book_id: first?.id ?? "",
-			flow: "expense",
+			flow: "income",
 			amount: "",
 			category: "",
 			description: "",
