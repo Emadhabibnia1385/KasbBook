@@ -632,14 +632,11 @@ async def test_a_negative_amount_is_named_rather_than_called_missing(session):
     assert await LedgerService(session).transactions(book.id, user.id) == []
 
 
-async def test_the_other_direction_is_still_refused_after_an_undo(session):
-    """Why the card has no flip button: flipping is the one thing the data forbids.
+async def test_the_other_direction_is_recorded_under_its_own_category_after_an_undo(session):
+    """A name may be an expense and an income at once, so the answer to the question after an undo records.
 
-    `_ensure` refuses a transaction whose flow disagrees with the stored
-    category, so a button that re-recorded «اجاره» as income could only ever
-    fail. The undo asks the question instead, and the refusal that answers it
-    names the real problem — which is what the old flow did at this point too,
-    after charging a tap for the privilege.
+    «اجاره» filed as an expense does not stop an income «اجاره»: it becomes its own category, and the
+    expense one and its books stay as they were.
     """
     user, (book,), convo = await setup(session)
     ledger = LedgerService(session)
@@ -647,11 +644,11 @@ async def test_the_other_direction_is_still_refused_after_an_undo(session):
 
     saved = await convo.handle(says("اجاره 1.2م"))
     asked = await convo.handle(tapped(saved, "qk:undo:"))
-    refused = await convo.handle(tapped(asked, "qk:flow:income"))
+    done = await convo.handle(tapped(asked, "qk:flow:income"))
 
-    assert "دسته" in refused.text
-    assert len(await ledger.transactions(book.id, user.id)) == 1
-    assert await ledger.trial_balance(book.id) == (Decimal("1000000"), Decimal("1000000"))
+    assert "درآمد" in done.text and "ثبت شد" in done.text
+    rows = await ledger.transactions(book.id, user.id)
+    assert sorted(r.flow.value for r in rows) == ["expense", "income"]
 
 
 async def test_the_direction_is_read_from_the_book_the_line_landed_in(session):

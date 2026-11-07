@@ -87,10 +87,10 @@ async def test_the_kind_of_an_entry_can_be_changed_and_the_summary_follows(api):
     assert done.status_code == 200, done.text
     summary = (await api.get(f"/api/v1/books/{book}/reports/summary", headers=headers)).json()
     assert summary["income"] == "0.0000" and summary["expense"] == "500.0000"
-    # A category of the old kind is refused for the new one: the entry would sit under the wrong heading.
+    # The old name may be both kinds: the entry moves under the same name's category of the new kind.
     other = await add(api, headers, book, flow="expense", amount="5", category="حمل")
-    bad = await edit(api, headers, book, other["id"], flow="income")
-    assert bad.status_code == 422
+    moved = await edit(api, headers, book, other["id"], flow="income")
+    assert moved.status_code == 200 and moved.json()["category"] == "حمل"
 
 
 async def test_a_change_that_would_leave_a_wallet_negative_is_refused_on_either_side(api):

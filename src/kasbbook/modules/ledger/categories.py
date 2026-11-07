@@ -63,16 +63,50 @@ class CategoryService:
         """
         name = self.name(name)
         flow = self.direction(flow)
-        row = await self.session.scalar(select(Category).where(
-            Category.book_id == book_id, Category.name == name
-        ).execution_options(populate_existing=True))
+        # The same name may exist once as an income and once as an expense: this is the one of this kind,
+        # or else a legacy one with no kind yet.
+        rows = (await self.session.scalars(select(Category).where(
+            Category.book_id == book_id, Category.name == name,
+            Category.flow.in_([flow]) | Category.flow.is_(None),
+        ).execution_options(populate_existing=True))).all()
+        row = next((r for r in rows if r.flow is flow), None) or next(iter(rows), None)
         if row is None:
             row = Category(book_id=book_id, name=name, flow=flow)
             self.session.add(row)
             await self.session.flush()
-        elif row.flow is not None and row.flow is not flow:
-            raise ValidationError("نوع این دسته با تراکنش یکسان نیست؛ دستهٔ مناسب را انتخاب کن.")
         return row
+
+    @staticmethod
+    def _other(flow):
+        return Flow.EXPENSE if flow is Flow.INCOME else Flow.INCOME
+
+    async def _taken(self, book_id, name, flow, except_id):
+        """Whether another category of this kind (any kind when it has none) already has the name."""
+        query = select(Category.id).where(
+            Category.book_id == book_id, Category.name == name, Category.id != except_id
+        )
+        if flow is not None:
+            query = query.where(Category.flow == flow)
+        return await self.session.scalar(query.limit(1)) is not None
+
+    async def _follow(self, book_id, row, old, new, twin):
+        """Planning keeps category names: carry them to the new name, but only what is this kind's.
+
+        With a category of the other kind under the same old name (`twin`), the budget and the fund
+        rule are left, and a recurring rule is moved only when it is of this category's own kind.
+        """
+        for model, column in ((Budget, Budget.target), (RecurringRule, RecurringRule.category),
+                              (TreasuryRule, TreasuryRule.category)):
+            conditions = [model.book_id == book_id, column == old]
+            if model is Budget:
+                conditions.append(Budget.kind == BudgetKind.CATEGORY)
+            if twin and model is RecurringRule:
+                conditions.append(RecurringRule.flow == row.flow)
+            elif twin and model is Budget:
+                continue
+            elif twin and (model is TreasuryRule and row.flow is not Flow.INCOME):
+                continue
+            await self.session.execute(update(model).where(*conditions).values({column.key: new}))
 
     async def require_create(self, book_id, actor_user_id):
         await self.books.require(book_id, actor_user_id, Permission.CREATE_CATEGORY)
@@ -81,11 +115,12 @@ class CategoryService:
         await self.require_create(book_id, actor_user_id)
         await self.lock_book(book_id)
         name = self.name(name)
+        direction = self.direction(flow)
         if await self.session.scalar(select(Category.id).where(
-            Category.book_id == book_id, Category.name == name
+            Category.book_id == book_id, Category.name == name, Category.flow == direction
         )):
             raise ValidationError("این دسته از قبل وجود دارد.")
-        return await self._ensure(book_id, name, flow)
+        return await self._ensure(book_id, name, direction)
 
     async def update(self, book_id, actor_user_id, category_id, *, name=None, flow=None):
         await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
@@ -95,7 +130,9 @@ class CategoryService:
         await self.lock_book(book_id)
         row = await self.get(book_id, actor_user_id, category_id)
         row = await self.rename(book_id, actor_user_id, category_id, name if name is not None else row.name)
-        if direction is not None:
+        if direction is not None and direction is not row.flow:
+            if await self._taken(book_id, row.name, direction, row.id):
+                raise ValidationError("این نام دسته از قبل وجود دارد.")
             row.flow = direction
         await self.session.flush()
         return row
@@ -107,9 +144,7 @@ class CategoryService:
         name = self.name(name)
         if name == row.name:
             return row
-        if await self.session.scalar(select(Category.id).where(
-            Category.book_id == book_id, Category.name == name
-        )):
+        if await self._taken(book_id, name, row.flow, row.id):
             raise ValidationError("این نام دسته از قبل وجود دارد.")
         # Planning uses category names too. Refuse a merge rather than silently
         # changing a budget's meaning or violating its unique target constraint.
@@ -119,6 +154,8 @@ class CategoryService:
         )):
             raise ValidationError("برای نام جدید بودجه وجود دارد؛ ابتدا بودجه را اصلاح کن.")
         old = row.name
+        # The other kind may carry the old name too: what planning holds under that name is theirs then.
+        twin = await self._taken(book_id, old, self._other(row.flow), row.id)
         row.name = name
         await self.session.execute(update(Transaction).where(
             Transaction.book_id == book_id, Transaction.category_id == row.id
@@ -137,12 +174,7 @@ class CategoryService:
                 Transaction.flow == Flow.EXPENSE
             ))
         ).values(memo=f"expense: {name}"))
-        for model, column in ((Budget, Budget.target), (RecurringRule, RecurringRule.category),
-                              (TreasuryRule, TreasuryRule.category)):
-            conditions = [model.book_id == book_id, column == old]
-            if model is Budget:
-                conditions.append(Budget.kind == BudgetKind.CATEGORY)
-            await self.session.execute(update(model).where(*conditions).values({column.key: name}))
+        await self._follow(book_id, row, old, name, twin)
         await self.session.flush()
         return row
 
@@ -184,12 +216,8 @@ class CategoryService:
             Transaction.book_id == book_id, Transaction.category_id == source.id
         ).values(category=target.name, category_id=target.id,
                  last_edited_by_id=actor_user_id, last_edited_at=utcnow()))
-        for model, column in ((Budget, Budget.target), (RecurringRule, RecurringRule.category),
-                              (TreasuryRule, TreasuryRule.category)):
-            conditions = [model.book_id == book_id, column == source.name]
-            if model is Budget:
-                conditions.append(Budget.kind == BudgetKind.CATEGORY)
-            await self.session.execute(update(model).where(*conditions).values({column.key: target.name}))
+        twin = await self._taken(book_id, source.name, self._other(source.flow), source.id)
+        await self._follow(book_id, source, source.name, target.name, twin)
         await self.session.delete(source)
         await self.session.flush()
         return target

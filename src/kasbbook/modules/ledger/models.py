@@ -92,7 +92,8 @@ class Account(UUIDPrimaryKey, Timestamped, Base):
 class Category(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "categories"
     __table_args__ = (
-        UniqueConstraint("book_id", "name", name="one_category_name_per_book"),
+        # The same name may be an income and an expense («فروش», «هدیه»); within one kind it is unique.
+        UniqueConstraint("book_id", "name", "flow", name="one_category_name_per_book_flow"),
         UniqueConstraint("book_id", "id", name="category_book_identity"),
     )
 

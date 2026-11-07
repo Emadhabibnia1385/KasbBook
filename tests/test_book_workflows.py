@@ -314,8 +314,10 @@ async def test_category_type_edit_filters_future_choices_without_rewriting_histo
     await convo.handle(event(callback_data=f"tx:book:{book.id}"))
     reply = await convo.handle(event(callback_data="tx:flow:income"))
     assert "فروش" not in [b.text for row in reply.buttons for b in row]
-    with pytest.raises(ValidationError):
-        await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "20", occurred_on=DAY)
+    # The name is free in the other kind now: an income «فروش» is its own category, the expense one stays.
+    await ledger.record(book.id, user.id, Flow.INCOME, Scope.WORK, "فروش", "20", occurred_on=DAY)
+    assert [r.name for r in await categories.list(book.id, user.id, Flow.INCOME)] == ["فروش"]
+    assert category.flow is Flow.EXPENSE
     await ledger.update(book.id, user.id, tx.id, description="شرح تاریخی")
     assert tx.description == "شرح تاریخی"
     with pytest.raises(ValidationError):

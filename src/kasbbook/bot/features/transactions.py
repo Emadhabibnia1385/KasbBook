@@ -539,24 +539,22 @@ class TransactionsFeature(Feature):
         would record the wrong direction — worse than the question it saves.
         """
         name = (category or "").strip()
-        for row in await self.ctx.categories.list(book.id, user.id):
-            if row.name == name and row.flow is not None:
-                return row.flow
-        return None
+        # A name can be both an income and an expense in one book; then the question is a real one.
+        filed = {
+            row.flow
+            for row in await self.ctx.categories.list(book.id, user.id)
+            if row.name == name and row.flow is not None
+        }
+        return next(iter(filed)) if len(filed) == 1 else None
 
     async def _quick_settle(self, draft: dict, user, key: str):
         """Record it when the book already settles the direction; ask when it does not.
 
-        A `Category` is unique per (book, name) and carries its own `flow`, and
-        `CategoryService._ensure` refuses a transaction whose flow disagrees
-        with the one on file. So for a name this book has used before,
-        «درآمد است یا هزینه؟» was never the person's question: one answer
-        recorded and the other was refused at the end of the flow. A tap that
-        can only be right one way is not a choice, so it is no longer asked —
-        «فروش 250ک» is now one message and nothing else.
+        A `Category` is unique per (book, name, flow). A name this book has filed under one kind only
+        settles «درآمد است یا هزینه؟» by itself: «فروش 250ک» is one message and nothing else.
 
-        A name the book has never used is still asked about. That is the half
-        of the question that was always real.
+        A name the book has never used, or has used as both an income and an expense, is still asked
+        about. That is the half of the question that is real.
         """
         book = await self.ctx.books.get_book(uuid.UUID(draft["book_id"]))
         flow = await self._filed_flow(book, draft["category"], user)
