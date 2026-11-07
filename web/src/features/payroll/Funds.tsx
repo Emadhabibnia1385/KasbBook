@@ -39,7 +39,7 @@ import { todayIso } from "./calendar";
 import { isPositive, sum, toUnits } from "./decimal";
 import { PayrollPage } from "./PayrollPage";
 import { fundKindLabel, refreshPayroll, reportError, ruleBasisLabel } from "./shared";
-import { Figure, ItemCard } from "./ui";
+import { ActionMenu, Figure, ItemCard } from "./ui";
 
 const DECIMAL = /^\d+(\.\d{1,4})?$/;
 
@@ -265,17 +265,20 @@ function Rules({ book, fund }: { book: BookResponse; fund: FundResponse }) {
 									: ""}
 								{rule.category ? ` · ${rule.category}` : ""}
 							</p>
-							<div className="flex flex-wrap gap-2">
-								{rule.effective_to ? null : (
-									<Button size="sm" variant="secondary" onPress={() => setStopping(rule)}>
-										{t.payroll.rules.stop}
-									</Button>
-								)}
-								<Button
-									size="sm"
-									variant="secondary"
-									isPending={toggle.isPending && toggle.variables?.ruleId === rule.id}
-									onPress={async () => {
+							<div className="flex justify-end">
+								<ActionMenu
+									label={`${t.payroll.rules.menu}: ${valueText(rule)}`}
+									items={[
+										{
+											id: "toggle",
+											label: rule.is_active ? t.switches.ruleTurnOff : t.switches.ruleTurnOn,
+										},
+										...(rule.effective_to ? [] : [{ id: "stop", label: t.payroll.rules.stop }]),
+										{ id: "delete", label: t.payroll.rules.delete, danger: true },
+									]}
+									onAction={async (id) => {
+										if (id === "stop") return setStopping(rule);
+										if (id === "delete") return setRemoving(rule);
 										try {
 											const now = await toggle.mutateAsync({
 												bookId: book.id,
@@ -288,12 +291,7 @@ function Rules({ book, fund }: { book: BookResponse; fund: FundResponse }) {
 											reportError(error);
 										}
 									}}
-								>
-									{rule.is_active ? t.switches.ruleTurnOff : t.switches.ruleTurnOn}
-								</Button>
-								<Button size="sm" variant="ghost" onPress={() => setRemoving(rule)}>
-									{t.payroll.rules.delete}
-								</Button>
+								/>
 							</div>
 						</li>
 					))}
@@ -380,51 +378,48 @@ function FundCard({
 		<ItemCard
 			title={fund.name}
 			aside={
-				<span className="flex flex-wrap items-center gap-2">
-					<StatusChip tone="info" label={fundKindLabel(fund.kind)} />
-					<StatusChip
-						tone={fund.is_active ? "success" : "neutral"}
-						label={fund.is_active ? t.payroll.funds.active : t.payroll.funds.inactive}
-					/>
-				</span>
+				<ActionMenu
+					label={`${t.payroll.funds.menu}: ${fund.name}`}
+					items={[
+						{
+							id: "toggle",
+							label: fund.is_active ? t.switches.fundTurnOff : t.switches.fundTurnOn,
+						},
+						{ id: "delete", label: t.payroll.funds.delete, danger: true },
+					]}
+					onAction={async (id) => {
+						if (id === "delete") return onDelete();
+						try {
+							const now = await toggle.mutateAsync({ bookId: book.id, fundId: fund.id });
+							await refreshPayroll(queryClient, book.id);
+							toast.success(now.is_active ? t.switches.fundOn : t.switches.fundOff);
+						} catch (error) {
+							reportError(error);
+						}
+					}}
+				/>
 			}
 			actions={
-				<>
-					<Button
-						size="sm"
-						variant="secondary"
-						onPress={() => setOpen((value) => !value)}
-						aria-expanded={open}
-					>
-						{open ? t.payroll.funds.hideRules : t.payroll.funds.showRules}
-					</Button>
-					<Button
-						size="sm"
-						variant="secondary"
-						isPending={toggle.isPending}
-						onPress={async () => {
-							try {
-								const now = await toggle.mutateAsync({ bookId: book.id, fundId: fund.id });
-								await refreshPayroll(queryClient, book.id);
-								toast.success(now.is_active ? t.switches.fundOn : t.switches.fundOff);
-							} catch (error) {
-								reportError(error);
-							}
-						}}
-					>
-						{fund.is_active ? t.switches.fundTurnOff : t.switches.fundTurnOn}
-					</Button>
-					<Button size="sm" variant="ghost" onPress={onDelete}>
-						{t.payroll.funds.delete}
-					</Button>
-				</>
+				<Button
+					size="sm"
+					variant="secondary"
+					onPress={() => setOpen((value) => !value)}
+					aria-expanded={open}
+				>
+					{open ? t.payroll.funds.hideRules : t.payroll.funds.showRules}
+				</Button>
 			}
 		>
-			<p className="text-sm text-muted">
-				{t.payroll.funds.balance}: <Figure>{formatMoney(fund.balance, book.currency)}</Figure>
-			</p>
-			<p className="text-xs text-muted">
-				{t.switches.fundHint} {t.switches.lockedNote}
+			<div className="flex flex-wrap gap-2">
+				<StatusChip tone="info" label={fundKindLabel(fund.kind)} />
+				<StatusChip
+					tone={fund.is_active ? "success" : "neutral"}
+					label={fund.is_active ? t.payroll.funds.active : t.payroll.funds.inactive}
+				/>
+			</div>
+			<p className="text-sm">
+				<span className="text-muted">{t.payroll.funds.balance}: </span>
+				<Figure>{formatMoney(fund.balance, book.currency)}</Figure>
 			</p>
 			{open ? <Rules book={book} fund={fund} /> : null}
 		</ItemCard>
@@ -444,7 +439,7 @@ function Treasury({ book }: { book: BookResponse }) {
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader
-				title={t.nav.team}
+				title={t.payroll.funds.pageTitle}
 				description={book.name}
 				actions={<Button onPress={() => setCreating(true)}>{t.payroll.funds.add}</Button>}
 			/>

@@ -38,7 +38,16 @@ from ...shared.security import (
 )
 from ...shared.parsing import to_ascii_digits
 from ...shared.regions import region_for_zone
-from .models import DEMO_USERNAME, AuditEvent, Identity, LinkDirection, LinkToken, Provider, User
+from .models import (
+    DEMO_USERNAME,
+    MESSENGERS,
+    AuditEvent,
+    Identity,
+    LinkDirection,
+    LinkToken,
+    Provider,
+    User,
+)
 
 # Long enough to switch apps and paste, short enough that a leaked link is dead
 # before anyone finds it.
@@ -406,20 +415,41 @@ class IdentityService:
         return user
 
     async def find_by_identifier(self, identifier: str) -> Optional["User"]:
-        """Look someone up the way a person would name them: email or phone.
+        """Look someone up the way a person would name them.
 
-        Used to add a colleague to a book. It returns the account without any
-        credential check, so nothing that reaches this may expose more than a
-        display name — knowing an address should not reveal what else it does.
+        Any of: email, phone, the web login name, a messenger's numeric id or its @username. Used to
+        add a colleague to a book or to link a person who was added by name. It returns the account
+        without any credential check, so nothing that reaches this may expose more than a display
+        name — knowing an address should not reveal what else it does.
+
+        A name that matches two different accounts is refused rather than guessed.
         """
-        needle = (identifier or "").strip()
+        needle = to_ascii_digits((identifier or "").strip())
         if not needle:
             return None
+        bare = needle.lstrip("@").lower()
 
+        found: dict = {}
         stmt = select(User).where(
-            (User.email == needle.lower()) | (User.phone == needle)
+            User.is_placeholder.is_(False),
+            User.is_active.is_(True),
+            (User.email == needle.lower()) | (User.phone == needle) | (User.username == bare),
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        for user in (await self.session.execute(stmt)).scalars():
+            found[user.id] = user
+
+        by_handle = select(Identity).where(
+            Identity.provider.in_(MESSENGERS),
+            (Identity.external_id == bare) | (func.lower(Identity.external_username) == bare),
+        )
+        for identity in (await self.session.execute(by_handle)).scalars():
+            owner = identity.user
+            if owner is not None and owner.is_active and not owner.is_placeholder:
+                found[owner.id] = owner
+
+        if len(found) > 1:
+            raise ValidationError("این شناسه به بیش از یک حساب می‌خورد؛ شناسهٔ عددی پیام‌رسان را بده.")
+        return next(iter(found.values()), None)
 
     async def get_user(self, user_id: uuid.UUID) -> "User":
 

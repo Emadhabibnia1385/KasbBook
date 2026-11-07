@@ -1,4 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Shares } from "@/features/payroll/Shares";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_app/team/shares")({ component: Shares });
+// Members and their shares are one page now; an old link or bookmark lands there.
+export const Route = createFileRoute("/_app/team/shares")({
+	beforeLoad: () => {
+		throw redirect({ to: "/team", replace: true });
+	},
+});

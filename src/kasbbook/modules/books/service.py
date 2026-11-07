@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
@@ -238,6 +238,134 @@ class BookService:
         await self.session.flush()
         return member
 
+    async def add_person(
+        self,
+        actor_user_id: uuid.UUID,
+        book_id: uuid.UUID,
+        name: str,
+        role: Role = Role.VIEWER,
+    ) -> Membership:
+        """Add a colleague by name only: someone to pay and count, with no account to sign in to.
+
+        They are a real row in `users` flagged as a placeholder, so shares, performance and payslips
+        work for them exactly as for anyone. Nothing can sign in as them. When they are meant to
+        reach the panel or the bot, `link_person` moves everything onto their real account.
+        """
+        from ..identity.models import User
+
+        # A guest may add people by name: nobody else's account is tied to theirs, unlike a real invitation.
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        book = await self.get_book(book_id)
+        if book.type is BookType.PERSONAL:
+            raise ValidationError("یک دفتر شخصی همکار ندارد.")
+        if role is Role.OWNER:
+            raise ValidationError("a book has one owner; transfer it instead")
+        clean = " ".join((name or "").split())
+        if not clean:
+            raise ValidationError("نام را بنویس.")
+
+        person = User(display_name=clean[:120], is_placeholder=True, timezone=book.timezone)
+        self.session.add(person)
+        await self.session.flush()
+        member = Membership(book_id=book_id, user_id=person.id, role=role, joined_at=utcnow())
+        self.session.add(member)
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id, action="member.added", subject=str(person.id), detail=role.value
+            )
+        )
+        await self.session.flush()
+        return member
+
+    async def rename_person(
+        self, actor_user_id: uuid.UUID, book_id: uuid.UUID, user_id: uuid.UUID, name: str
+    ) -> None:
+        """Only a name this book gave: a real account's name is theirs to change."""
+        from ..identity.models import User
+
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        if await self.membership(book_id, user_id) is None:
+            raise NotFound("membership")
+        person = await self.session.get(User, user_id)
+        if person is None or not person.is_placeholder:
+            raise ValidationError("نام یک حساب واقعی را خودش عوض می‌کند.")
+        clean = " ".join((name or "").split())
+        if not clean:
+            raise ValidationError("نام را بنویس.")
+        person.display_name = clean[:120]
+        await self.session.flush()
+
+    async def link_person(
+        self,
+        actor_user_id: uuid.UUID,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        identifier: str,
+        role: Role,
+    ) -> Membership:
+        """Point a colleague added by name at a real account, keeping everything they were paid.
+
+        The shares, performance records, adjustments and payslips follow onto the account; the
+        placeholder row is then gone. The role given here is what the account gets in this book.
+        """
+        from ..identity.models import AuditEvent as _Audit, User
+        from ..identity.service import IdentityService
+        from ..payroll.models import Adjustment, Payslip, PerformanceRecord, ShareRule
+
+        await self.require(book_id, actor_user_id, Permission.MANAGE_MEMBERS)
+        if role is Role.OWNER:
+            raise ValidationError("a book has one owner; transfer it instead")
+        current = await self.membership(book_id, user_id)
+        person = await self.session.get(User, user_id)
+        if current is None or person is None:
+            raise NotFound("membership")
+        if not person.is_placeholder:
+            raise ValidationError("این همکار از قبل حساب دارد.")
+
+        target = await IdentityService(self.session).find_by_identifier(identifier)
+        if target is None:
+            raise NotFound(
+                "حسابی با این شناسه پیدا نشد؛ باید قبلاً ربات را استارت کرده یا در پنل ثبت‌نام کرده باشد."
+            )
+        if await self.membership(book_id, target.id) is not None:
+            raise ValidationError("صاحب این حساب از قبل در این دفتر هست.")
+
+        for model in (ShareRule, PerformanceRecord, Adjustment, Payslip):
+            await self.session.execute(
+                update(model)
+                .where(model.book_id == book_id, model.user_id == user_id)
+                .values(user_id=target.id)
+            )
+        await self.session.delete(current)
+        await self.session.flush()
+        member = Membership(book_id=book_id, user_id=target.id, role=role, joined_at=utcnow())
+        self.session.add(member)
+        self.session.add(
+            _Audit(
+                user_id=actor_user_id,
+                action="member.linked",
+                subject=str(target.id),
+                detail=role.value,
+            )
+        )
+        await self.session.flush()
+        # Nothing else can point at a placeholder: it never signed in, so it never wrote a record.
+        await self._drop_orphan_placeholders([user_id])
+        return member
+
+    async def _drop_orphan_placeholders(self, user_ids) -> None:
+        """Delete placeholder rows no book holds any more."""
+        from ..identity.models import User
+
+        for user_id in user_ids:
+            still = await self.session.scalar(
+                select(Membership.id).where(Membership.user_id == user_id).limit(1)
+            )
+            person = await self.session.get(User, user_id)
+            if still is None and person is not None and person.is_placeholder:
+                await self.session.delete(person)
+        await self.session.flush()
+
     async def change_role(
         self,
         actor_user_id: uuid.UUID,
@@ -311,8 +439,14 @@ class BookService:
         if book.owner_user_id != actor_user_id:
             raise PermissionDenied("only the owner may delete a book")
 
+        from ..identity.models import User
+
+        # Colleagues added by name have no account to lose the book from, so they never block it.
         others = [
-            m for m in await self.members(book_id) if m.user_id != actor_user_id
+            m
+            for m in await self.members(book_id)
+            if m.user_id != actor_user_id
+            and not (await self.session.get(User, m.user_id)).is_placeholder
         ]
         if others:
             raise ValidationError(
@@ -336,8 +470,15 @@ class BookService:
                 user_id=actor_user_id, action="book.deleted", subject=book.name
             )
         )
+        placeholders = [
+            row.user_id
+            for row in await self.session.scalars(
+                select(Membership).where(Membership.book_id == book_id)
+            )
+        ]
         await self.session.delete(book)
         await self.session.flush()
+        await self._drop_orphan_placeholders(placeholders)
 
     async def transfer_ownership(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID, to_user_id: uuid.UUID

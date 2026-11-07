@@ -56,7 +56,10 @@ import type {
 	HTTPValidationError,
 	InvitationResponse,
 	InviteRequest,
+	LinkPersonRequest,
 	MemberResponse,
+	MemberUpdateRequest,
+	PersonRequest,
 	TeamInviteRequest,
 	TransactionPage,
 	TransactionRequest,
@@ -3007,6 +3010,334 @@ export const useBooksRemoveMember = <TError = ErrorType<HTTPValidationError>, TC
 	TContext
 > => {
 	return useMutation(getBooksRemoveMemberMutationOptions(options), queryClient);
+};
+export const getBooksUpdateMemberUrl = (bookId: string, memberUserId: string) => {
+	return `/api/v1/books/${bookId}/members/${memberUserId}`;
+};
+
+/**
+ * @summary Update Member
+ */
+export const booksUpdateMember = async (
+	bookId: string,
+	memberUserId: string,
+	memberUpdateRequest: MemberUpdateRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<MemberResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<MemberResponse>(getBooksUpdateMemberUrl(bookId, memberUserId), {
+		...options,
+		method: "PATCH",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(memberUpdateRequest),
+	});
+};
+
+export const getBooksUpdateMemberMutationKey = () => ["booksUpdateMember"] as const;
+
+export const getBooksUpdateMemberMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksUpdateMember>>,
+		TError,
+		BooksUpdateMemberMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksUpdateMember>>,
+	TError,
+	BooksUpdateMemberMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksUpdateMemberMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksUpdateMember>>,
+		BooksUpdateMemberMutationVariables
+	> = (props) => {
+		const { bookId, memberUserId, data } = props ?? {};
+
+		return booksUpdateMember(bookId, memberUserId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksUpdateMemberMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksUpdateMember>>
+>;
+export type BooksUpdateMemberMutationBody = MemberUpdateRequest;
+export type BooksUpdateMemberMutationError = ErrorType<HTTPValidationError>;
+export type BooksUpdateMemberMutationVariables = {
+	bookId: string;
+	memberUserId: string;
+	data: MemberUpdateRequest;
+};
+
+/**
+ * @summary Update Member
+ */
+export const useBooksUpdateMember = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksUpdateMember>>,
+			TError,
+			BooksUpdateMemberMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksUpdateMember>>,
+	TError,
+	BooksUpdateMemberMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksUpdateMemberMutationOptions(options), queryClient);
+};
+export const getBooksLinkPersonUrl = (bookId: string, memberUserId: string) => {
+	return `/api/v1/books/${bookId}/members/${memberUserId}/link`;
+};
+
+/**
+ * Give a colleague added by name a real account (email, phone, Telegram id or @username).
+ * @summary Link Person
+ */
+export const booksLinkPerson = async (
+	bookId: string,
+	memberUserId: string,
+	linkPersonRequest: LinkPersonRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<MemberResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<MemberResponse>(getBooksLinkPersonUrl(bookId, memberUserId), {
+		...options,
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(linkPersonRequest),
+	});
+};
+
+export const getBooksLinkPersonMutationKey = () => ["booksLinkPerson"] as const;
+
+export const getBooksLinkPersonMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksLinkPerson>>,
+		TError,
+		BooksLinkPersonMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksLinkPerson>>,
+	TError,
+	BooksLinkPersonMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksLinkPersonMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksLinkPerson>>,
+		BooksLinkPersonMutationVariables
+	> = (props) => {
+		const { bookId, memberUserId, data } = props ?? {};
+
+		return booksLinkPerson(bookId, memberUserId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksLinkPersonMutationResult = NonNullable<
+	Awaited<ReturnType<typeof booksLinkPerson>>
+>;
+export type BooksLinkPersonMutationBody = LinkPersonRequest;
+export type BooksLinkPersonMutationError = ErrorType<HTTPValidationError>;
+export type BooksLinkPersonMutationVariables = {
+	bookId: string;
+	memberUserId: string;
+	data: LinkPersonRequest;
+};
+
+/**
+ * @summary Link Person
+ */
+export const useBooksLinkPerson = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksLinkPerson>>,
+			TError,
+			BooksLinkPersonMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksLinkPerson>>,
+	TError,
+	BooksLinkPersonMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksLinkPersonMutationOptions(options), queryClient);
+};
+export const getBooksAddPersonUrl = (bookId: string) => {
+	return `/api/v1/books/${bookId}/people`;
+};
+
+/**
+ * Add a colleague by name only, with no account; link one later with `.../link`.
+ * @summary Add Person
+ */
+export const booksAddPerson = async (
+	bookId: string,
+	personRequest: PersonRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<MemberResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<MemberResponse>(getBooksAddPersonUrl(bookId), {
+		...options,
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(personRequest),
+	});
+};
+
+export const getBooksAddPersonMutationKey = () => ["booksAddPerson"] as const;
+
+export const getBooksAddPersonMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof booksAddPerson>>,
+		TError,
+		BooksAddPersonMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof booksAddPerson>>,
+	TError,
+	BooksAddPersonMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBooksAddPersonMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof booksAddPerson>>,
+		BooksAddPersonMutationVariables
+	> = (props) => {
+		const { bookId, data } = props ?? {};
+
+		return booksAddPerson(bookId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BooksAddPersonMutationResult = NonNullable<Awaited<ReturnType<typeof booksAddPerson>>>;
+export type BooksAddPersonMutationBody = PersonRequest;
+export type BooksAddPersonMutationError = ErrorType<HTTPValidationError>;
+export type BooksAddPersonMutationVariables = { bookId: string; data: PersonRequest };
+
+/**
+ * @summary Add Person
+ */
+export const useBooksAddPerson = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof booksAddPerson>>,
+			TError,
+			BooksAddPersonMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof booksAddPerson>>,
+	TError,
+	BooksAddPersonMutationVariables,
+	TContext
+> => {
+	return useMutation(getBooksAddPersonMutationOptions(options), queryClient);
 };
 export const getBooksListTransactionsUrl = (
 	bookId: string,

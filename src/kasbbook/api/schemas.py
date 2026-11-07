@@ -233,11 +233,30 @@ class MemberResponse(Model):
     user_id: uuid.UUID
     display_name: str
     role: str
+    # False for a colleague added by name only: paid and counted, but nobody can sign in as them yet.
+    has_account: bool = True
 
 
 class InviteRequest(Model):
     identifier: str = Field(min_length=1, max_length=320)
     role: str
+
+
+class PersonRequest(Model):
+    name: str = Field(min_length=1, max_length=120)
+    role: str = "viewer"
+
+
+class LinkPersonRequest(Model):
+    identifier: str = Field(min_length=1, max_length=320)
+    role: str = "member"
+
+
+class MemberUpdateRequest(Model):
+    """Either field may be given; a name only changes for someone added by name."""
+
+    role: Optional[str] = None
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
 
 
 class CategoryRequest(Model):

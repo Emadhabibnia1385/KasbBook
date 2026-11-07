@@ -68,6 +68,11 @@ class User(UUIDPrimaryKey, Timestamped, Base):
     is_guest: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # A colleague a team added by name only: paid and counted like anyone, but with no login and no
+    # messenger. Linking them to a real account later moves everything they own onto that account.
+    is_placeholder: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     locale: Mapped[str] = mapped_column(String(8), nullable=False, default="fa")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Tehran")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Dropdown, Label } from "@nyxon/nasim";
 import { tv } from "tailwind-variants";
 
 const card = tv({
@@ -60,4 +61,46 @@ export function Figure({
 	children: ReactNode;
 }) {
 	return <span className={figure({ tone })}>{children}</span>;
+}
+
+export type MenuItem = { id: string; label: string; danger?: boolean };
+
+/**
+ * The «⋯» beside a record: the rarer or riskier things to do with it, so the card itself keeps one clear
+ * button. Nothing shows when there is nothing to offer.
+ */
+export function ActionMenu({
+	label,
+	items,
+	onAction,
+}: {
+	label: string;
+	items: readonly MenuItem[];
+	onAction: (id: string) => void;
+}) {
+	if (items.length === 0) return null;
+	return (
+		<Dropdown>
+			<Dropdown.Trigger
+				aria-label={label}
+				className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl text-lg text-muted hover:bg-default"
+			>
+				<span aria-hidden>⋯</span>
+			</Dropdown.Trigger>
+			<Dropdown.Popover placement="bottom start" className="min-w-48">
+				<Dropdown.Menu aria-label={label} onAction={(key) => onAction(String(key))}>
+					{items.map((item) => (
+						<Dropdown.Item
+							key={item.id}
+							id={item.id}
+							textValue={item.label}
+							variant={item.danger ? "danger" : undefined}
+						>
+							<Label>{item.label}</Label>
+						</Dropdown.Item>
+					))}
+				</Dropdown.Menu>
+			</Dropdown.Popover>
+		</Dropdown>
+	);
 }

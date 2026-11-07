@@ -39,7 +39,6 @@ export function TeamLayout() {
 					tab("/team", t.payroll.tabs.members),
 					...(payroll
 						? [
-								tab("/team/shares", t.payroll.tabs.shares),
 								tab("/team/periods", t.payroll.tabs.periods),
 								tab("/team/funds", t.payroll.tabs.funds),
 							]

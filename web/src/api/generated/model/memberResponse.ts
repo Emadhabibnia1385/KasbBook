@@ -17,6 +17,7 @@
 
 export interface MemberResponse {
 	display_name: string;
+	has_account?: boolean;
 	role: string;
 	user_id: string;
 }

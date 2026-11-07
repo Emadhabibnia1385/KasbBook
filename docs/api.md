@@ -214,7 +214,9 @@ prefix, never the key.
 |---|---|
 | `GET /books` | books this account can see |
 | `POST /books` | `{"name":"مغازه","type":"business","currency":"IRR"}` |
-| `GET /books/{id}/members` · `POST` · `DELETE /{user_id}` | membership |
+| `GET /books/{id}/members` · `POST` · `PATCH /{user_id}` · `DELETE /{user_id}` | membership; `POST` takes an email, phone, web username, Telegram id or `@username` of an existing account |
+| `POST /books/{id}/people` | add a colleague **by name only**, with no account (paid and counted like anyone; `has_account: false`) |
+| `POST /books/{id}/members/{user_id}/link` | point such a colleague at a real account; their shares, performance, adjustments and payslips move onto it |
 | `GET /books/{id}/transactions` | `?since=&until=&page=&per_page=`, newest first |
 | `POST /books/{id}/transactions` | see below |
 | `GET`/`DELETE /books/{id}/transactions/{tx}` | one transaction |

@@ -6,11 +6,12 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
-	DataTable,
+	EmptyState,
+	ErrorState,
 	FormRoot,
 	Modal,
 	PageHeader,
-	SectionCard,
+	PageSkeleton,
 	SelectField,
 	StatusChip,
 	SubmitButton,
@@ -24,6 +25,7 @@ import { monthWindow } from "./calendar";
 import { PayrollPage } from "./PayrollPage";
 import { periodStatusLabel, refreshPayroll, reportError } from "./shared";
 import { periodTone } from "./status";
+import { ItemCard } from "./ui";
 
 const schema = z.object({
 	month: z
@@ -80,67 +82,54 @@ function List({ book }: { book: BookResponse }) {
 	const navigate = useNavigate();
 	const [opening, setOpening] = useState(false);
 	const query = usePayrollListPeriods(book.id);
+	// The month being paid is the one on top.
+	const periods = [...(query.data ?? [])].sort((a, b) => b.starts_on.localeCompare(a.starts_on));
 	return (
 		<div className="flex flex-col gap-5">
 			<PageHeader
-				title={t.nav.team}
+				title={t.payroll.periods.title}
 				description={book.name}
 				actions={<Button onPress={() => setOpening(true)}>{t.payroll.periods.open}</Button>}
 			/>
-			<SectionCard title={t.payroll.periods.title} description={t.payroll.periods.lead}>
-				<DataTable<PeriodResponse>
-					ariaLabel={t.payroll.periods.title}
-					cards="md"
-					status={query.isError ? "error" : query.isLoading ? "loading" : "ready"}
-					onRetry={() => void query.refetch()}
-					rows={query.data}
-					getRowId={(row) => row.id}
-					emptyTitle={t.payroll.periods.emptyTitle}
-					empty={t.payroll.periods.empty}
-					columns={[
-						{
-							id: "name",
-							header: t.payroll.periods.name,
-							isRowHeader: true,
-							cell: (row) => (
-								<Link
-									to="/team/periods/$periodId"
-									params={{ periodId: row.id }}
-									className="font-medium text-accent"
-								>
-									{row.label}
-								</Link>
-							),
-						},
-						{
-							id: "status",
-							header: t.payroll.periods.status,
-							cell: (row) => (
-								<StatusChip tone={periodTone(row.status)} label={periodStatusLabel(row.status)} />
-							),
-						},
-						{
-							id: "window",
-							header: t.payroll.periods.window,
-							cell: (row) => `${formatFullDate(row.starts_on)} – ${formatFullDate(row.ends_on)}`,
-						},
-						{
-							id: "see",
-							header: "",
-							isActions: true,
-							cell: (row) => (
-								<Link
-									to="/team/periods/$periodId"
-									params={{ periodId: row.id }}
-									className="text-sm text-accent"
-								>
-									{t.payroll.periods.see}
-								</Link>
-							),
-						},
-					]}
+			<p className="text-sm text-muted">{t.payroll.periods.lead}</p>
+			{query.isLoading ? (
+				<PageSkeleton header={false} rows={3} />
+			) : query.isError ? (
+				<ErrorState onRetry={() => void query.refetch()} />
+			) : periods.length === 0 ? (
+				<EmptyState
+					title={t.payroll.periods.emptyTitle}
+					description={t.payroll.periods.empty}
+					action={<Button onPress={() => setOpening(true)}>{t.payroll.periods.open}</Button>}
 				/>
-			</SectionCard>
+			) : (
+				<ul className="grid gap-3 md:grid-cols-2">
+					{periods.map((period) => (
+						<ItemCard
+							key={period.id}
+							title={
+								<Link
+									to="/team/periods/$periodId"
+									params={{ periodId: period.id }}
+									className="text-accent"
+								>
+									{period.label}
+								</Link>
+							}
+							aside={
+								<StatusChip
+									tone={periodTone(period.status)}
+									label={periodStatusLabel(period.status)}
+								/>
+							}
+						>
+							<p className="text-sm text-muted">
+								{formatFullDate(period.starts_on)} – {formatFullDate(period.ends_on)}
+							</p>
+						</ItemCard>
+					))}
+				</ul>
+			)}
 			<Modal isOpen={opening} onOpenChange={setOpening} title={t.payroll.periods.open} size="sm">
 				<OpenForm
 					book={book}

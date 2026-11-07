@@ -35,7 +35,7 @@ import { PeriodPerformance } from "./PeriodPerformance";
 import { PayrollPage } from "./PayrollPage";
 import { periodStatusLabel, refreshPayroll, reportError } from "./shared";
 import { isEditable, periodTone } from "./status";
-import { Figure } from "./ui";
+import { ActionMenu, Figure } from "./ui";
 
 // The whole arithmetic, shown rather than asserted: somebody about to be paid a share of a number should
 // be able to see how the number was reached.
@@ -57,7 +57,7 @@ function Arithmetic({
 				{noShares ? (
 					<Notice tone="warning" title={t.payroll.needShares}>
 						{t.payroll.needSharesBody}{" "}
-						<Link to="/team/shares" className="text-accent">
+						<Link to="/team" className="text-accent">
 							{t.payroll.goShares}
 						</Link>
 					</Notice>
@@ -204,19 +204,19 @@ function Detail({ book, periodId }: { book: BookResponse; periodId: string }) {
 				}
 				actions={
 					<>
-						{editable ? (
-							<Button variant="secondary" onPress={() => setEditing(true)}>
-								{t.payroll.period.edit}
-							</Button>
-						) : null}
 						{slips.length > 0 && !locked ? (
 							<Button onPress={() => setClosing(true)}>{t.payroll.period.close}</Button>
 						) : null}
-						{editable && slips.length === 0 ? (
-							<Button variant="ghost" onPress={() => setRemoving(true)}>
-								{t.payroll.period.delete}
-							</Button>
-						) : null}
+						<ActionMenu
+							label={`${t.payroll.period.menu}: ${period.label}`}
+							items={[
+								...(editable ? [{ id: "edit", label: t.payroll.period.edit }] : []),
+								...(editable && slips.length === 0
+									? [{ id: "delete", label: t.payroll.period.delete, danger: true }]
+									: []),
+							]}
+							onAction={(id) => (id === "edit" ? setEditing(true) : setRemoving(true))}
+						/>
 					</>
 				}
 			/>

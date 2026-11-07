@@ -43,7 +43,10 @@ from ..schemas import (
     BookUpdate,
     CalendarRequest,
     InviteRequest,
+    LinkPersonRequest,
     MemberResponse,
+    MemberUpdateRequest,
+    PersonRequest,
     TransactionPage,
     TransactionRequest,
     TransactionResponse,
@@ -329,7 +332,8 @@ async def list_members(
         person = await identity.get_user(member.user_id)
         result.append(MemberResponse(user_id=member.user_id,
                                      display_name=person.display_name,
-                                     role=member.role.value))
+                                     role=member.role.value,
+                                     has_account=not person.is_placeholder))
     return result
 
 
@@ -348,6 +352,51 @@ async def add_member(
     )
     return MemberResponse(user_id=invitee.id, display_name=invitee.display_name,
                           role=membership.role.value)
+
+
+@router.post("/{book_id}/people", response_model=MemberResponse, status_code=201)
+async def add_person(
+    book_id: uuid.UUID, body: PersonRequest, user: CurrentUser, session: SessionDep
+) -> MemberResponse:
+    """Add a colleague by name only, with no account; link one later with `.../link`."""
+    membership = await BookService(session).add_person(
+        user.id, book_id, body.name, _as_enum(Role, body.role, "role")
+    )
+    person = await IdentityService(session).get_user(membership.user_id)
+    return MemberResponse(user_id=person.id, display_name=person.display_name,
+                          role=membership.role.value, has_account=False)
+
+
+@router.post("/{book_id}/members/{member_user_id}/link", response_model=MemberResponse)
+async def link_person(
+    book_id: uuid.UUID, member_user_id: uuid.UUID, body: LinkPersonRequest,
+    user: CurrentUser, session: SessionDep,
+) -> MemberResponse:
+    """Give a colleague added by name a real account (email, phone, Telegram id or @username)."""
+    membership = await BookService(session).link_person(
+        user.id, book_id, member_user_id, body.identifier, _as_enum(Role, body.role, "role")
+    )
+    person = await IdentityService(session).get_user(membership.user_id)
+    return MemberResponse(user_id=person.id, display_name=person.display_name,
+                          role=membership.role.value, has_account=True)
+
+
+@router.patch("/{book_id}/members/{member_user_id}", response_model=MemberResponse)
+async def update_member(
+    book_id: uuid.UUID, member_user_id: uuid.UUID, body: MemberUpdateRequest,
+    user: CurrentUser, session: SessionDep,
+) -> MemberResponse:
+    books = BookService(session)
+    if body.role is not None:
+        await books.change_role(user.id, book_id, member_user_id, _as_enum(Role, body.role, "role"))
+    if body.display_name is not None:
+        await books.rename_person(user.id, book_id, member_user_id, body.display_name)
+    membership = await books.membership(book_id, member_user_id)
+    if membership is None:
+        raise NotFound("membership")
+    person = await IdentityService(session).get_user(member_user_id)
+    return MemberResponse(user_id=person.id, display_name=person.display_name,
+                          role=membership.role.value, has_account=not person.is_placeholder)
 
 
 @router.delete("/{book_id}/members/{member_user_id}", status_code=204)
