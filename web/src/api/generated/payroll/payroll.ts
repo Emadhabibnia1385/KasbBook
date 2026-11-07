@@ -2733,6 +2733,90 @@ export const usePayrollRecordPerformance = <
 > => {
 	return useMutation(getPayrollRecordPerformanceMutationOptions(options), queryClient);
 };
+export const getPayrollReopenUrl = (bookId: string, periodId: string) => {
+	return `/api/v1/books/${bookId}/periods/${periodId}/reopen`;
+};
+
+/**
+ * Open a closed period again. Only whoever may close it; payslips and payments stay.
+ * @summary Reopen
+ */
+export const payrollReopen = async (
+	bookId: string,
+	periodId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<PeriodResponse> => {
+	return apiFetch<PeriodResponse>(getPayrollReopenUrl(bookId, periodId), {
+		...options,
+		method: "POST",
+	});
+};
+
+export const getPayrollReopenMutationKey = () => ["payrollReopen"] as const;
+
+export const getPayrollReopenMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof payrollReopen>>,
+		TError,
+		PayrollReopenMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof payrollReopen>>,
+	TError,
+	PayrollReopenMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPayrollReopenMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof payrollReopen>>,
+		PayrollReopenMutationVariables
+	> = (props) => {
+		const { bookId, periodId } = props ?? {};
+
+		return payrollReopen(bookId, periodId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PayrollReopenMutationResult = NonNullable<Awaited<ReturnType<typeof payrollReopen>>>;
+
+export type PayrollReopenMutationError = ErrorType<HTTPValidationError>;
+export type PayrollReopenMutationVariables = { bookId: string; periodId: string };
+
+/**
+ * @summary Reopen
+ */
+export const usePayrollReopen = <TError = ErrorType<HTTPValidationError>, TContext = unknown>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof payrollReopen>>,
+			TError,
+			PayrollReopenMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof payrollReopen>>,
+	TError,
+	PayrollReopenMutationVariables,
+	TContext
+> => {
+	return useMutation(getPayrollReopenMutationOptions(options), queryClient);
+};
 export const getPayrollAdvanceUrl = (bookId: string, periodId: string, status: string) => {
 	return `/api/v1/books/${bookId}/periods/${periodId}/status/${status}`;
 };

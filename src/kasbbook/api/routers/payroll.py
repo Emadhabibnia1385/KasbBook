@@ -192,6 +192,14 @@ async def close(
     return _period(await PayrollService(session).close_period(user.id, period_id))
 
 
+@router.post("/periods/{period_id}/reopen", response_model=PeriodResponse)
+async def reopen(
+    book_id: uuid.UUID, period_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> PeriodResponse:
+    """Open a closed period again. Only whoever may close it; payslips and payments stay."""
+    return _period(await PayrollService(session).reopen_period(user.id, period_id))
+
+
 # ----------------------------------------------------------------- shares
 @router.get("/shares", response_model=List[ShareResponse])
 async def list_shares(

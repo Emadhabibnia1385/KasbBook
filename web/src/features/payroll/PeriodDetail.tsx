@@ -24,6 +24,7 @@ import {
 	usePayrollListPayslips,
 	usePayrollListPeriods,
 	usePayrollListShares,
+	usePayrollReopen,
 } from "@/api/generated/payroll/payroll";
 import { formatFullDate, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
@@ -159,6 +160,8 @@ function Detail({ book, periodId }: { book: BookResponse; periodId: string }) {
 	const payslips = usePayrollListPayslips(book.id, periodId);
 	const close = usePayrollClose();
 	const remove = usePayrollDeletePeriod();
+	const reopen = usePayrollReopen();
+	const [reopening, setReopening] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const [closing, setClosing] = useState(false);
 	const [removing, setRemoving] = useState(false);
@@ -207,6 +210,11 @@ function Detail({ book, periodId }: { book: BookResponse; periodId: string }) {
 						{slips.length > 0 && !locked ? (
 							<Button onPress={() => setClosing(true)}>{t.payroll.period.close}</Button>
 						) : null}
+						{locked ? (
+							<Button variant="secondary" onPress={() => setReopening(true)}>
+								{t.payroll.period.reopen}
+							</Button>
+						) : null}
 						<ActionMenu
 							label={`${t.payroll.period.menu}: ${period.label}`}
 							items={[
@@ -247,6 +255,23 @@ function Detail({ book, periodId }: { book: BookResponse; periodId: string }) {
 						await close.mutateAsync({ bookId: book.id, periodId: period.id });
 						await refreshPayroll(queryClient, book.id);
 						toast.success(t.payroll.period.closed);
+					} catch (error) {
+						reportError(error);
+						throw error;
+					}
+				}}
+			/>
+			<ConfirmDialog
+				isOpen={reopening}
+				onOpenChange={setReopening}
+				title={t.payroll.period.reopenTitle}
+				description={`${period.label}. ${t.payroll.period.reopenBody}`}
+				confirmLabel={t.payroll.period.reopen}
+				onConfirm={async () => {
+					try {
+						await reopen.mutateAsync({ bookId: book.id, periodId: period.id });
+						await refreshPayroll(queryClient, book.id);
+						toast.success(t.payroll.period.reopened);
 					} catch (error) {
 						reportError(error);
 						throw error;

@@ -254,6 +254,37 @@ class PayrollService:
             await self.advance_period(actor_user_id, period.id, step)
         return period
 
+    async def reopen_period(
+        self, actor_user_id: uuid.UUID, period_id: uuid.UUID
+    ) -> FinancialPeriod:
+        """Open a locked period again, for the one who may lock it.
+
+        Locking is a decision, and so is undoing it, so it is the same permission and it leaves a
+        record. It is not a move on the state machine (which has no way out of locked on purpose:
+        nothing else may reopen a period); it is its own act. Nothing the period holds is touched:
+        the payslips and payments stay as they were, and the period takes entries and recalculates
+        again until it is closed once more.
+        """
+        period = await self.get_period(period_id)
+        await self.books.require(period.book_id, actor_user_id, Permission.LOCK_PERIOD)
+        await CategoryService(self.session).lock_book(period.book_id)
+        await self.session.refresh(period)
+        if period.status is not PeriodStatus.LOCKED:
+            raise ValidationError("این دوره بسته نیست.")
+
+        period.status = PeriodStatus.OPEN
+        period.locked_at = None
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id,
+                action="period.reopened",
+                subject=period.label,
+                detail=PeriodStatus.OPEN.value,
+            )
+        )
+        await self.session.flush()
+        return period
+
     async def _refuse_lock_over_unpaid(self, period: FinancialPeriod) -> None:
         """A locked period takes no payment, so it may not lock while one is owed.
 

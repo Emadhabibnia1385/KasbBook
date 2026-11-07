@@ -1445,6 +1445,38 @@ async def test_closing_walks_a_paid_up_period_to_locked(session):
     assert closed.status is PeriodStatus.LOCKED and closed.locked_at is not None
 
 
+async def test_a_closed_period_can_be_opened_again_and_keeps_its_slips_and_payments(session):
+    *_, payroll, owner, book, period, member, slip = await _paid_team(session)
+    await payroll.close_period(owner.id, period.id)
+    assert period.status is PeriodStatus.LOCKED
+
+    reopened = await payroll.reopen_period(owner.id, period.id)
+    assert reopened.status is PeriodStatus.OPEN and reopened.locked_at is None
+
+    # What was paid is still there, and the period takes entries again.
+    await session.refresh(slip, attribute_names=["payments"])
+    assert slip.payments and slip.remaining == Decimal("0")
+    await payroll.add_adjustment(
+        owner.id, period.id, member.id, AdjustmentKind.BONUS, AdjustmentMode.AMOUNT, "1000"
+    )
+    # ...and it can be closed once more after whatever was fixed is paid.
+    with pytest.raises(ValidationError):
+        await payroll.close_period(owner.id, period.id)  # the bonus is owed
+
+
+async def test_only_a_closed_period_reopens_and_only_by_the_lock_permission(session):
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    with pytest.raises(ValidationError):
+        await payroll.reopen_period(owner.id, period.id)  # not closed
+
+    *_, payroll, owner, book, period, member, slip = await _paid_team(session)
+    await payroll.close_period(owner.id, period.id)
+    admin = await add_member(session, books, identity, book, owner, "مدیر", role=Role.ADMIN)
+    with pytest.raises(PermissionDenied):
+        await payroll.reopen_period(admin.id, period.id)
+    assert period.status is PeriodStatus.LOCKED
+
+
 @pytest.mark.parametrize("problem", ["unpaid", "no_slips", "stale"])
 async def test_a_refused_close_moves_the_period_nowhere(session, problem):
     if problem == "no_slips":
