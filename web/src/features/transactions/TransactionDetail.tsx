@@ -11,6 +11,7 @@ import {
 	currencyName,
 	formatAmount,
 	formatFullDate,
+	formatOtherCalendar,
 	formatMoney,
 } from "@/shared/format";
 import { t } from "@/strings";
@@ -111,7 +112,15 @@ function Body({ row }: { row: BookedTransactionResponse }) {
 					{ label: t.transactions.kind, value: income ? t.common.income : t.common.expense },
 					{
 						label: t.transactions.date,
-						value: formatFullDate(row.occurred_on, calendarOfBook(row.book_id)),
+						value: (
+							<span>
+								{formatFullDate(row.occurred_on, calendarOfBook(row.book_id))}
+								{" · "}
+								<bdi dir="ltr" className="tabular-nums text-muted">
+									{formatOtherCalendar(row.occurred_on, calendarOfBook(row.book_id))}
+								</bdi>
+							</span>
+						),
 					},
 					// The whole note, wrapped: the list only shows its first line.
 					row.description

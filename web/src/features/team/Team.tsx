@@ -213,6 +213,8 @@ function Summary({ shares }: { shares: readonly ShareResponse[] }) {
 }
 
 // ------------------------------------------------------------------ add
+const NO_SHARE = "none";
+const ADD_BASES = [{ value: NO_SHARE, label: t.team.noShare }, ...BASES];
 const addSchema = z
 	.object({
 		access: z.boolean(),
@@ -229,7 +231,8 @@ const addSchema = z
 		} else if (!values.name) {
 			context.addIssue({ code: "custom", path: ["name"], message: t.team.needName });
 		}
-		if (values.value && !validValue(values.value))
+		// «بدون سهم» is a choice of its own: the person is a member and is paid nothing by the book.
+		if (values.basis !== NO_SHARE && !validValue(values.value))
 			context.addIssue({ code: "custom", path: ["value"], message: t.payroll.shares.badValue });
 	});
 type AddValues = z.input<typeof addSchema>;
@@ -254,7 +257,7 @@ function AddMember({
 			name: "",
 			identifier: "",
 			role: "member",
-			basis: "percent",
+			basis: NO_SHARE,
 			value: "",
 		},
 	});
@@ -278,7 +281,7 @@ function AddMember({
 								data: { name: values.name, role: "viewer" },
 							});
 					await queryClient.invalidateQueries({ queryKey: getBooksListMembersQueryKey(book.id) });
-					if (payroll && values.value) {
+					if (payroll && values.basis !== NO_SHARE) {
 						try {
 							await setShare.mutateAsync({
 								bookId: book.id,
@@ -325,17 +328,23 @@ function AddMember({
 				<div className="flex flex-col gap-4 rounded-xl border border-border p-3">
 					<div>
 						<p className="text-sm font-medium">{t.team.shareOptional}</p>
-						<p className="text-xs text-muted">{t.team.shareLater}</p>
 					</div>
-					<SelectField name="basis" label={t.payroll.shares.basis} options={BASES} />
-					<BasisExplain basis={basis} />
-					<TextField
-						name="value"
-						label={copy.label}
-						description={copy.hint}
-						inputMode="decimal"
-						dir="ltr"
-					/>
+					<SelectField name="basis" label={t.payroll.shares.basis} options={ADD_BASES} />
+					{basis === NO_SHARE ? (
+						<p className="text-sm text-muted">{t.team.noShareBody}</p>
+					) : (
+						<>
+							<BasisExplain basis={basis} />
+							<TextField
+								name="value"
+								label={copy.label}
+								description={copy.hint}
+								inputMode="decimal"
+								dir="ltr"
+								isRequired
+							/>
+						</>
+					)}
 				</div>
 			) : null}
 			<SubmitButton>{t.team.send}</SubmitButton>

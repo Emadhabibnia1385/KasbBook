@@ -2,7 +2,7 @@ import { tv } from "tailwind-variants";
 import { EmptyState, ErrorState, Pager, TableSkeleton } from "@nyxon/nasim";
 import type { BookedTransactionResponse } from "@/api/generated/model";
 import { DownIcon, UpIcon } from "@/shared/icons";
-import { calendarOfBook, formatDay } from "@/shared/format";
+import { DayPair } from "@/shared/DayPair";
 import { Amount } from "./Amount";
 import { t } from "@/strings";
 
@@ -74,7 +74,7 @@ export function CompactRows({
 											</bdi>
 										) : null}
 										<span className="shrink-0">
-											{formatDay(item.occurred_on, calendarOfBook(item.book_id))}
+											<DayPair iso={item.occurred_on} bookId={item.book_id} inline />
 										</span>
 										{item.description ? (
 											<bdi className="min-w-0 truncate">{item.description}</bdi>

@@ -133,6 +133,21 @@ const fullFormats: Record<CalendarName, Intl.DateTimeFormat> = {
 	}),
 };
 
+const numericJalali = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+});
+
+/**
+ * The same day written as numbers in the calendar the book does not use: «2026/11/05» beside a Jalali
+ * date, «۱۴۰۵/۰۸/۱۴» beside a Gregorian one. A date is only ever checked against the other calendar here.
+ */
+export function formatOtherCalendar(iso: string, cal: CalendarName = activeCalendar): string {
+	if (cal === "gregorian") return numericJalali.format(new Date(`${iso}T12:00:00`));
+	return iso.replaceAll("-", "/");
+}
+
 /** An ISO date (2026-11-05) in the book's calendar: «۱۴ آبان» or «November 5». */
 export function formatDay(iso: string, cal: CalendarName = activeCalendar): string {
 	return dayFormats[cal].format(new Date(`${iso}T12:00:00`));
