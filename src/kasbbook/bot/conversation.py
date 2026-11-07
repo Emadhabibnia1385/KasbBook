@@ -20,6 +20,8 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.base import EventKind, IncomingEvent, OutgoingMessage
+from ..modules.activity import recorder as activity
+from ..modules.activity.models import VIA_BOT
 from ..modules.identity.models import Provider
 from ..shared.errors import KasbBookError
 from . import screens
@@ -136,6 +138,12 @@ class Conversation:
 
     # ------------------------------------------------------------- entry
     async def handle(self, event: IncomingEvent) -> OutgoingMessage:
+        try:
+            return await self._handle(event)
+        finally:
+            activity.clear_actor()
+
+    async def _handle(self, event: IncomingEvent) -> OutgoingMessage:
         self.ctx.reset_outbox()
         key = conversation_key(self.provider.value, event.identity.external_id)
 
@@ -192,6 +200,9 @@ class Conversation:
 
         if user is None:
             return await self._unlinked(event, key)
+
+        # Whatever this update changes is logged as this person's, done through the bot.
+        activity.set_actor(user.id, VIA_BOT)
 
         if event.kind is EventKind.COMMAND:
             return await self._command(event, user, key)

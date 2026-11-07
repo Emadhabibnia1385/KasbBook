@@ -61,6 +61,10 @@ class Database:
     """
 
     def __init__(self, url: str, echo: bool = False) -> None:
+        # Every session of this process writes the activity log as it flushes (see the recorder).
+        from ..modules.activity.recorder import install
+
+        install()
         self._engine = create_async_engine(url, echo=echo, future=True)
 
         if url.startswith("sqlite"):

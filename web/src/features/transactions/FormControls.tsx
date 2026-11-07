@@ -15,6 +15,7 @@ import {
 } from "@nyxon/nasim";
 import {
 	getBooksListCategoriesQueryKey,
+	useBooksCreateCategory,
 	useBooksDeleteCategory,
 	useBooksListCategories,
 	useBooksRenameCategory,
@@ -95,6 +96,10 @@ export function CategoryField({
 	const queryClient = useQueryClient();
 	const rename = useBooksRenameCategory();
 	const remove = useBooksDeleteCategory();
+	const create = useBooksCreateCategory();
+	// A brand-new category made right here, without leaving the form.
+	const [adding, setAdding] = useState(false);
+	const [addName, setAddName] = useState("");
 	// The row being renamed in place, and what is typed for it.
 	const [editing, setEditing] = useState<CategoryResponse | null>(null);
 	const [newName, setNewName] = useState("");
@@ -130,6 +135,21 @@ export function CategoryField({
 			toast.success(t.categories.deleted);
 		} catch (error) {
 			// A category that has transactions is refused with the reason; it is shown, not hidden.
+			reportFailure(error);
+		}
+	};
+
+	const addCategory = async () => {
+		const fresh = addName.trim();
+		if (!fresh) return;
+		try {
+			await create.mutateAsync({ bookId, data: { name: fresh, flow } });
+			await queryClient.invalidateQueries({ queryKey: getBooksListCategoriesQueryKey(bookId) });
+			toast.success(t.categories.created);
+			setAdding(false);
+			setAddName("");
+			choose(fresh);
+		} catch (error) {
 			reportFailure(error);
 		}
 	};
@@ -231,6 +251,39 @@ export function CategoryField({
 					</li>
 				) : null}
 			</ul>
+			{adding ? (
+				<div className="flex items-center gap-2 rounded-xl bg-surface-secondary p-1.5">
+					<input
+						// Asked for just now, so it takes focus as it appears.
+						ref={(element) => element?.focus()}
+						className="min-h-10 min-w-0 flex-1 rounded-field border border-border bg-field px-3 text-sm"
+						value={addName}
+						placeholder={t.txFilter.categoryNewName}
+						aria-label={t.txFilter.categoryNewName}
+						onChange={(event) => setAddName(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") void addCategory();
+							if (event.key === "Escape") setAdding(false);
+						}}
+					/>
+					<Button size="sm" isPending={create.isPending} onPress={() => void addCategory()}>
+						{t.common.save}
+					</Button>
+					<Button size="sm" variant="ghost" onPress={() => setAdding(false)}>
+						{t.common.cancel}
+					</Button>
+				</div>
+			) : (
+				<Button
+					variant="secondary"
+					onPress={() => {
+						setAddName(typed);
+						setAdding(true);
+					}}
+				>
+					+ {t.txFilter.categoryNew}
+				</Button>
+			)}
 			<Link to="/books" className="text-sm text-accent" onClick={() => setOpen(false)}>
 				{t.txFilter.manageCategories}
 			</Link>

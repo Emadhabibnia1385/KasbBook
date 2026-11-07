@@ -5,6 +5,7 @@ its side effect is easy to delete by accident, so this file exists to make that
 requirement explicit and to give migrations a single, obvious entry point.
 """
 
+from .modules.activity.models import ActivityEvent
 from .modules.books.models import Book, Membership, TeamInvitation
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
@@ -51,6 +52,7 @@ from .shared.database import Base
 # stated in a way the linter understands, rather than a noqa it ignores.
 __all__ = [
     "Base",
+    "ActivityEvent",
     "Account",
     "AccountLoginChallenge",
     "WebLoginChallenge",
@@ -93,3 +95,8 @@ __all__ = [
     "TreasuryRule",
     "User",
 ]
+
+# The activity log is written by a listener on every session's flush; importing the models installs it.
+from .modules.activity.recorder import install as _install_activity  # noqa: E402
+
+_install_activity()

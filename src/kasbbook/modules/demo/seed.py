@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import jalali
+from ..activity import recorder as activity
 from ..books.models import BookType, Membership, Role
 from ..books.service import BookService
 from ..budgets.models import BudgetKind
@@ -469,10 +470,12 @@ async def seed_demo(session: AsyncSession, today: Optional[date] = None) -> Tupl
     session.add(owner)
     await session.flush()
     seeder = Seeder(session, today)
-    await seeder.personal(owner)
-    await seeder.shop(owner)
-    await seeder.studio(owner)
-    await seeder.company(owner)
+    # A thousand made-up rows are not anybody's activity.
+    with activity.paused():
+        await seeder.personal(owner)
+        await seeder.shop(owner)
+        await seeder.studio(owner)
+        await seeder.company(owner)
     return owner, seeder.rows
 
 

@@ -13,6 +13,8 @@ from fastapi import APIRouter, Request, status
 
 from dataclasses import replace
 
+from ...modules.activity import recorder as activity
+from ...modules.activity.models import VIA_WEB
 from ...modules.identity.auth import AuthError
 from ...modules.identity.service import IdentityService
 from ...shared.security import password_reset_code, verify_password
@@ -94,6 +96,10 @@ async def register(
         password=body.password,
         with_book=True,
     )
+    activity.record(
+        session, category="account", action="account.registered", summary="ساخت حساب",
+        user_id=user.id, via=VIA_WEB,
+    )
     pair = await auth.issue_pair(
         user,
         user_agent=request.headers.get("user-agent"),
@@ -162,6 +168,10 @@ async def login(
         # turn this route into an account-enumeration tool.
         raise AuthError("the details you entered do not match an account")
 
+    activity.record(
+        session, category="account", action="account.login", summary="ورود به حساب",
+        user_id=user.id, via=VIA_WEB,
+    )
     pair = await auth.issue_pair(
         user, user_agent=request.headers.get("user-agent"), ip_address=fingerprint
     )
@@ -184,6 +194,11 @@ async def logout(body: RefreshRequest, auth: AuthDep, session: SessionDep) -> No
     """Sign out this session. An unknown token is not an error; it is signed out."""
     owner = await auth.owner_of(body.refresh_token)
     await auth.revoke_refresh(body.refresh_token)
+    if owner is not None and not (owner.is_guest and not owner.is_demo):
+        activity.record(
+            session, category="account", action="account.logout", summary="خروج از حساب",
+            user_id=owner.id, via=VIA_WEB,
+        )
     if owner is not None and owner.is_guest and not owner.is_demo:
         await IdentityService(session).delete_account(owner.id)
 

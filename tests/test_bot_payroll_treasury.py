@@ -845,8 +845,11 @@ async def test_the_period_says_when_its_payslips_went_stale(session):
                                         "سرور", "1000000", occurred_on=date(2026, 8, 5))
     await session.flush()
 
+    # Payslips follow the period by themselves now, so the numbers never disagree with them.
     now = await convo.handle(press(f"pr:open:{period.id}"))
-    assert "نمی‌خوانند" in now.text
+    assert "نمی‌خوانند" not in now.text
+    slips = await payroll.payslips(owner.id, period.id)
+    assert sum(s.distributable_snapshot for s in slips) / len(slips) == Decimal("79000000")
 
 
 async def test_the_bot_can_take_back_the_last_payment(session):
@@ -898,17 +901,14 @@ async def test_a_paid_period_takes_a_late_receipt_and_leaves_the_rest_owed(sessi
                                         "فروش", "10000000", occurred_on=date(2026, 8, 30))
     await session.flush()
 
+    # No press needed: opening the period brings the payslips up to the late income, payments kept.
     detail = await convo.handle(press(f"pr:open:{period.id}"))
-    assert "نمی‌خوانند" in detail.text
-    assert "پرداخت‌ها سر جایشان می‌مانند" in detail.text
-    assert any("محاسبهٔ دوبارهٔ فیش‌ها" in label for label in labels(detail))
+    assert "نمی‌خوانند" not in detail.text
+    assert "مانده پرداخت: 50,000,000" in detail.text      # 5m to one, 45m to the other
     assert any("تاریخ‌های دوره" in label for label in labels(detail))
     # Discarding would delete the payment with the payslip, so it is not offered.
     assert not any("باطل‌کردن محاسبه" in label for label in labels(detail))
-
-    after = await convo.handle(press(f"pr:calc:{period.id}"))
-    assert "نمی‌خوانند" not in after.text
-    assert "مانده پرداخت: 50,000,000" in after.text      # 5m to one, 45m to the other
+    after = detail
 
     listed = await convo.handle(press(f"pr:slips:{period.id}"))
     assert "🟡 عماد: 45,000,000 تومان — مانده 5,000,000 تومان" in listed.text

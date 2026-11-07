@@ -36,6 +36,8 @@ export const txFilterStrings = {
 		categoryFind: "جست‌وجوی دسته",
 		categoryFindHint: "نام دسته را بنویس؛ اگر نبود، افزوده می‌شود",
 		categoryAdd: "افزودن دستهٔ",
+		categoryNew: "دستهٔ تازه",
+		categoryNewName: "نام دستهٔ تازه",
 		categoryChoose: "انتخاب دسته",
 		categoryNone: "هنوز دسته‌ای نیست",
 		categoryNoneHint: "نام دستهٔ اول را بالا بنویس تا افزوده شود.",

@@ -16,17 +16,10 @@ import {
 	StatusChip,
 	toast,
 } from "@nyxon/nasim";
-import type {
-	BookResponse,
-	DistributionResponse,
-	PayslipResponse,
-	PeriodResponse,
-} from "@/api/generated/model";
+import type { BookResponse, DistributionResponse } from "@/api/generated/model";
 import {
-	usePayrollCalculate,
 	usePayrollClose,
 	usePayrollDeletePeriod,
-	usePayrollDiscardCalculation,
 	usePayrollDistribution,
 	usePayrollListPayslips,
 	usePayrollListPeriods,
@@ -34,7 +27,7 @@ import {
 } from "@/api/generated/payroll/payroll";
 import { formatFullDate, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
-import { barLength, isNegative, isPositive, isZero, sameAmount } from "./decimal";
+import { barLength, isNegative, isPositive, isZero } from "./decimal";
 import { PeriodAdjustments } from "./PeriodAdjustments";
 import { PeriodEdit } from "./PeriodEdit";
 import { PeriodPayslips } from "./PeriodPayslips";
@@ -48,58 +41,18 @@ import { Figure } from "./ui";
 // be able to see how the number was reached.
 function Arithmetic({
 	book,
-	period,
 	distribution,
-	slips,
 }: {
 	book: BookResponse;
-	period: PeriodResponse;
 	distribution: DistributionResponse;
-	slips: readonly PayslipResponse[];
 }) {
-	const queryClient = useQueryClient();
 	const shares = usePayrollListShares(book.id);
-	const calculate = usePayrollCalculate();
-	const discard = usePayrollDiscardCalculation();
-	const [discarding, setDiscarding] = useState(false);
 	const money = (value: string) => formatMoney(value, book.currency);
-	const editable = isEditable(period.status);
-	const paidAny = slips.some((slip) => slip.payments.length > 0);
 	const noShares = shares.data !== undefined && shares.data.length === 0;
 	const fromTreasury = distribution.cost_policy === "from_treasury";
 
 	return (
-		<SectionCard
-			title={t.payroll.arithmetic.title}
-			description={t.payroll.arithmetic.lead}
-			actions={
-				editable ? (
-					<>
-						<Button
-							size="sm"
-							isDisabled={noShares}
-							isPending={calculate.isPending}
-							onPress={async () => {
-								try {
-									await calculate.mutateAsync({ bookId: book.id, periodId: period.id });
-									await refreshPayroll(queryClient, book.id);
-									toast.success(t.payroll.arithmetic.calculated);
-								} catch (error) {
-									reportError(error);
-								}
-							}}
-						>
-							{slips.length ? t.payroll.arithmetic.recalculate : t.payroll.arithmetic.calculate}
-						</Button>
-						{slips.length && !paidAny ? (
-							<Button size="sm" variant="ghost" onPress={() => setDiscarding(true)}>
-								{t.payroll.arithmetic.discard}
-							</Button>
-						) : null}
-					</>
-				) : null
-			}
-		>
+		<SectionCard title={t.payroll.arithmetic.title} description={t.payroll.arithmetic.lead}>
 			<div className="flex flex-col gap-4">
 				{noShares ? (
 					<Notice tone="warning" title={t.payroll.needShares}>
@@ -194,24 +147,6 @@ function Arithmetic({
 					/>
 				</div>
 			</div>
-			<ConfirmDialog
-				isOpen={discarding}
-				onOpenChange={setDiscarding}
-				title={t.payroll.arithmetic.discardTitle}
-				description={t.payroll.arithmetic.discardBody}
-				confirmLabel={t.payroll.arithmetic.discard}
-				tone="danger"
-				onConfirm={async () => {
-					try {
-						await discard.mutateAsync({ bookId: book.id, periodId: period.id });
-						await refreshPayroll(queryClient, book.id);
-						toast.success(t.payroll.arithmetic.discarded);
-					} catch (error) {
-						reportError(error);
-						throw error;
-					}
-				}}
-			/>
 		</SectionCard>
 	);
 }
@@ -257,11 +192,6 @@ function Detail({ book, periodId }: { book: BookResponse; periodId: string }) {
 	const slips = payslips.data ?? [];
 	const editable = isEditable(period.status);
 	const locked = period.status === "locked";
-	// A payslip froze the numbers it was built from; if the period has moved since, say so.
-	const stale = slips.some(
-		(slip) => !sameAmount(slip.distributable_snapshot, distribution.data.distributable),
-	);
-	const paidAny = slips.some((slip) => slip.payments.length > 0);
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -291,14 +221,8 @@ function Detail({ book, periodId }: { book: BookResponse; periodId: string }) {
 				}
 			/>
 			{locked ? <Notice tone="info">{t.payroll.period.locked}</Notice> : null}
-			{stale ? (
-				<Notice tone="warning">
-					{t.payroll.period.stale}
-					{paidAny ? ` ${t.payroll.period.staleKeeps}` : ""}
-				</Notice>
-			) : null}
 
-			<Arithmetic book={book} period={period} distribution={distribution.data} slips={slips} />
+			<Arithmetic book={book} distribution={distribution.data} />
 			<PeriodPerformance book={book} period={period} />
 			<PeriodAdjustments book={book} period={period} />
 			<PeriodPayslips book={book} period={period} slips={slips} />

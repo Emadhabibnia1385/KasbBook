@@ -21,6 +21,7 @@ from kasbbook.modules.payroll.models import (
     AdjustmentKind,
     AdjustmentMode,
     PeriodStatus,
+    Payslip,
     PerformanceRecord,
     ShareBasis,
     ShareRule,
@@ -992,7 +993,10 @@ async def test_discarding_a_calculation_removes_its_payslips(session):
 
     assert await payroll.discard_calculation(owner.id, period.id) == 1
     await session.flush()
-    assert await payroll.payslips(owner.id, period.id) == []
+    rows = (await session.execute(select(Payslip).where(Payslip.period_id == period.id))).scalars().all()
+    assert rows == []
+    # Left alone they would come back by themselves the next time anyone looks (see ensure_current).
+    assert len(await payroll.payslips(owner.id, period.id)) == 1
 
 
 async def test_discarding_also_releases_the_treasury_allocation(session):
@@ -1466,3 +1470,27 @@ async def test_only_the_lock_permission_closes_a_period(session):
     with pytest.raises(NotFound):
         await payroll.close_period(stranger.id, period.id)
     assert period.status is PeriodStatus.OPEN
+
+
+async def test_payslips_follow_the_period_without_anyone_calculating(session):
+    """An entry added, edited or removed in a period changes its payslips the next time anyone looks."""
+    identity, books, payroll, owner, book, period = await team_with_income(session)
+    share(session, book, owner, ShareBasis.PERCENT, 100)
+    await session.flush()
+
+    # Never calculated: looking at them makes them.
+    (slip,) = await payroll.payslips(owner.id, period.id)
+    before = slip.net_pay
+    assert before > ZERO_INCOME
+
+    extra = await LedgerService(session).record(
+        book.id, owner.id, Flow.INCOME, Scope.TEAM, "فروش", "5000000", occurred_on=period.ends_on
+    )
+    await session.flush()
+    (slip,) = await payroll.payslips(owner.id, period.id)
+    assert slip.net_pay == before + Decimal("5000000")
+
+    await LedgerService(session).delete(book.id, owner.id, extra.id)
+    await session.flush()
+    (slip,) = await payroll.payslips(owner.id, period.id)
+    assert slip.net_pay == before

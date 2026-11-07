@@ -6,6 +6,7 @@ import { InstallButton } from "@/features/pwa/InstallButton";
 import { useInstallState } from "@/features/pwa/install";
 import { LogoutIcon } from "@/shared/icons";
 import { t } from "@/strings";
+import { ActivityTab } from "./ActivityTab";
 import { ApiTab } from "./ApiTab";
 import { Customize } from "./Customize";
 import { DigestForm } from "./DigestForm";
@@ -108,6 +109,15 @@ export function Account() {
 						content: (
 							<div className="pt-4">
 								<ApiTab />
+							</div>
+						),
+					},
+					{
+						id: "events",
+						label: t.events.tab,
+						content: (
+							<div className="pt-4">
+								<ActivityTab />
 							</div>
 						),
 					},

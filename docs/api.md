@@ -343,7 +343,7 @@ Telegram is what this returns.
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | hours, days, points — for measured bases |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | bonuses and deductions, signed |
 | `POST …/adjustments/{a}/approve` | recording and approving are separate |
-| `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them; again, updates them in place and keeps their payments |
+| `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them; again, updates them in place and keeps their payments. Not needed in practice: `GET …/payslips`, paying and closing bring the payslips up to the period's numbers by themselves (a locked period is left alone) |
 | `DELETE /books/{id}/periods/{p}/payslips` | discard the calculation — refused once anyone has been paid |
 | `GET /books/{id}/periods/{p}/payslips` | everyone's, or only yours, by permission |
 | `POST /books/{id}/payslips/{slip}/payments` | staged; instalments are the norm; any currency the book holds |
@@ -374,6 +374,21 @@ curl -X POST /api/v1/books/$BOOK/payslips/$SLIP/payments \
 Deleting a fund that has already taken money is refused — a paid period would
 be left pointing at nothing. Deactivate it instead. Deleting a *rule* is always
 safe, because what past periods took is snapshotted rather than recomputed.
+
+## Activity («رویدادها»)
+
+Every change to the records people work with (transactions, categories, budgets, debts, loans, recurring
+rules, payroll, members, books, capital, portfolio, currency conversions) is written to an append-only log in
+the same transaction, with who did it and how: `web` (the panel), `api` (a program with the person's key),
+`bot` (a messenger) or `system`. A person reads their own actions and everything done in the books they own
+or administer.
+
+| Call | |
+|---|---|
+| `GET /activity` | a page, newest first. Filters: `category`, `via`, `book_id`, `who` (`me` or a person's id), `q` (part of the sentence), `start`, `end` (days); `limit` ≤ 200, `offset` |
+| `GET /activity/summary` | the same filters added up: total, per category, per way in, per person, per day (`days`, 7–90) |
+| `GET /activity/options` | the categories and ways in, and the people and books in view, for building the filters |
+| `GET /activity/export.csv` | the filtered log as a spreadsheet (up to 20,000 lines) |
 
 ## Webhooks
 

@@ -12,6 +12,8 @@ from typing import Annotated, Optional
 from fastapi import Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..modules.activity import recorder as activity
+from ..modules.activity.models import VIA_API, VIA_WEB
 from ..modules.identity.auth import AuthError, AuthService
 from ..modules.identity.models import User
 from ..shared.database import Database
@@ -52,6 +54,9 @@ async def get_session(request: Request):
         except Exception:
             await session.rollback()
             raise
+        finally:
+            # Whoever this request acted for is not carried into the next piece of work in this task.
+            activity.clear_actor()
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -86,12 +91,16 @@ async def current_user(
         user = await auth.user_for_api_key(x_api_key)
         if user is None:
             raise AuthError("invalid API key")
+        # What this request changes is logged as done through the API, on the key owner's behalf.
+        activity.set_actor(user.id, VIA_API)
         return user
 
     if not authorization or not authorization.lower().startswith("bearer "):
         raise AuthError("sign in first")
 
-    return await auth.user_for_access_token(authorization.split(" ", 1)[1].strip())
+    user = await auth.user_for_access_token(authorization.split(" ", 1)[1].strip())
+    activity.set_actor(user.id, VIA_WEB)
+    return user
 
 
 CurrentUser = Annotated[User, Depends(current_user)]

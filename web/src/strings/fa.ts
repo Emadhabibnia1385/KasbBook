@@ -1,4 +1,5 @@
 import { accountStrings } from "./account";
+import { activityStrings } from "./activity";
 import { capitalStrings } from "./capital";
 import { analyticsStrings } from "./analytics";
 import { foreignStrings } from "./foreign";
@@ -26,6 +27,7 @@ export const t = {
 	...currencyStrings,
 	...analyticsStrings,
 	...accountStrings,
+	...activityStrings,
 	...capitalStrings,
 	...foreignStrings,
 	...manageStrings,

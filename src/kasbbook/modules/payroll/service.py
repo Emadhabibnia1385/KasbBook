@@ -235,11 +235,13 @@ class PayrollService:
         if period.status is PeriodStatus.LOCKED:
             return period
 
+        # Slips are kept current by themselves: whatever changed since they were made is applied now.
+        await self.ensure_current(period.id)
         slips = (await self.session.execute(
             select(Payslip).where(Payslip.period_id == period.id)
         )).scalars().all()
         if not slips:
-            raise ValidationError("هنوز فیشی صادر نشده؛ اول فیش‌ها را حساب کن.")
+            raise ValidationError("برای این دوره فیشی نیست؛ برای اعضا سهم تعیین کن تا فیش‌ها خودکار ساخته شوند.")
         distributable = (await self.compute_distribution(period.id)).distributable
         if any(slip.distributable_snapshot != distributable for slip in slips):
             # Locking would freeze payslips that no longer match the period.
@@ -956,6 +958,11 @@ class PayrollService:
         """Produce a payslip per member, freezing every input onto it."""
         period = await self.get_period(period_id)
         await self.books.require(period.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        return await self._calculate(period)
+
+    async def _calculate(self, period: FinancialPeriod) -> List[Payslip]:
+        """The calculation itself, for whoever has already been allowed to ask for it."""
+        period_id = period.id
         await self._require_editable(period)
 
         book = await self.books.get_book(period.book_id)
@@ -1098,10 +1105,62 @@ class PayrollService:
         await self.session.refresh(slip, attribute_names=["payments"])
         return slip
 
+    async def ensure_current(self, period_id: uuid.UUID) -> None:
+        """Make the period's payslips say what its numbers say now, without anyone asking.
+
+        Payslips used to wait for a «calculate» press, and after any entry in the period was added,
+        edited or deleted they quietly went stale until someone pressed it again. Now whoever looks at
+        them, pays them or closes the period gets them current: if the income, the costs, the fund cuts,
+        a share or an adjustment changed since they were made, they are made again in place (payments
+        stay on them, as on any recalculation); if the period has none yet and members have shares,
+        they are made. A locked period is history and is left alone.
+        """
+        period = await self.get_period(period_id)
+        if period.status is PeriodStatus.LOCKED:
+            return
+        distribution = await self.compute_distribution(period_id)
+        shares = await self._base_shares(period, distribution.distributable)
+        slips = {
+            slip.user_id: slip
+            for slip in (
+                await self.session.execute(select(Payslip).where(Payslip.period_id == period_id))
+            ).scalars().all()
+        }
+        if not shares and not slips:
+            return
+        adjustments_by_user: Dict[uuid.UUID, List[Adjustment]] = {}
+        for adjustment in (
+            await self.session.execute(select(Adjustment).where(Adjustment.period_id == period_id))
+        ).scalars().all():
+            adjustments_by_user.setdefault(adjustment.user_id, []).append(adjustment)
+
+        current = True
+        for user_id, (rule, base_share) in shares.items():
+            slip = slips.get(user_id)
+            if slip is None:
+                current = False
+                break
+            net = quantize(base_share + self._apply_adjustments(
+                base_share, adjustments_by_user.get(user_id, [])))
+            if (
+                slip.distributable_snapshot != distribution.distributable
+                or slip.share_basis_snapshot != rule.basis
+                or slip.share_value_snapshot != rule.value
+                or slip.net_pay != net
+            ):
+                current = False
+                break
+        # A slip left over from a member who has no share any more also makes it stale.
+        if current and any(uid not in shares and slip.net_pay != ZERO for uid, slip in slips.items()):
+            current = False
+        if not current:
+            await self._calculate(period)
+
     async def payslips(
         self, actor_user_id: uuid.UUID, period_id: uuid.UUID
     ) -> Sequence[Payslip]:
         period = await self.get_period(period_id)
+        await self.ensure_current(period_id)
 
         # Seeing everyone's pay is its own permission; otherwise you see your own.
         if await self.books.can(
@@ -1132,6 +1191,9 @@ class PayrollService:
         if slip is None:
             raise NotFound("payslip")
         await self.books.require(slip.book_id, actor_user_id, Permission.MANAGE_PAYROLL)
+        # What is owed is read from slips that match the period's numbers today.
+        await self.ensure_current(slip.period_id)
+        await self.session.refresh(slip)
         # Two payments in flight both read what was owed before either wrote,
         # and both passed the overpayment check. Calculation and recording
         # already queue on this lock; paying now does too.

@@ -324,6 +324,11 @@ async def test_the_bot_can_tick_a_currency_on_and_off(session):
 
 
 # ------------------------------------------------------- paying a member out
+# The tokens the payslip is paid in arrive after the period, so they fund the wallet without being part of
+# what the period divides (payslips follow the period's numbers by themselves).
+AFTER = date(2026, 9, 15)
+
+
 async def money_and_a_payslip(session, income="10000000"):
     """A team book with income, one member on a full share, and a payslip."""
     from kasbbook.modules.payroll.models import ShareBasis, ShareRule
@@ -504,7 +509,7 @@ async def test_a_payslip_paid_in_a_token_is_measured_in_its_own_currency(session
     await exchange.set_enabled(owner.id, book.id, "USDT", True)
     await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
                                         "فروش", "100", currency="USDT",
-                                        conversion_rate="230000", occurred_on=DAY)
+                                        conversion_rate="230000", occurred_on=AFTER)
     await session.flush()
 
     await payroll.pay(owner.id, slip.id, "40", paid_on=DAY, currency="USDT",
@@ -523,7 +528,7 @@ async def test_a_token_payment_beyond_what_is_owed_is_refused(session):
     await exchange.set_enabled(owner.id, book.id, "USDT", True)
     await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
                                         "فروش", "100", currency="USDT",
-                                        conversion_rate="230000", occurred_on=DAY)
+                                        conversion_rate="230000", occurred_on=AFTER)
     await session.flush()
 
     # 50 × 230,000 = 11,500,000, more than the 10,000,000 owed.
@@ -556,7 +561,7 @@ async def test_the_bot_pays_a_whole_payslip_in_tether(session):
     await exchange.set_enabled(owner.id, book.id, "USDT", True)
     await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
                                         "فروش", "100", currency="USDT",
-                                        conversion_rate="200000", occurred_on=DAY)
+                                        conversion_rate="200000", occurred_on=AFTER)
     identity = IdentityService(session)
     issued = await identity.start_link_from_web(owner.id, TG)
     await identity.complete_link_from_messenger(issued.token, TG, "940001")
@@ -614,7 +619,7 @@ async def test_settling_a_payslip_in_a_token_actually_settles_it(session):
     await exchange.set_enabled(owner.id, book.id, "USDT", True)
     await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
                                         "فروش", "200", currency="USDT",
-                                        conversion_rate="229789", occurred_on=DAY)
+                                        conversion_rate="229789", occurred_on=AFTER)
     identity = IdentityService(session)
     issued = await identity.start_link_from_web(owner.id, TG)
     await identity.complete_link_from_messenger(issued.token, TG, "950001")
@@ -655,7 +660,7 @@ async def test_a_payment_still_cannot_overshoot_by_a_real_amount(session):
     await exchange.set_enabled(owner.id, book.id, "USDT", True)
     await LedgerService(session).record(book.id, owner.id, Flow.INCOME, Scope.TEAM,
                                         "فروش", "100", currency="USDT",
-                                        conversion_rate="230000", occurred_on=DAY)
+                                        conversion_rate="230000", occurred_on=AFTER)
     await session.flush()
 
     with pytest.raises(ValidationError):
