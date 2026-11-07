@@ -183,3 +183,79 @@ async def test_a_guest_may_add_people_by_name(api):
                            json={"name": "کارگاه", "type": "team"})).json()["id"]
     made = await api.post(f"/api/v1/books/{book}/people", headers=headers, json={"name": "علی"})
     assert made.status_code == 201, made.text
+
+
+# ------------------------------------------------- a share that differs for a stretch
+async def test_one_month_can_differ_and_the_old_cut_resumes(session):
+    import uuid
+    from datetime import date as d
+
+    from kasbbook.modules.books.models import BookType
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.modules.identity.service import IdentityService
+    from kasbbook.modules.payroll.models import ShareBasis
+    from kasbbook.modules.payroll.service import PayrollService
+
+    owner = await IdentityService(session).create_user(display_name="مالک", email="o@example.com")
+    book = await BookService(session).create_book(owner.id, "تیم", BookType.TEAM)
+    payroll = PayrollService(session)
+
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 30, d(2026, 8, 1))
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 50, d(2026, 9, 1), d(2026, 9, 30))
+
+    async def on(day):
+        rule = (await payroll.share_rules_for(book.id, day)).get(owner.id)
+        return (rule.basis, rule.value) if rule else None
+
+    assert (await on(d(2026, 8, 15)))[1] == 30
+    assert (await on(d(2026, 9, 1)))[1] == 50
+    assert (await on(d(2026, 9, 30)))[1] == 50
+    assert (await on(d(2026, 10, 1)))[1] == 30   # back to what it was
+    assert (await on(d(2027, 3, 1)))[1] == 30
+
+
+async def test_a_stretch_inside_an_older_stretch_keeps_both_ends(session):
+    import uuid
+    from datetime import date as d
+
+    from kasbbook.modules.books.models import BookType
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.modules.identity.service import IdentityService
+    from kasbbook.modules.payroll.models import ShareBasis
+    from kasbbook.modules.payroll.service import PayrollService
+
+    owner = await IdentityService(session).create_user(display_name="مالک", email="o2@example.com")
+    book = await BookService(session).create_book(owner.id, "تیم", BookType.TEAM)
+    payroll = PayrollService(session)
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 20, d(2026, 8, 1))
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 40, d(2026, 9, 1), d(2026, 9, 30))
+    # A second, overlapping exception replaces the part it covers and nothing else.
+    await payroll.set_share(book.id, owner.id, owner.id, ShareBasis.PERCENT, 60, d(2026, 9, 15), d(2026, 10, 10))
+
+    async def value(day):
+        return (await payroll.share_rules_for(book.id, day))[owner.id].value
+
+    assert await value(d(2026, 8, 20)) == 20
+    assert await value(d(2026, 9, 10)) == 40
+    assert await value(d(2026, 9, 20)) == 60
+    assert await value(d(2026, 10, 10)) == 60
+    assert await value(d(2026, 10, 11)) == 20
+    assert await value(d(2027, 1, 1)) == 20
+
+
+async def test_a_stretch_cannot_end_before_it_starts(session):
+    from datetime import date as d
+
+    from kasbbook.modules.books.models import BookType
+    from kasbbook.modules.books.service import BookService
+    from kasbbook.modules.identity.service import IdentityService
+    from kasbbook.modules.payroll.models import ShareBasis
+    from kasbbook.modules.payroll.service import PayrollService
+    from kasbbook.shared.errors import ValidationError
+
+    owner = await IdentityService(session).create_user(display_name="مالک", email="o3@example.com")
+    book = await BookService(session).create_book(owner.id, "تیم", BookType.TEAM)
+    with pytest.raises(ValidationError):
+        await PayrollService(session).set_share(
+            book.id, owner.id, owner.id, ShareBasis.PERCENT, 10, d(2026, 9, 10), d(2026, 9, 1)
+        )

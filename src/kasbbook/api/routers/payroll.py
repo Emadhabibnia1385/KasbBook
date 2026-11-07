@@ -203,7 +203,7 @@ async def list_shares(
         ShareResponse(
             user_id=user_id, display_name=names.get(user_id, "—"),
             basis=rule.basis.value, value=rule.value,
-            effective_from=rule.effective_from,
+            effective_from=rule.effective_from, effective_to=rule.effective_to,
         )
         for user_id, rule in rules.items()
     ]
@@ -218,11 +218,13 @@ async def set_share(
     rule = await payroll.set_share(
         book_id, user.id, body.user_id,
         _as_enum(ShareBasis, body.basis, "basis"), body.value, body.effective_from,
+        body.effective_to,
     )
     names = await _names(session, book_id)
     return ShareResponse(
         user_id=body.user_id, display_name=names.get(body.user_id, "—"),
         basis=rule.basis.value, value=rule.value, effective_from=rule.effective_from,
+        effective_to=rule.effective_to,
     )
 
 

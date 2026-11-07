@@ -5778,6 +5778,18 @@
             ],
             "title": "Effective From"
           },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
+          },
           "user_id": {
             "format": "uuid",
             "title": "User Id",
@@ -5819,6 +5831,18 @@
             "format": "date",
             "title": "Effective From",
             "type": "string"
+          },
+          "effective_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective To"
           },
           "user_id": {
             "format": "uuid",

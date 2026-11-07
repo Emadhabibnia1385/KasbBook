@@ -19,6 +19,7 @@ export interface ShareResponse {
 	basis: string;
 	display_name: string;
 	effective_from: string;
+	effective_to?: string | null;
 	user_id: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	value: string;

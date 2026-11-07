@@ -18,6 +18,7 @@
 export interface ShareRequest {
 	basis: string;
 	effective_from?: string | null;
+	effective_to?: string | null;
 	user_id: string;
 	value: number | string;
 }

@@ -671,8 +671,13 @@ class PayrollService:
         basis: ShareBasis,
         value,
         effective_from: Optional[date] = None,
+        effective_to: Optional[date] = None,
     ) -> ShareRule:
         """Set what one member's cut is, from today or from a chosen date.
+
+        With `effective_to` the new cut holds only through that day, and the rule it interrupts
+        picks up again the day after: one person paid differently for one month, then back to what
+        they were on.
 
         A previous rule is *closed*, never edited. Effective dating is the whole
         point of this table: a raise agreed today must not silently rewrite what
@@ -696,9 +701,18 @@ class PayrollService:
         starts_on = effective_from or jalali.today_in(
             (await self.books.get_book(book_id)).timezone
         )
+        if effective_to is not None and effective_to < starts_on:
+            raise ValidationError("پایان نمی‌تواند قبل از شروع باشد")
 
         if basis is ShareBasis.PERCENT:
-            await self._refuse_percent_over_hundred(book_id, user_id, amount, starts_on)
+            await self._refuse_percent_over_hundred(
+                book_id, user_id, amount, starts_on, until=effective_to
+            )
+
+        if effective_to is not None:
+            return await self._set_bounded_share(
+                book_id, actor_user_id, user_id, basis, amount, starts_on, effective_to
+            )
 
         for existing in (
             await self.session.execute(
@@ -734,8 +748,72 @@ class PayrollService:
         await self.session.flush()
         return rule
 
+    async def _set_bounded_share(
+        self,
+        book_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        user_id: uuid.UUID,
+        basis: ShareBasis,
+        amount: Decimal,
+        starts_on: date,
+        ends_on: date,
+    ) -> ShareRule:
+        """A cut that holds for a stretch of days, leaving what surrounds it as it was."""
+        one_day = timedelta(days=1)
+        tails: List[ShareRule] = []
+        for existing in (
+            await self.session.execute(
+                select(ShareRule).where(
+                    ShareRule.book_id == book_id,
+                    ShareRule.user_id == user_id,
+                    ShareRule.is_active.is_(True),
+                )
+            )
+        ).scalars().all():
+            last = existing.effective_to
+            if existing.effective_from > ends_on or (last is not None and last < starts_on):
+                continue  # entirely outside the stretch
+            runs_past = last is None or last > ends_on
+            if existing.effective_from >= starts_on:
+                if runs_past:
+                    existing.effective_from = ends_on + one_day  # keep only the part after
+                else:
+                    existing.is_active = False  # wholly inside: replaced
+                continue
+            # Begins before the stretch and is in force on its first day.
+            if runs_past:
+                tails.append(
+                    ShareRule(
+                        book_id=book_id, user_id=user_id, basis=existing.basis,
+                        value=existing.value, effective_from=ends_on + one_day,
+                        effective_to=last,
+                    )
+                )
+            existing.effective_to = starts_on - one_day
+
+        rule = ShareRule(
+            book_id=book_id, user_id=user_id, basis=basis, value=amount,
+            effective_from=starts_on, effective_to=ends_on,
+        )
+        self.session.add(rule)
+        for tail in tails:
+            self.session.add(tail)
+        self.session.add(
+            AuditEvent(
+                user_id=actor_user_id, action="share.set", subject=str(user_id),
+                detail=f"{basis.value}:{amount}:{starts_on}..{ends_on}",
+            )
+        )
+        await self.session.flush()
+        return rule
+
     async def _refuse_percent_over_hundred(
-        self, book_id: uuid.UUID, user_id: uuid.UUID, amount: Decimal, starts_on: date
+        self,
+        book_id: uuid.UUID,
+        user_id: uuid.UUID,
+        amount: Decimal,
+        starts_on: date,
+        until: Optional[date] = None,
     ) -> None:
         """Percentages that add up past 100 promise money that does not exist.
 
@@ -757,7 +835,8 @@ class PayrollService:
                 )
             )
         ).scalars().all():
-            days.add(rule.effective_from)
+            if until is None or rule.effective_from <= until:
+                days.add(rule.effective_from)
 
         for day in sorted(days):
             others = sum(

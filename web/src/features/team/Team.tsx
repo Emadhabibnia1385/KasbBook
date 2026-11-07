@@ -34,6 +34,7 @@ import {
 import type { BookResponse, MemberResponse, ShareResponse } from "@/api/generated/model";
 import {
 	usePayrollClearShare,
+	usePayrollListPeriods,
 	usePayrollListShares,
 	usePayrollSetShare,
 } from "@/api/generated/payroll/payroll";
@@ -57,11 +58,13 @@ const ROLES = (["admin", "accountant", "member", "viewer"] as const).map((value)
 }));
 const roleLabel = (role: string) => (t.team.roles as Record<string, string>)[role] ?? role;
 
-// The bot offers these five; `project` exists on the server but nothing measures it yet.
-const BASES = (["percent", "fixed", "hours", "days", "points"] as const).map((value) => ({
-	value,
-	label: t.payroll.shareBasis[value],
-}));
+// «پروژه‌ای» is a fixed weight: it needs nothing recorded, so it is the one to pick for an equal split.
+const BASES = (["percent", "fixed", "days", "hours", "points", "project"] as const).map(
+	(value) => ({
+		value,
+		label: t.payroll.shareBasis[value],
+	}),
+);
 
 function valueCopy(basis: string) {
 	if (basis === "percent")
@@ -75,12 +78,19 @@ function valueCopy(basis: string) {
 const validValue = (value: string) => /^\d+(\.\d{1,4})?$/.test(value) && isPositive(value);
 
 // ------------------------------------------------------------------ share
-const shareSchema = z.object({
-	basis: z
-		.string({ error: t.payroll.shares.needBasis })
-		.min(1, { error: t.payroll.shares.needBasis }),
-	value: z.string().transform(toAscii).refine(validValue, { error: t.payroll.shares.badValue }),
-});
+const shareSchema = z
+	.object({
+		basis: z
+			.string({ error: t.payroll.shares.needBasis })
+			.min(1, { error: t.payroll.shares.needBasis }),
+		value: z.string().transform(toAscii).refine(validValue, { error: t.payroll.shares.badValue }),
+		when: z.string(),
+		period: z.string(),
+	})
+	.superRefine((values, context) => {
+		if (values.when !== "now" && !values.period)
+			context.addIssue({ code: "custom", path: ["period"], message: t.payroll.shares.needPeriod });
+	});
 type ShareValues = z.input<typeof shareSchema>;
 
 function BasisExplain({ basis }: { basis: string }) {
@@ -101,14 +111,18 @@ function ShareForm({
 }) {
 	const queryClient = useQueryClient();
 	const setShare = usePayrollSetShare();
+	const periods = usePayrollListPeriods(book.id);
+	const known = [...(periods.data ?? [])].sort((a, b) => b.starts_on.localeCompare(a.starts_on));
 	const form = useForm<ShareValues>({
 		resolver: zodResolver(shareSchema),
 		defaultValues: {
 			basis: current?.basis ?? "percent",
 			value: current ? plain(current.value) : "",
+			when: "now",
+			period: "",
 		},
 	});
-	const basis = useWatch({ control: form.control, name: "basis" });
+	const [basis, when] = useWatch({ control: form.control, name: ["basis", "when"] });
 	const copy = valueCopy(basis);
 	return (
 		<FormRoot
@@ -116,10 +130,17 @@ function ShareForm({
 			className="flex flex-col gap-4"
 			onSubmit={async (raw) => {
 				const values = shareSchema.parse(raw);
+				const period = known.find((candidate) => candidate.id === values.period);
 				try {
 					await setShare.mutateAsync({
 						bookId: book.id,
-						data: { user_id: member.user_id, basis: values.basis, value: values.value },
+						data: {
+							user_id: member.user_id,
+							basis: values.basis,
+							value: values.value,
+							...(period && values.when !== "now" ? { effective_from: period.starts_on } : {}),
+							...(period && values.when === "only" ? { effective_to: period.ends_on } : {}),
+						},
 					});
 					await refreshPayroll(queryClient, book.id);
 					toast.success(t.payroll.saved);
@@ -144,6 +165,28 @@ function ShareForm({
 				dir="ltr"
 				isRequired
 			/>
+			{known.length > 0 ? (
+				<>
+					<SelectField
+						name="when"
+						label={t.payroll.shares.when}
+						description={t.payroll.shares.whenHelp}
+						options={[
+							{ value: "now", label: t.payroll.shares.whenNow },
+							{ value: "from", label: t.payroll.shares.whenFrom },
+							{ value: "only", label: t.payroll.shares.whenOnly },
+						]}
+					/>
+					{when !== "now" ? (
+						<SelectField
+							name="period"
+							label={t.payroll.shares.period}
+							options={known.map((period) => ({ value: period.id, label: period.label }))}
+							isRequired
+						/>
+					) : null}
+				</>
+			) : null}
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
 	);
@@ -566,6 +609,9 @@ function Members({ book }: { book: BookResponse }) {
 													{shareBasisLabel(rule.basis)}
 													{" · "}
 													{t.payroll.shares.since} {formatFullDate(rule.effective_from)}
+													{rule.effective_to
+														? ` ${t.payroll.shares.until} ${formatFullDate(rule.effective_to)}`
+														: ""}
 												</span>
 											</p>
 										) : (

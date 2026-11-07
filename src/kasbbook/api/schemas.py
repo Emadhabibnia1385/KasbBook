@@ -703,6 +703,8 @@ class ShareRequest(MoneyModel):
     basis: str
     value: Decimal = Field(gt=0)
     effective_from: Optional[date] = None
+    # With it, the cut holds only through this day and the previous one resumes after.
+    effective_to: Optional[date] = None
 
 
 class ShareResponse(MoneyModel):
@@ -711,6 +713,8 @@ class ShareResponse(MoneyModel):
     basis: str
     value: Decimal
     effective_from: date
+    # Set when this cut is temporary: the day it stops holding.
+    effective_to: Optional[date] = None
 
 
 class PerformanceRequest(MoneyModel):
