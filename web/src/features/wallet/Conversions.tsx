@@ -23,6 +23,7 @@ import {
 	useBooksDeleteConversion,
 	useBooksListConversions,
 	useBooksUpdateConversion,
+	useBooksWallet,
 } from "@/api/generated/books/books";
 import type {
 	BookResponse,
@@ -34,7 +35,7 @@ import { AttachmentsField } from "@/features/transactions/AttachmentsField";
 import { prepareFile } from "@/features/transactions/attachments";
 import { pickedDay, todayPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
-import { multiplyMoney } from "@/shared/decimal";
+import { addMoney, multiplyMoney, percentOf } from "@/shared/decimal";
 import { calendarOf, currencyName, formatAmount, formatMoney, toAscii } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
@@ -84,6 +85,14 @@ function priceLine(quote: { value: string; exact?: boolean }, from: string, to: 
 	return `${t.wallet.suggestHint}: ${line}${mark}`;
 }
 
+// How much of the balance to move, one tap: the box is filled and can still be changed by hand.
+const PORTIONS = [
+	{ percent: 25, label: t.wallet.quarter },
+	{ percent: 50, label: t.wallet.half },
+	{ percent: 75, label: t.wallet.threeQuarters },
+	{ percent: 100, label: t.wallet.all },
+];
+
 /** A new conversion, or with `conversion` the correction of one: units, amounts, day, note and files. */
 function ConvertForm({
 	book,
@@ -130,6 +139,17 @@ function ConvertForm({
 	const to = useWatch({ control: form.control, name: "to" });
 	const fromAmount = toAscii(useWatch({ control: form.control, name: "fromAmount" }) ?? "");
 	const toAmount = useWatch({ control: form.control, name: "toAmount" });
+	// What can be moved out of the paid currency: the wallet's balance, plus what this very conversion
+	// already took out of it when it is being corrected.
+	const wallet = useBooksWallet(book.id);
+	const balance = (() => {
+		const held = wallet.data?.find((row) => row.code === from)?.amount;
+		if (held === undefined) return "";
+		return conversion && conversion.from_currency === from
+			? addMoney(held, conversion.from_amount)
+			: held;
+	})();
+	const positive = /^\d+(\.\d+)?$/.test(balance) && Number(balance) > 0;
 	const needsBase = Boolean(from && to && from !== to && from !== baseCode && to !== baseCode);
 
 	// Today's price of what is paid, in what is received: it fills the received amount as the paid one is
@@ -204,10 +224,30 @@ function ConvertForm({
 			<TextField
 				name="fromAmount"
 				label={t.wallet.fromAmount}
+				description={balance ? `${t.wallet.available}: ${formatMoney(balance, from)}` : undefined}
 				inputMode="decimal"
 				dir="ltr"
 				isRequired
 			/>
+			{positive ? (
+				<fieldset className="flex flex-wrap gap-2 border-0 p-0" aria-label={t.wallet.portion}>
+					{PORTIONS.map((portion) => (
+						<Button
+							key={portion.percent}
+							size="sm"
+							variant="secondary"
+							onPress={() =>
+								form.setValue("fromAmount", percentOf(balance, portion.percent), {
+									shouldValidate: true,
+									shouldDirty: true,
+								})
+							}
+						>
+							{portion.label}
+						</Button>
+					))}
+				</fieldset>
+			) : null}
 			<SelectField name="to" label={t.wallet.to} options={choices} isRequired />
 			<TextField
 				name="toAmount"

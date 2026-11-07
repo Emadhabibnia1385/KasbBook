@@ -53,3 +53,13 @@ export function multiplyMoney(amount: string, rate: string): string {
 	}
 	return fromUnits(units);
 }
+
+/**
+ * A share of an amount, rounded down to four places so it never asks for more than there is:
+ * `percentOf("1000", 50)` is "500". Used for the «half», «quarter» and «all» buttons.
+ */
+export function percentOf(amount: string, percent: number): string {
+	if (!/^\d+(\.\d+)?$/.test(amount.trim())) return "";
+	const units = (toUnits(amount) * BigInt(percent)) / 100n;
+	return fromUnits(units).replace(/\.?0+$/, "");
+}

@@ -7,6 +7,12 @@ export const parity3 = {
 		search: "جستجو",
 	},
 	wallet: {
+		available: "موجودی",
+		portion: "چقدر از موجودی",
+		quarter: "یک‌چهارم",
+		half: "نصف",
+		threeQuarters: "سه‌چهارم",
+		all: "حداکثر",
 		title: "کیف پول و ارزها",
 		balances: "موجودی",
 		balancesHint: "موجودی هر ارز از روی تراکنش‌ها و تبدیل‌ها حساب می‌شود.",
