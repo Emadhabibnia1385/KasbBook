@@ -200,6 +200,11 @@ class BookService:
         )
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def members_ever(self, book_id: uuid.UUID) -> Sequence[Membership]:
+        """Everyone who has been on the book, including those since removed."""
+        stmt = select(Membership).where(Membership.book_id == book_id)
+        return (await self.session.execute(stmt)).scalars().all()
+
     async def _refuse_guest(self, user_id: uuid.UUID) -> None:
         """A guest's account is deleted when they leave, so nobody else may be tied to it."""
         from ..identity.models import User
@@ -407,12 +412,40 @@ class BookService:
             raise ValidationError("the owner cannot be removed from their own book")
 
         member.is_active = False
+        await self._end_shares(book_id, user_id)
         self.session.add(
             AuditEvent(
                 user_id=actor_user_id, action="member.deactivated", subject=str(user_id)
             )
         )
         await self.session.flush()
+
+    async def _end_shares(self, book_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        """Someone taken off the book stops taking a share from today; what they were paid stays.
+
+        Closed rather than switched off, as `PayrollService.clear_share` does, so past periods that
+        are recalculated still find the share they were paid under.
+        """
+        from datetime import timedelta
+
+        from ...shared import jalali
+        from ..payroll.models import ShareRule
+
+        book = await self.get_book(book_id)
+        today = jalali.today_in(book.timezone)
+        for rule in (
+            await self.session.execute(
+                select(ShareRule).where(
+                    ShareRule.book_id == book_id,
+                    ShareRule.user_id == user_id,
+                    ShareRule.is_active.is_(True),
+                )
+            )
+        ).scalars().all():
+            if rule.effective_from >= today:
+                rule.is_active = False
+            elif rule.effective_to is None or rule.effective_to >= today:
+                rule.effective_to = today - timedelta(days=1)
 
     async def delete_book(self, actor_user_id: uuid.UUID, book_id: uuid.UUID) -> None:
         """Destroy a book and everything recorded in it. There is no undo.

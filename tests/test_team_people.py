@@ -259,3 +259,61 @@ async def test_a_stretch_cannot_end_before_it_starts(session):
         await PayrollService(session).set_share(
             book.id, owner.id, owner.id, ShareBasis.PERCENT, 10, d(2026, 9, 10), d(2026, 9, 1)
         )
+
+
+async def test_removing_a_member_ends_their_share_and_they_leave_the_next_calculation(api):
+    headers, book = await team(api)
+    gone = (await api.post(f"/api/v1/books/{book}/people", headers=headers, json={"name": "رفته"})).json()
+    stays = (await api.post(f"/api/v1/books/{book}/people", headers=headers, json={"name": "می‌ماند"})).json()
+    for person in (gone, stays):
+        put = await api.put(f"/api/v1/books/{book}/shares", headers=headers, json={
+            "user_id": person["user_id"], "basis": "project", "value": "1", "effective_from": "2026-08-01"})
+        assert put.status_code == 200, put.text
+    await api.post(f"/api/v1/books/{book}/transactions", headers=headers, json={
+        "flow": "income", "category": "فروش", "amount": "1000000", "occurred_on": "2026-08-24"})
+    period = (await api.post(f"/api/v1/books/{book}/periods", headers=headers, json={
+        "label": "مرداد", "starts_on": "2026-08-01", "ends_on": "2026-08-31"})).json()
+    first = (await api.post(f"/api/v1/books/{book}/periods/{period['id']}/calculate", headers=headers)).json()
+    assert {s["user_id"] for s in first} == {gone["user_id"], stays["user_id"]}
+
+    removed = await api.delete(f"/api/v1/books/{book}/members/{gone['user_id']}", headers=headers)
+    assert removed.status_code == 204, removed.text
+
+    shares = (await api.get(f"/api/v1/books/{book}/shares", headers=headers)).json()
+    assert {s["user_id"] for s in shares} == {stays["user_id"]}
+    # The month he worked keeps him: that is what he was paid under.
+    again = (await api.post(f"/api/v1/books/{book}/periods/{period['id']}/calculate", headers=headers)).json()
+    assert {s["user_id"] for s in again} == {gone["user_id"], stays["user_id"]}
+
+    # A month after he left does not.
+    await api.post(f"/api/v1/books/{book}/transactions", headers=headers, json={
+        "flow": "income", "category": "فروش", "amount": "1000000", "occurred_on": "2026-11-20"})
+    later = (await api.post(f"/api/v1/books/{book}/periods", headers=headers, json={
+        "label": "آبان", "starts_on": "2026-11-01", "ends_on": "2026-11-30"})).json()
+    slips = (await api.post(f"/api/v1/books/{book}/periods/{later['id']}/calculate", headers=headers)).json()
+    assert {s["user_id"] for s in slips} == {stays["user_id"]}
+
+
+async def test_a_share_left_open_by_a_removal_before_the_fix_pays_nobody(api, session):
+    import uuid
+
+    from sqlalchemy import select
+
+    from kasbbook.modules.books.models import Membership
+
+    headers, book = await team(api)
+    gone = (await api.post(f"/api/v1/books/{book}/people", headers=headers, json={"name": "رفته"})).json()
+    await api.put(f"/api/v1/books/{book}/shares", headers=headers, json={
+        "user_id": gone["user_id"], "basis": "project", "value": "1", "effective_from": "2026-08-01"})
+    row = await session.scalar(select(Membership).where(Membership.user_id == uuid.UUID(gone["user_id"])))
+    row.is_active = False   # removed the way it used to be: the share is left open-ended
+    await session.commit()
+
+    await api.post(f"/api/v1/books/{book}/transactions", headers=headers, json={
+        "flow": "income", "category": "فروش", "amount": "1000000", "occurred_on": "2026-08-24"})
+    period = (await api.post(f"/api/v1/books/{book}/periods", headers=headers, json={
+        "label": "مرداد", "starts_on": "2026-08-01", "ends_on": "2026-08-31"})).json()
+    done = await api.post(f"/api/v1/books/{book}/periods/{period['id']}/calculate", headers=headers)
+    # Nobody has a share left, so no slip is made for the person who is no longer on the book.
+    assert done.status_code == 200
+    assert done.json() == []

@@ -599,6 +599,19 @@ class PayrollService:
     ) -> Dict[uuid.UUID, tuple]:
         """Split the distributable amount by each member's rule."""
         rules = await self.share_rules_for(period.book_id, period.ends_on)
+        # Someone taken off the book who still has a share that never ends was left that way before
+        # removing a member closed it; they are not paid from here on. A share that was closed is
+        # history and stays.
+        gone = {
+            membership.user_id
+            for membership in await self.books.members_ever(period.book_id)
+            if not membership.is_active
+        }
+        rules = {
+            user_id: rule
+            for user_id, rule in rules.items()
+            if not (user_id in gone and rule.effective_to is None)
+        }
         if not rules:
             return {}
 
