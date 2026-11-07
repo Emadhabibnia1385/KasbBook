@@ -172,7 +172,6 @@ export const parity2 = {
 			open: "باز",
 			calculating: "در حال محاسبه",
 			awaiting_approval: "منتظر تأیید",
-			approved: "تأییدشده",
 			paid: "پرداخت‌شده",
 			locked: "بسته",
 		},
@@ -291,12 +290,6 @@ export const parity2 = {
 			reasonHint: "مثلاً پاداش پروژه، جریمهٔ تأخیر؛ اختیاری.",
 			saved: "ثبت شد",
 			approved: "تأییدشده",
-			pending: "منتظر تأیید",
-			approve: "تأیید",
-			approveTitle: "این مورد تأیید شود؟",
-			approveBody:
-				"تأیید یعنی نفر دومی هم دیده است. مبلغ از همان لحظهٔ ثبت روی فیش اثر دارد، تأیید فقط ثبتش را رسمی می‌کند.",
-			approvedToast: "تأیید شد",
 			bonus: "پاداش",
 			deduction: "کسر",
 			kinds: {

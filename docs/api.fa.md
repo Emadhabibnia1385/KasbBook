@@ -254,7 +254,6 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `DELETE /books/{id}/shares/{user}` | پرداخت به این عضو را از امروز متوقف کن؛ دوره‌های گذشته قاعده را نگه می‌دارند |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | ساعت، روز، امتیاز — برای مبناهای سنجشی |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | پاداش و کسر، علامت‌دار |
-| `POST …/adjustments/{a}/approve` | ثبت و تأیید دو کار جدا هستند |
 | `POST /books/{id}/periods/{p}/calculate` | فیش‌ها، با تمام ورودی‌ها منجمد روی خودشان؛ دفعهٔ بعد سر جایشان به‌روز می‌شوند و پرداخت‌ها می‌مانند |
 | `DELETE /books/{id}/periods/{p}/payslips` | باطل‌کردن محاسبه — بعد از اولین پرداخت رد می‌شود |
 | `GET /books/{id}/periods/{p}/payslips` | فیش همه، یا فقط خودت، بسته به دسترسی |

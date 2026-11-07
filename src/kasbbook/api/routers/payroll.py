@@ -292,7 +292,7 @@ async def list_adjustments(
         AdjustmentResponse(
             id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
             kind=row.kind.value, mode=row.mode.value, value=row.value,
-            reason=row.reason, is_approved=row.approved_at is not None,
+            reason=row.reason,
         )
         for row in rows
     ]
@@ -314,23 +314,7 @@ async def add_adjustment(
     return AdjustmentResponse(
         id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
         kind=row.kind.value, mode=row.mode.value, value=row.value,
-        reason=row.reason, is_approved=row.approved_at is not None,
-    )
-
-
-@router.post("/periods/{period_id}/adjustments/{adjustment_id}/approve",
-             response_model=AdjustmentResponse)
-async def approve_adjustment(
-    book_id: uuid.UUID, period_id: uuid.UUID, adjustment_id: uuid.UUID,
-    user: CurrentUser, session: SessionDep,
-) -> AdjustmentResponse:
-    """Recording and approving are separate on purpose."""
-    row = await PayrollService(session).approve_adjustment(user.id, adjustment_id)
-    names = await _names(session, book_id)
-    return AdjustmentResponse(
-        id=row.id, user_id=row.user_id, display_name=names.get(row.user_id, "—"),
-        kind=row.kind.value, mode=row.mode.value, value=row.value,
-        reason=row.reason, is_approved=row.approved_at is not None,
+        reason=row.reason,
     )
 
 

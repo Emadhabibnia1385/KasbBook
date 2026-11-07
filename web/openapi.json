@@ -348,10 +348,6 @@
             "title": "Id",
             "type": "string"
           },
-          "is_approved": {
-            "title": "Is Approved",
-            "type": "boolean"
-          },
           "kind": {
             "title": "Kind",
             "type": "string"
@@ -388,8 +384,7 @@
           "display_name",
           "kind",
           "mode",
-          "value",
-          "is_approved"
+          "value"
         ],
         "title": "AdjustmentResponse",
         "type": "object"
@@ -15472,102 +15467,6 @@
           }
         },
         "summary": "Add Adjustment",
-        "tags": [
-          "payroll"
-        ]
-      }
-    },
-    "/api/v1/books/{book_id}/periods/{period_id}/adjustments/{adjustment_id}/approve": {
-      "post": {
-        "description": "Recording and approving are separate on purpose.",
-        "operationId": "payroll_approve_adjustment",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "book_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Book Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "period_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Period Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "adjustment_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Adjustment Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-api-key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdjustmentResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Approve Adjustment",
         "tags": [
           "payroll"
         ]

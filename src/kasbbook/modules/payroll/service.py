@@ -996,26 +996,12 @@ class PayrollService:
             value=amount,
             reason=reason,
             recorded_by=actor_user_id,
+            # Nothing waits for a second person: whoever records it has decided it. The columns stay
+            # so the record still says who and when.
+            approved_by=actor_user_id,
+            approved_at=utcnow(),
         )
         self.session.add(adjustment)
-        await self.session.flush()
-        return adjustment
-
-    async def approve_adjustment(
-        self, actor_user_id: uuid.UUID, adjustment_id: uuid.UUID
-    ) -> Adjustment:
-        adjustment = await self.session.get(Adjustment, adjustment_id)
-        if adjustment is None:
-            raise NotFound("adjustment")
-        await self.books.require(
-            adjustment.book_id, actor_user_id, Permission.APPROVE_EXPENSE
-        )
-
-        if adjustment.recorded_by == actor_user_id:
-            raise PermissionDenied("an adjustment is not approved by whoever wrote it")
-
-        adjustment.approved_by = actor_user_id
-        adjustment.approved_at = utcnow()
         await self.session.flush()
         return adjustment
 

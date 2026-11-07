@@ -760,7 +760,6 @@ class AdjustmentResponse(MoneyModel):
     mode: str
     value: Decimal
     reason: Optional[str] = None
-    is_approved: bool
 
 
 class PaymentResponse(MoneyModel):

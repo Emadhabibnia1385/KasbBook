@@ -344,7 +344,6 @@ Telegram is what this returns.
 | `DELETE /books/{id}/shares/{user}` | stop paying this member from today; past periods keep the rule |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | hours, days, points — for measured bases |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | bonuses and deductions, signed |
-| `POST …/adjustments/{a}/approve` | recording and approving are separate |
 | `POST /books/{id}/periods/{p}/calculate` | payslips, every input frozen onto them; again, updates them in place and keeps their payments. Not needed in practice: `GET …/payslips`, paying and closing bring the payslips up to the period's numbers by themselves (a locked period is left alone) |
 | `DELETE /books/{id}/periods/{p}/payslips` | discard the calculation — refused once anyone has been paid |
 | `GET /books/{id}/periods/{p}/payslips` | everyone's, or only yours, by permission |

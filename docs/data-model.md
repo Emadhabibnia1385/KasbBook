@@ -191,7 +191,7 @@ transactions.
 
 ```
 FinancialPeriod   a window, with a status
-  ├── Adjustment[]   bonuses and deductions, signed, approved separately
+  ├── Adjustment[]   bonuses and deductions, signed; recording one is deciding it
   ├── Payslip[]      one per member, every input frozen onto it
   │     └── Payment[]   staged: a share is often paid across several transfers
   └── TreasuryAllocation[]   what the funds took, written once

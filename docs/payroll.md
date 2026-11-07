@@ -204,8 +204,7 @@ In the bot you type `۲م` for a bonus or `-۵۰۰ک` for a deduction, and the k
 (`bonus` / `penalty`) follows from the sign rather than being a second question
 asking the same thing.
 
-Adjustments are approved separately from being recorded, so "the manager
-proposed it, the owner approved it" is a real distinction.
+An adjustment needs nobody to approve it: whoever records it has decided it, and the record keeps who and when.
 
 ## Calculating
 

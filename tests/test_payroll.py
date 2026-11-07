@@ -324,7 +324,7 @@ async def test_a_percentage_adjustment_is_taken_off_the_base_share(session):
     assert slip.net_pay == Decimal("9000000")
 
 
-async def test_nobody_approves_their_own_adjustment(session):
+async def test_an_adjustment_needs_nobody_to_approve_it(session):
     identity, books, payroll, owner, book, period = await team_with_income(session)
     member = await add_member(session, books, identity, book, owner, "عضو")
 
@@ -333,8 +333,9 @@ async def test_nobody_approves_their_own_adjustment(session):
     )
     await session.flush()
 
-    with pytest.raises(PermissionDenied):
-        await payroll.approve_adjustment(owner.id, adjustment.id)
+    # Recording it is deciding it: it is on the record already, with who and when.
+    assert adjustment.approved_at is not None
+    assert adjustment.approved_by == owner.id
 
 
 # -------------------------------------------------------------------- period

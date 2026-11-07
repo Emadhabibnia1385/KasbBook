@@ -5,7 +5,6 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
 	Button,
-	ConfirmDialog,
 	EmptyState,
 	ErrorState,
 	FormRoot,
@@ -13,16 +12,14 @@ import {
 	PageSkeleton,
 	SectionCard,
 	SelectField,
-	StatusChip,
 	SubmitButton,
 	TextField,
 	toast,
 } from "@nyxon/nasim";
 import { useBooksListMembers } from "@/api/generated/books/books";
-import type { AdjustmentResponse, BookResponse, PeriodResponse } from "@/api/generated/model";
+import type { BookResponse, PeriodResponse } from "@/api/generated/model";
 import {
 	usePayrollAddAdjustment,
-	usePayrollApproveAdjustment,
 	usePayrollListAdjustments,
 } from "@/api/generated/payroll/payroll";
 import { formatAmount, formatMoney, toAscii } from "@/shared/format";
@@ -243,11 +240,8 @@ export function PeriodAdjustments({
 	book: BookResponse;
 	period: PeriodResponse;
 }) {
-	const queryClient = useQueryClient();
 	const query = usePayrollListAdjustments(book.id, period.id);
-	const approve = usePayrollApproveAdjustment();
 	const [adding, setAdding] = useState(false);
-	const [approving, setApproving] = useState<AdjustmentResponse | null>(null);
 	const editable = isEditable(period.status);
 
 	return (
@@ -269,25 +263,7 @@ export function PeriodAdjustments({
 			) : query.data?.length ? (
 				<ul className="grid gap-3 md:grid-cols-2">
 					{query.data.map((row) => (
-						<ItemCard
-							key={row.id}
-							title={row.display_name}
-							aside={
-								<StatusChip
-									tone={row.is_approved ? "success" : "warning"}
-									label={
-										row.is_approved ? t.payroll.adjustments.approved : t.payroll.adjustments.pending
-									}
-								/>
-							}
-							actions={
-								row.is_approved || !editable ? null : (
-									<Button size="sm" variant="secondary" onPress={() => setApproving(row)}>
-										{t.payroll.adjustments.approve}
-									</Button>
-								)
-							}
-						>
+						<ItemCard key={row.id} title={row.display_name}>
 							<p className="text-lg font-semibold">
 								<Figure tone={isPositive(row.value) ? "good" : "bad"}>
 									{signed(
@@ -312,32 +288,6 @@ export function PeriodAdjustments({
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.payroll.adjustments.add} size="sm">
 				<AddForm book={book} period={period} onDone={() => setAdding(false)} />
 			</Modal>
-			<ConfirmDialog
-				isOpen={approving !== null}
-				onOpenChange={(open) => !open && setApproving(null)}
-				title={t.payroll.adjustments.approveTitle}
-				description={
-					approving
-						? `${approving.display_name}: ${approving.mode === "percent" ? `${formatAmount(approving.value)}٪` : formatMoney(approving.value, book.currency)}. ${t.payroll.adjustments.approveBody}`
-						: undefined
-				}
-				confirmLabel={t.payroll.adjustments.approve}
-				onConfirm={async () => {
-					if (!approving) return;
-					try {
-						await approve.mutateAsync({
-							bookId: book.id,
-							periodId: period.id,
-							adjustmentId: approving.id,
-						});
-						await refreshPayroll(queryClient, book.id);
-						toast.success(t.payroll.adjustments.approvedToast);
-					} catch (error) {
-						reportError(error);
-						throw error;
-					}
-				}}
-			/>
 		</SectionCard>
 	);
 }

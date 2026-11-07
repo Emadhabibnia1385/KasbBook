@@ -532,20 +532,13 @@ def adjustment_list(book: Book, period, adjustments, names) -> Screen:
     else:
         for adjustment in adjustments:
             sign = "+" if adjustment.value > 0 else ""
-            mark = "✅" if adjustment.approved_at else "⏳"
             unit = "٪" if adjustment.mode.value == "percent" else ""
             lines.append(
-                f"{mark} {names.get(adjustment.user_id, '—')}: "
+                f"• {names.get(adjustment.user_id, '—')}: "
                 f"{sign}{adjustment.value:,.0f}{unit} — {adjustment.reason or '—'}"
             )
 
     buttons = [[Button("➕ افزودن", data=f"pr:adjadd:{period.id}")]]
-    for adjustment in adjustments[:8]:
-        if not adjustment.approved_at:
-            buttons.append([
-                Button(f"✅ تأیید: {names.get(adjustment.user_id, '—')[:14]}",
-                       data=f"pr:adjok:{adjustment.id}")
-            ])
     buttons.append(back_row(f"pr:open:{period.id}"))
     return rtl("\n".join(lines)), buttons
 

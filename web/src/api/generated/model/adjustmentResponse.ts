@@ -18,7 +18,6 @@
 export interface AdjustmentResponse {
 	display_name: string;
 	id: string;
-	is_approved: boolean;
 	kind: string;
 	mode: string;
 	reason?: string | null;

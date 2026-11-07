@@ -470,20 +470,6 @@ class PayrollFeature(Feature):
         if action == "adjnoreason":
             return await self._save_adjustment(user, key, reason=None)
 
-        if action == "adjok":
-            adjustment = await self.ctx.session.get(Adjustment, uuid.UUID(argument))
-            if adjustment is None:
-                return screens.error("این مورد دیگر وجود ندارد؛ شاید حذف شده است.")
-
-            await self.ctx.payroll.approve_adjustment(user.id, adjustment.id)
-            period = await self.ctx.payroll.get_period(adjustment.period_id)
-            book = await self.ctx.books.get_book(period.book_id)
-            return screens.adjustment_list(
-                book, period,
-                await self.ctx.payroll.adjustments(user.id, period.id),
-                await self.ctx.member_names(book.id),
-            )
-
         return screens.stale(None, user.display_name)
 
     async def _save_adjustment(self, user, key: str, reason):
