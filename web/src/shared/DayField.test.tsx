@@ -36,6 +36,14 @@ describe("DayField", () => {
 		expect(screen.getByLabelText("از تاریخ")).toHaveValue("۱۴۰۵/۰۱/۰۱");
 	});
 
+	it("writes the same day in the other calendar beside the box", () => {
+		localStorage.removeItem("kasbbook.calendar");
+		render(<Harness start="2026-11-06T12:00" />);
+		expect(screen.getByText("میلادی:", { exact: false })).toHaveTextContent("2026/11/06");
+		fireEvent.change(screen.getByLabelText("از تاریخ"), { target: { value: "۱۴۰۵/۰۸/۱۷" } });
+		expect(screen.getByText("میلادی:", { exact: false })).toHaveTextContent("2026/11/08");
+	});
+
 	it("fills the day from a quick chip", () => {
 		render(<Harness />);
 		fireEvent.click(screen.getByRole("button", { name: "امروز" }));

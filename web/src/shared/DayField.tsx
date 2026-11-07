@@ -110,6 +110,7 @@ function DayInput({
 		onChange(toPicker(iso));
 	};
 	const today = todayIso();
+	const otherText = writeDay(kind === "jalali" ? "gregorian" : "jalali", typed.iso);
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex items-end gap-2">
@@ -139,6 +140,15 @@ function DayInput({
 					<CalendarIcon aria-hidden />
 				</Button>
 			</div>
+			{/* The same day in the other calendar, so a typed or picked date can always be checked against it. */}
+			{otherText ? (
+				<p className="text-xs text-muted">
+					{kind === "jalali" ? t.days.alsoGregorian : t.days.alsoJalali}:{" "}
+					<bdi dir="ltr" className="tabular-nums">
+						{otherText}
+					</bdi>
+				</p>
+			) : null}
 			<div className="flex items-center gap-2">
 				<KindSwitch kind={kind} onChange={setKind} />
 				<Button size="sm" variant="secondary" onPress={() => set(today)}>

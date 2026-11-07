@@ -8,6 +8,8 @@ export const parity1 = {
 		needDate: "تاریخ را انتخاب کن",
 		placeholder: "۱۴۰۵/۰۸/۱۵",
 		today: "امروز",
+		alsoGregorian: "میلادی",
+		alsoJalali: "شمسی",
 		pick: "انتخاب تاریخ",
 		calendarKind: "نوع تقویم",
 		jalali: "شمسی",
