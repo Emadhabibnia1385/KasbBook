@@ -291,3 +291,9 @@
 
 /* A line of shell that people copy should look like one thing, not a wall. */
 .kb-hero + h2 { border-top: none; margin-top: 0; padding-top: 0; }
+
+
+/* The header logo comes in a light-theme and a dark-theme colouring. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img {
+  content: url("logo-dark.png");
+}

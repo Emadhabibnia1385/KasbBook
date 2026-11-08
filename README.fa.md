@@ -1,5 +1,10 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/logo-wide-dark.png">
+  <img src="./assets/brand/logo-wide-light.png" alt="کسب‌بوک" width="260">
+</picture>
+
 <img src="./assets/readme/hero-fa.svg" width="100%" alt="کسب‌بوک — حسابداری کسب‌وکار کوچک، همان‌جا که کسب‌وکارت حرف می‌زند. یک خط چت «فروش 250ک» به یک سند دوطرفهٔ متعادل تبدیل می‌شود.">
 
 <p>

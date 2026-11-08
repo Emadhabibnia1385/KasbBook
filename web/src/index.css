@@ -12,6 +12,18 @@ body {
 	overscroll-behavior-y: none;
 }
 
+/* The logo comes in a light-theme and a dark-theme colouring; the page's theme (set before first paint on
+   <html>) decides which one is drawn. */
+.brand-on-dark {
+	display: none;
+}
+:root[data-theme="dark"] .brand-on-light {
+	display: none;
+}
+:root[data-theme="dark"] .brand-on-dark {
+	display: block;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	::view-transition-group(*),
 	::view-transition-old(*),

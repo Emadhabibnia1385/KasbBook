@@ -5,7 +5,10 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0a0e12" media="(prefers-color-scheme: dark)" />
-    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+    <!-- A tab strip is light or dark independently of the page, so each gets the colouring that reads on it. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-light-32.png" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-dark-32.png" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="preload" href="/fonts/webfonts/Vazirmatn[wght].woff2" as="font" type="font/woff2" crossorigin />
@@ -13,7 +16,26 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="کسب‌بوک" />
-    <title>کسب‌بوک</title>
+    <title>کسب‌بوک — دفتر مالی شخصی و تیمی</title>
+    <meta name="description" content="دفتر مالی شخصی و تیمی: ثبت درآمد و هزینه، گزارش، کیف پول چندارزی، حقوق و سهم اعضا. از تلگرام، بله، روبیکا و پنل وب؛ با تاریخ شمسی و میلادی." />
+    <!-- The card a link turns into when it is sent in Telegram, Bale, WhatsApp, X or Slack. These tags are
+         read from this file as it is served, before any script runs, so they have to be here. Nothing in
+         them names a particular server: the page's own address is used, and the picture is hosted on the
+         project's GitHub, so a copy someone installs for themselves does not point at ours. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="کسب‌بوک" />
+    <meta property="og:locale" content="fa_IR" />
+    <meta property="og:title" content="کسب‌بوک — دفتر مالی شخصی و تیمی" />
+    <meta property="og:description" content="درآمد و هزینه، گزارش، کیف پول چندارزی و حقوق تیم؛ از تلگرام، بله، روبیکا و پنل وب. تاریخ شمسی و میلادی کنار هم." />
+    <meta property="og:image" content="https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/web/public/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="کسب‌بوک — دفتر مالی شخصی و تیمی، با داشبورد پنل وب" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="کسب‌بوک — دفتر مالی شخصی و تیمی" />
+    <meta name="twitter:description" content="درآمد و هزینه، گزارش، کیف پول چندارزی و حقوق تیم؛ از تلگرام، بله، روبیکا و پنل وب." />
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/web/public/og-image.png" />
     <!-- Picks light or dark before the first paint so neither theme flashes the other: the saved
          choice, else the device. The theme controller (nasim ThemeProvider) takes over after. -->
     <script>
@@ -27,7 +49,7 @@
         } catch (e) {}
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-32C5RapG.js"></script>
+    <script type="module" crossorigin src="/assets/index-Dcx7wM3x.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-XKyaHtl9.js">
     <link rel="modulepreload" crossorigin href="/assets/button-DYe9f7tS.js">
     <link rel="modulepreload" crossorigin href="/assets/matchContext-DlNeQ2JE.js">
@@ -37,7 +59,7 @@
     <link rel="modulepreload" crossorigin href="/assets/useNavigate-C10A5PKi.js">
     <link rel="modulepreload" crossorigin href="/assets/lazyRouteComponent-BZYlobv8.js">
     <link rel="modulepreload" crossorigin href="/assets/Spinner-CEQuEC3Y.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DqQQLFie.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-BY4pb1Op.css">
   </head>
   <body>
     <div id="root"></div>

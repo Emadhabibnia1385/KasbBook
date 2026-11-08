@@ -1,5 +1,10 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/logo-wide-dark.png">
+  <img src="./assets/brand/logo-wide-light.png" alt="KasbBook" width="260">
+</picture>
+
 <img src="./assets/readme/hero.svg" width="100%" alt="KasbBook — bookkeeping for a small business, wherever that business already talks. A chat line «فروش 250ک» becomes a balanced debit and credit journal entry.">
 
 <p>

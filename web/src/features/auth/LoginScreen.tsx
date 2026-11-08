@@ -16,6 +16,7 @@ import { authDemo, authGuest, authLogin } from "@/api/generated/auth/auth";
 import { saveSession } from "@/api/session";
 import { DeveloperFooter } from "@/features/shell/DeveloperFooter";
 import { TelegramIcon } from "@/shared/icons";
+import { BrandMark } from "@/app/shell/BrandMark";
 import { t } from "@/strings";
 import { qrcodeToSvg } from "./qr";
 import { useTelegramLogin } from "./useTelegramLogin";
@@ -66,7 +67,7 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 		<main className="flex min-h-dvh flex-col bg-background text-foreground">
 			<div className="grid flex-1 place-items-center px-page py-10">
 				<div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
-					<img src="/icons/icon-192.png" alt="" className="size-24" />
+					<BrandMark className="size-24" />
 					<div className="flex flex-col gap-2">
 						<h1 className="text-2xl font-bold">{t.login.title}</h1>
 						<p className="text-sm text-muted">{t.login.lead}</p>
