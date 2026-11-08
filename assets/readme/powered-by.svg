@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="150" viewBox="0 0 1200 150" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">Powered by Emad</title>
+  <desc id="d">Powered by Emad Habibnia, founder of NYXON. Think, build, ship — systems that work while you sleep.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#11142A"/><stop offset="1" stop-color="#090B14"/></linearGradient>
+    <radialGradient id="glow" cx=".5" cy="0" r=".7"><stop offset="0" stop-color="#636DB6" stop-opacity=".30"/><stop offset="1" stop-color="#636DB6" stop-opacity="0"/></radialGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C4C6F8"/><stop offset="1" stop-color="#636DB6"/></linearGradient>
+    <clipPath id="frame"><rect width="1200" height="150" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="150" fill="url(#sky)"/><rect width="1200" height="150" fill="url(#glow)"/>
+    <g fill="#F4F0E8"><circle cx="90" cy="30" r="1.1"/><circle cx="260" cy="118" r=".8" opacity=".5"/><circle cx="470" cy="24" r="1.2"/><circle cx="840" cy="124" r=".9" opacity=".5"/><circle cx="1010" cy="28" r="1.1"/><circle cx="1150" cy="110" r=".8" opacity=".5"/></g>
+  </g>
+  <rect x=".5" y=".5" width="1199" height="149" rx="23.5" fill="none" stroke="#202440"/>
+  <g transform="translate(84 75)">
+    <circle r="30" fill="#E9BB79" opacity=".12"/>
+    <path d="M10-22a24 24 0 1 0 12 42A20 20 0 1 1 10-22Z" fill="#E9BB79" opacity=".9"/>
+  </g>
+  <g transform="translate(150 0)">
+    <text x="0" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" letter-spacing="4" fill="#8C8FD4">POWERED BY</text>
+    <text x="0" y="112" font-size="52" font-weight="700" letter-spacing="-.5" fill="#F4F0E8">Emad <tspan fill="#E9BB79">Habibnia</tspan></text>
+  </g>
+  <g transform="translate(1136 0)" text-anchor="end">
+    <text y="62" font-size="20" fill="#C4C6F8">NYXON · Mashhad Innovation Factory</text>
+    <text y="96" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#8A8FB8"><tspan fill="#E9BB79">☾</tspan> Think · Build · Ship — systems that work while you sleep.</text>
+  </g>
+</svg>

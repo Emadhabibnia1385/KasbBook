@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">KasbBook architecture: two clients, one set of rules</title>
+  <desc id="d">Telegram, Bale and Rubika reach conversation screens through adapters; the web panel and HTTP API reach the same application services. Every rule lives in the services, above the domain models and ledger, on PostgreSQL, Redis and Alembic.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#11142A"/><stop offset="1" stop-color="#090B14"/></linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C4C6F8"/><stop offset="1" stop-color="#636DB6"/></linearGradient>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#636DB6"/></marker>
+  </defs>
+  <rect width="1200" height="560" rx="24" fill="url(#sky)"/><rect x=".5" y=".5" width="1199" height="559" rx="23.5" fill="none" stroke="#202440"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" letter-spacing="2.6" fill="#8C8FD4"><text x="48" y="48">ARCHITECTURE · TWO CLIENTS, ONE SET OF RULES</text></g>
+
+  <!-- clients -->
+  <g font-size="20" fill="#F4F0E8" text-anchor="middle">
+    <rect x="48" y="84" width="150" height="54" rx="14" fill="#151936" stroke="#202440"/><text x="123" y="118">Telegram</text>
+    <rect x="212" y="84" width="150" height="54" rx="14" fill="#151936" stroke="#202440"/><text x="287" y="118">Bale</text>
+    <rect x="376" y="84" width="150" height="54" rx="14" fill="#151936" stroke="#202440"/><text x="451" y="118">Rubika</text>
+    <rect x="760" y="84" width="190" height="54" rx="14" fill="#1B1F40" stroke="#636DB6"/><text x="855" y="118">Web panel</text>
+    <rect x="964" y="84" width="188" height="54" rx="14" fill="#151936" stroke="#202440"/><text x="1058" y="118">HTTP API</text>
+  </g>
+  <g stroke="#636DB6" stroke-width="2" marker-end="url(#a)" fill="none">
+    <path d="M123 138V176"/><path d="M287 138V176"/><path d="M451 138V176"/>
+    <path d="M855 138V176"/><path d="M1058 138V176"/>
+  </g>
+
+  <!-- adapters + conversation -->
+  <rect x="48" y="180" width="478" height="62" rx="14" fill="#0D1020" stroke="#202440"/>
+  <text x="68" y="208" font-size="20" font-weight="600" fill="#C4C6F8">adapters</text>
+  <text x="68" y="231" font-size="16" fill="#B9C6DE">translate payloads, nothing else</text>
+  <path d="M287 242V270" stroke="#636DB6" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="48" y="274" width="478" height="70" rx="14" fill="#0D1020" stroke="#202440"/>
+  <text x="68" y="304" font-size="20" font-weight="600" fill="#C4C6F8">conversation</text>
+  <text x="68" y="328" font-size="16" fill="#B9C6DE">screens and routing, messenger-agnostic</text>
+
+  <!-- panel + api -->
+  <rect x="760" y="180" width="392" height="164" rx="14" fill="#0D1020" stroke="#202440"/>
+  <text x="780" y="208" font-size="20" font-weight="600" fill="#C4C6F8">React panel · FastAPI</text>
+  <text x="780" y="233" font-size="16" fill="#B9C6DE">Jalali and Gregorian, RTL, installable</text>
+  <text x="780" y="257" font-size="16" fill="#B9C6DE">money crosses as a string, never a float</text>
+  <text x="780" y="281" font-size="16" fill="#B9C6DE">rotating tokens, API keys, rate limits</text>
+  <text x="780" y="305" font-size="16" fill="#B9C6DE">activity log of who did what, and when</text>
+
+  <!-- services -->
+  <g stroke="#636DB6" stroke-width="2" marker-end="url(#a)" fill="none"><path d="M287 344V380"/><path d="M956 344V380"/></g>
+  <rect x="48" y="384" width="1104" height="74" rx="16" fill="#1B1F40" stroke="url(#brand)" stroke-width="1.6"/>
+  <text x="76" y="416" font-size="22" font-weight="700" fill="#F4F0E8">application services</text>
+  <text x="76" y="442" font-size="17" fill="#E9BB79">every rule lives here, once — a permission cannot be enforced in one client and forgotten in the other</text>
+
+  <!-- domain + storage -->
+  <path d="M600 458V480" stroke="#636DB6" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="48" y="484" width="544" height="52" rx="14" fill="#0D1020" stroke="#202440"/>
+  <text x="68" y="516" font-size="18" fill="#B9C6DE">domain models · balanced double-entry ledger</text>
+  <rect x="608" y="484" width="544" height="52" rx="14" fill="#0D1020" stroke="#202440"/>
+  <text x="628" y="516" font-size="18" fill="#B9C6DE">PostgreSQL · Redis · Alembic migrations</text>
+</svg>
