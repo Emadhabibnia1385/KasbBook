@@ -84,22 +84,25 @@ export function Account() {
 								<SectionCard title={t.acct.sessions}>
 									<Sessions />
 								</SectionCard>
-								<InstallCard />
-								<SectionCard title={t.acct.signOutTitle}>
-									<div className="flex flex-col items-start gap-3">
-										<p className="text-sm text-muted">
-											{user?.is_demo
-												? t.acct.signOutDemo
-												: guest
-													? t.acct.signOutGuest
-													: t.acct.signOutLead}
-										</p>
-										<Button variant="outline" onPress={() => void signOut(queryClient)}>
-											<LogoutIcon aria-hidden />
-											{t.common.logout}
-										</Button>
-									</div>
-								</SectionCard>
+								{/* Install and sign-out share one column beside the devices, so neither leaves a hole under the shorter card. */}
+								<div className="flex flex-col gap-5">
+									<InstallCard />
+									<SectionCard title={t.acct.signOutTitle}>
+										<div className="flex flex-col items-start gap-3">
+											<p className="text-sm text-muted">
+												{user?.is_demo
+													? t.acct.signOutDemo
+													: guest
+														? t.acct.signOutGuest
+														: t.acct.signOutLead}
+											</p>
+											<Button variant="outline" onPress={() => void signOut(queryClient)}>
+												<LogoutIcon aria-hidden />
+												{t.common.logout}
+											</Button>
+										</div>
+									</SectionCard>
+								</div>
 							</div>
 						),
 					},

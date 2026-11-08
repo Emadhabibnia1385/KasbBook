@@ -671,3 +671,34 @@ async def test_a_bad_key_is_still_unauthenticated_not_forbidden(api):
     response = await api.post("/api/v1/auth/api-keys", json={"name": "x"},
                               headers={"X-API-Key": "kb_not-a-real-key"})
     assert response.status_code == 401
+
+
+# ---------------------------------------------------- one entry per device
+async def test_the_same_device_signing_in_again_is_one_entry(api):
+    mac_a = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36"
+    mac_b = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36"
+    win = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36"
+    await api.post("/api/v1/auth/register", json={
+        "display_name": "عماد", "email": "dev@example.com", "password": "a-good-password"})
+
+    async def login(agent):
+        return (await api.post("/api/v1/auth/login", headers={"user-agent": agent}, json={
+            "identifier": "dev@example.com", "password": "a-good-password"})).json()
+
+    first = await login(mac_a)
+    await login(win)
+    await login(mac_b)   # the same Mac again: the earlier login is still open but is not a second device
+    headers = {"Authorization": f"Bearer {first['access_token']}"}
+    rows = (await api.get("/api/v1/auth/sessions", headers=headers)).json()
+    from kasbbook.modules.identity.auth import device_label
+
+    # (The registration itself opened a login from a client with no browser name: it is its own entry.)
+    assert sorted(label for label in (device_label(r["user_agent"]) for r in rows) if label) == [
+        "Chrome · Windows", "Chrome · macOS"]
+
+    # Signing the Mac out ends both of its logins, not just the one shown.
+    mac_row = next(r for r in rows if "Macintosh" in r["user_agent"])
+    gone = await api.delete(f"/api/v1/auth/sessions/{mac_row['id']}", headers=headers)
+    assert gone.status_code == 204
+    again = await api.get("/api/v1/auth/sessions", headers={"Authorization": f"Bearer {(await login(win))['access_token']}"})
+    assert not any("Macintosh" in (r["user_agent"] or "") for r in again.json())

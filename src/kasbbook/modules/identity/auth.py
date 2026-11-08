@@ -18,6 +18,7 @@ out is a much smaller harm than the alternative.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -69,6 +70,39 @@ class TokenPair:
 class IssuedApiKey:
     key: str
     record: ApiKey
+
+
+_BROWSERS = (
+    (re.compile(r"Edg(?:e|A|iOS)?/"), "Edge"),
+    (re.compile(r"OPR/|Opera"), "Opera"),
+    (re.compile(r"SamsungBrowser"), "Samsung Internet"),
+    (re.compile(r"Firefox|FxiOS"), "Firefox"),
+    (re.compile(r"Chrome|CriOS|Chromium"), "Chrome"),
+    (re.compile(r"Safari"), "Safari"),
+)
+_SYSTEMS = (
+    (re.compile(r"iPhone|iPad|iPod"), "iOS"),
+    (re.compile(r"Android"), "Android"),
+    (re.compile(r"Windows"), "Windows"),
+    (re.compile(r"Mac OS X|Macintosh"), "macOS"),
+    (re.compile(r"CrOS"), "ChromeOS"),
+    (re.compile(r"Linux"), "Linux"),
+)
+
+
+def device_label(user_agent: Optional[str]) -> Optional[str]:
+    """«Chrome · macOS»: what a person calls a device, the same words the panel shows.
+
+    Two logins from the same browser on the same system are one device however the version string
+    moved between them. Nothing recognisable gives None, which is never merged with anything.
+    """
+    if not user_agent:
+        return None
+    browser = next((name for pattern, name in _BROWSERS if pattern.search(user_agent)), None)
+    system = next((name for pattern, name in _SYSTEMS if pattern.search(user_agent)), None)
+    if browser is None and system is None:
+        return None
+    return f"{browser or '?'} · {system or '?'}"
 
 
 class AuthService:
@@ -252,7 +286,21 @@ class AuthService:
         # Someone else's id answers as an unknown one, like any record that is not yours.
         if record is None or record.user_id != user_id:
             raise NotFound("session not found")
-        await self.revoke_family(record.family_id)
+        # The list shows one entry per device, so signing it out ends every login of that device.
+        label = device_label(record.user_agent)
+        families = {record.family_id}
+        if label is not None:
+            for other in (
+                await self.session.execute(
+                    select(RefreshToken).where(
+                        RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None)
+                    )
+                )
+            ).scalars().all():
+                if device_label(other.user_agent) == label:
+                    families.add(other.family_id)
+        for family in families:
+            await self.revoke_family(family)
 
     async def revoke_family(self, family_id: uuid.UUID) -> int:
         """Kill every token descended from one login."""
@@ -289,12 +337,27 @@ class AuthService:
         return len(records)
 
     async def sessions(self, user_id: uuid.UUID) -> Sequence[RefreshToken]:
+        """Where the account is signed in: one entry per device, the latest activity of each.
+
+        Signing in again on the same browser leaves the earlier login open until it expires, so a
+        list of every open token showed one device several times. A device that cannot be
+        recognised is never merged with another.
+        """
         stmt = (
             select(RefreshToken)
             .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
             .order_by(RefreshToken.created_at.desc())
         )
-        return (await self.session.execute(stmt)).scalars().all()
+        seen: set = set()
+        shown = []
+        for row in (await self.session.execute(stmt)).scalars().all():
+            label = device_label(row.user_agent)
+            if label is not None:
+                if label in seen:
+                    continue
+                seen.add(label)
+            shown.append(row)
+        return shown
 
     # ---------------------------------------------------------- api keys
     async def issue_api_key(
