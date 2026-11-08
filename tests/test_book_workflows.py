@@ -574,7 +574,6 @@ async def login_setup(session):
 
 async def test_login_code_is_delivered_only_to_existing_account_and_switches_no_books(session):
     source, target, requester, convo = await login_setup(session)
-    identity = IdentityService(session)
     books = BookService(session)
     source_book = await books.create_book(source.id, "قبلی", BookType.BUSINESS)
     target_book = await books.create_book(target.id, "مقصد", BookType.BUSINESS)

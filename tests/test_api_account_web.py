@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.test_api_auth import api, bearer, register  # noqa: F401  (the api fixture)
+from tests.test_api_auth import bearer, register
 
 pytestmark = pytest.mark.asyncio
 

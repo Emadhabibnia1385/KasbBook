@@ -8,32 +8,11 @@ refuses to *tell* a caller who is guessing.
 from __future__ import annotations
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 
-from kasbbook.api.app import create_app
-from kasbbook.api.ratelimit import MemoryRateLimiter
-from kasbbook.shared.settings import Settings
 
 pytestmark = pytest.mark.asyncio
 
 SECRET = "a-test-signing-key-that-is-long-enough-to-be-real"
-
-
-@pytest.fixture
-async def api(db):
-    """The real app, against the test database, with no network anywhere."""
-    settings = Settings(
-        database_url="sqlite+aiosqlite://", api_secret_key=SECRET,
-        telegram_bot_username="KasbBookTest",
-    )
-    app = create_app(settings=settings, database=db, limiter=MemoryRateLimiter())
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        # The lifespan is what puts settings and the database on app.state.
-        async with app.router.lifespan_context(app):
-            yield client
 
 
 async def register(api, email="emad@example.com", password="a-good-password"):

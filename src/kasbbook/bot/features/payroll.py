@@ -444,7 +444,6 @@ class PayrollFeature(Feature):
         return screens.stale(None, user.display_name)
 
     async def _adjustment_action(self, action: str, argument: str, user, key: str):
-        from ...modules.payroll.models import Adjustment
 
         if action == "adjadd":
             period = await self.ctx.payroll.get_period(uuid.UUID(argument))

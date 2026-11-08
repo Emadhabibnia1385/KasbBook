@@ -908,7 +908,6 @@ async def test_a_paid_period_takes_a_late_receipt_and_leaves_the_rest_owed(sessi
     assert any("تاریخ‌های دوره" in label for label in labels(detail))
     # Discarding would delete the payment with the payslip, so it is not offered.
     assert not any("باطل‌کردن محاسبه" in label for label in labels(detail))
-    after = detail
 
     listed = await convo.handle(press(f"pr:slips:{period.id}"))
     assert "🟡 عماد: 45,000,000 تومان — مانده 5,000,000 تومان" in listed.text

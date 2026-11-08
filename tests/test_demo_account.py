@@ -7,11 +7,11 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 
-from kasbbook.modules.books.models import Book, Membership
+from kasbbook.modules.books.models import Book
 from kasbbook.modules.identity.models import User
 from kasbbook.modules.ledger.models import Transaction
 from kasbbook.modules.ledger.service import LedgerService
-from tests.test_api_auth import api, bearer  # noqa: F401  (the api fixture)
+from tests.test_api_auth import bearer
 
 pytestmark = pytest.mark.asyncio
 

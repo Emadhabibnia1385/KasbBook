@@ -6,7 +6,6 @@ from its name, and it is read back only through the book's gate.
 
 from __future__ import annotations
 
-import uuid
 from typing import List, Optional
 
 from sqlalchemy import func, select

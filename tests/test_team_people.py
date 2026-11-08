@@ -187,7 +187,6 @@ async def test_a_guest_may_add_people_by_name(api):
 
 # ------------------------------------------------- a share that differs for a stretch
 async def test_one_month_can_differ_and_the_old_cut_resumes(session):
-    import uuid
     from datetime import date as d
 
     from kasbbook.modules.books.models import BookType
@@ -215,7 +214,6 @@ async def test_one_month_can_differ_and_the_old_cut_resumes(session):
 
 
 async def test_a_stretch_inside_an_older_stretch_keeps_both_ends(session):
-    import uuid
     from datetime import date as d
 
     from kasbbook.modules.books.models import BookType

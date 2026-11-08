@@ -51,3 +51,27 @@ async def db():
 async def session(db):
     async for s in db.session():
         yield s
+
+
+# The real app against the test database, with no network anywhere. Shared by every API test, so a
+# test file asks for `api` instead of importing the fixture from another test module.
+SECRET = "a-test-signing-key-that-is-long-enough-to-be-real"
+
+
+@pytest.fixture
+async def api(db):
+    from httpx import ASGITransport, AsyncClient
+
+    from kasbbook.api.app import create_app
+    from kasbbook.api.ratelimit import MemoryRateLimiter
+    from kasbbook.shared.settings import Settings
+
+    settings = Settings(
+        database_url="sqlite+aiosqlite://", api_secret_key=SECRET,
+        telegram_bot_username="KasbBookTest",
+    )
+    app = create_app(settings=settings, database=db, limiter=MemoryRateLimiter())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # The lifespan is what puts settings and the database on app.state.
+        async with app.router.lifespan_context(app):
+            yield client

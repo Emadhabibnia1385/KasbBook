@@ -8,7 +8,7 @@ import pytest
 
 from kasbbook.shared import calendars
 from kasbbook.shared.regions import region_for_zone
-from tests.test_api_auth import api, bearer, register  # noqa: F401  (the api fixture)
+from tests.test_api_auth import bearer, register
 
 pytestmark = pytest.mark.asyncio
 

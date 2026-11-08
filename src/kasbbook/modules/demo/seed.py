@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import calendar as pycal
 import random
-import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta, timezone
 from decimal import Decimal
@@ -243,7 +242,7 @@ class Seeder:
                 await loans.record_payment(book.id, owner.id, phone.id, on=on)
         capital = CapitalService(self.session)
         car_loan = await loans.create(book.id, owner.id, "وام خودرو", 9_500_000, 48, months[-4].start + timedelta(days=9))
-        car = await capital.buy_asset(
+        await capital.buy_asset(
             book.id, owner.id, "پژو ۲۰۶ تیپ ۵", AssetKind.OTHER, 520_000_000, months[-4].start + timedelta(days=2),
             down_payment=150_000_000, loan_id=car_loan.id, note="خرید اقساطی",
         )

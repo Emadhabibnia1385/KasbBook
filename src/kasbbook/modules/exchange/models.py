@@ -42,7 +42,7 @@ from ...shared.money import Money, ZERO
 # Names and the list of what a book may hold come from the catalog. They stay
 # importable from here because screens name a currency without importing
 # anything that talks to a database, and the bot has always read them here.
-from .catalog import BY_CODE, CATALOG
+from .catalog import CATALOG
 
 CURRENCY_NAMES = {c.code: c.name for c in CATALOG}
 # Every currency a book may be allowed to hold.
