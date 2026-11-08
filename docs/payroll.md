@@ -156,9 +156,26 @@ A `ShareRule` per member, per book, with an effective date:
 | `percent` | a percentage each |
 | `fixed` | a fixed amount each |
 | `hours` · `days` · `points` | recorded performance for the period, times the rule's weight |
-| `project` | project contribution |
+| `project` | a fixed weight the owner sets: what is left after fixed and percentage claims is divided by the weights, so every member at `1` is an equal split and `2` is a double share. Nothing has to be recorded each period. |
 
 Where two rules overlap, the one that started later wins.
+
+**A share for one period only.** Setting a share can name an end date. The
+rule it interrupts is split around it: it ends the day before, and a copy of it
+resumes the day after. One person paid differently for one month is therefore
+one action, not two that have to be remembered. The panel offers it as
+*«فقط برای یک دوره»*.
+
+**Taking a member off the book ends their share** from that day, with the same
+closing rule as clearing it, so past periods keep what they were paid under. A
+share left open by a removal made before this rule existed pays nobody.
+
+A colleague can also be added **by name, with no account**. They are a real row
+in `users` flagged `is_placeholder`, so shares, records and payslips work for
+them exactly as for anyone; nothing can sign in as them. Linking them to an
+account by email, phone, Telegram id or `@username` moves their shares,
+performance records, adjustments and payslips onto it and removes the
+placeholder.
 
 Setting a share **closes** the previous rule rather than editing it: the old
 one gets an end date the day before the new one starts, and both stay readable.
@@ -198,13 +215,30 @@ take three quarters and one quarter of the remainder.
 A bonus or a deduction on one person's pay, before the calculation.
 
 The value is **signed** — negative is a deduction. One field rather than a
-value plus a direction, because two fields can disagree and a sign cannot.
+value plus a direction, because two fields can disagree and a sign cannot. In
+the panel the person picks a *kind* (deduction, shortfall, advance, bonus,
+overtime, correction) and writes a size; the kind sets the sign, and only a
+correction, which can go either way, keeps the one that was typed. The mode is
+a fixed amount or a percentage of that member's own share, and a helper
+multiplies *days × a daily amount* for an absence.
+
+A deduction applies to that one member's payslip. It is not handed to anyone
+else; it stays in the book. Absence and lateness are recorded but do not deduct
+by themselves.
 
 In the bot you type `۲م` for a bonus or `-۵۰۰ک` for a deduction, and the kind
 (`bonus` / `penalty`) follows from the sign rather than being a second question
 asking the same thing.
 
 An adjustment needs nobody to approve it: whoever records it has decided it, and the record keeps who and when.
+
+## Reopening a closed period
+
+A locked period refuses entries and payments. Whoever holds the lock permission
+(the owner) can open it again with `POST …/periods/{id}/reopen`: it goes back
+to `open`, the lock time is cleared, the act is audited, and the payslips and
+payments stay exactly as they were. It is not a transition on the state
+machine, which still has no way out of locked.
 
 ## Calculating
 

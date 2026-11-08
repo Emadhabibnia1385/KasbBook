@@ -205,6 +205,15 @@ A payslip snapshots the distributable total, the share basis, and the share
 value. Re-reading last year's payroll shows what was decided then, not what
 today's rules would say.
 
+A member added by name has a `users` row with `is_placeholder` and no login or
+identity; linking moves the member-keyed rows (`ShareRule`, `PerformanceRecord`,
+`Adjustment`, `Payslip`) onto a real account and deletes the placeholder.
+
+An `ActivityEvent` records who did what: a category, an action, a summary, the
+book, and `via` — `web`, `api`, `bot` or `system` — written by a flush listener
+so every client is covered by one mechanism. Visibility is a user's own events
+plus, for a book they own or administer, everyone's in it.
+
 See [payroll.md](./payroll.md).
 
 ## Credentials

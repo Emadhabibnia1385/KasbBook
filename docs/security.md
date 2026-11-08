@@ -94,6 +94,24 @@ HTML parsing is switched on **only** for that message, and both halves are
 escaped first. Enabling it everywhere would mean a Persian description
 containing a `<` or an `&` could break a screen or fail to send.
 
+### Where the account is signed in
+
+*My account → Devices* lists open sessions **once per device**, the latest login
+of each, named the way a person recognises it («Chrome · macOS»). Two logins from
+the same browser on the same system are one device however its version moved,
+and signing it out ends every login of that device, so no earlier one is left
+open and forgotten. A client that cannot be recognised is never merged with
+another. Signing out everywhere also moves the token generation, which ends
+access tokens already issued, not only refresh tokens.
+
+## The activity log
+
+Every change is recorded as an event — who, what, when, and whether it came from
+the panel, the bot, the API or the system — by one listener on the database
+session, so a new client cannot forget to record. An event for a book is visible
+to the people who run that book; everyone sees their own. The log only grows from
+the day it was added.
+
 ## Rate limiting
 
 Fixed windows, per address **and** per account:

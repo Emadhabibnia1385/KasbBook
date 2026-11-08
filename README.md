@@ -13,7 +13,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
-[![Release](https://img.shields.io/badge/release-1.0.0--beta.1-orange?style=flat-square)](https://github.com/Emadhabibnia1385/KasbBook/releases)
+[![Release](https://img.shields.io/badge/release-1.5.0-orange?style=flat-square)](https://github.com/Emadhabibnia1385/KasbBook/releases)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 🌐 **English** · [فارسی](./README.fa.md)

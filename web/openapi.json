@@ -6838,7 +6838,7 @@
   "info": {
     "description": "\nKasbBook's HTTP API.\n\nThe same application services the bot uses. Every permission check happens\nbelow this layer, so an endpoint cannot be more permissive than the equivalent\nbutton in Telegram.\n\nMoney is carried as a **string**, never a JSON number: JSON has one numeric\ntype and it is a float, and a bookkeeping API that loses rials is not one.\n",
     "title": "KasbBook API",
-    "version": "1.0.0-beta.1"
+    "version": "1.5.0"
   },
   "openapi": "3.1.0",
   "paths": {

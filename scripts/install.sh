@@ -13,6 +13,10 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh" 2>/dev/null || {
     KASBBOOK_BRANCH="${KASBBOOK_BRANCH:-main}"
     KASBBOOK_REPO="${KASBBOOK_REPO:-https://github.com/Emadhabibnia1385/KasbBook.git}"
     R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
+    B=$'\033[1m'; D=$'\033[2m'; V=$'\033[38;5;105m'; A=$'\033[38;5;179m'
+    if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ]; then R=; G=; Y=; C=; N=; B=; D=; V=; A=; fi
+    STEP=0
+    step() { STEP=$((STEP + 1)); echo; echo "${V}${B}[${STEP}/${STEPS:-?}]${N} ${B}$*${N}"; }
     say()  { echo "${C}==>${N} $*"; }
     ok()   { echo "  ${G}✓${N} $*"; }
     warn() { echo "  ${Y}!${N} $*"; }
@@ -22,9 +26,31 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh" 2>/dev/null || {
     # disk. A copy here would be a second answer to the same question.
 }
 
+STEPS=9
+START_TIME=$(date +%s)
+
+# What the person sees first. Plain box drawing and two 256-colour tints, so it reads the same over
+# ssh from any terminal; with no terminal (a pipe, a log) the colours drop away and it is still text.
+banner() {
+    # ASCII inside the box so every row is the same width however the terminal counts characters;
+    # the Persian name sits under it, where nothing has to line up with a border.
+    local width=58 line
+    echo
+    echo "${V}  ╭$(printf '─%.0s' $(seq 1 $width))╮${N}"
+    for line in "" "   KasbBook" "   bookkeeping for a small business, where it already" "   talks: Telegram, Bale, Rubika, web panel and API" ""; do
+        case "$line" in
+            "   KasbBook") printf '%s  │%s   %s%s%s%*s%s│%s\n' "${V}" "${N}" "${B}" "KasbBook" "${N}" $((width - 11)) "" "${V}" "${N}" ;;
+            *) printf '%s  │%s%s%-*s%s%s│%s\n' "${V}" "${N}" "${D}" "$width" "$line" "${N}" "${V}" "${N}" ;;
+        esac
+    done
+    echo "${V}  ╰$(printf '─%.0s' $(seq 1 $width))╯${N}"
+    echo "  ${A}کسب‌بوک${N}  ${D}running it twice is safe; the second run repairs what the first left half-done${N}"
+}
+banner
+
 [ "$(id -u)" -eq 0 ] || die "run this with sudo"
 
-say "checking what this box already has"
+step "checking what this box already has"
 for tool in git python3 curl; do
     command -v "$tool" >/dev/null || die "$tool is required and not installed"
 done
@@ -34,7 +60,7 @@ ok "python $(python3 -V | cut -d' ' -f2)"
 
 command -v docker >/dev/null && ok "docker is available" || warn "no docker — you will need your own PostgreSQL and Redis"
 
-say "fetching the code into $KASBBOOK_HOME"
+step "fetching the code into $KASBBOOK_HOME"
 if [ -d "$KASBBOOK_HOME/.git" ]; then
     git config --global --add safe.directory "$KASBBOOK_HOME" 2>/dev/null || true
     git -C "$KASBBOOK_HOME" fetch --quiet origin "$KASBBOOK_BRANCH"
@@ -58,7 +84,7 @@ ok "$(git log --oneline -1)"
 # shellcheck source=scripts/lib.sh
 source "$KASBBOOK_HOME/scripts/lib.sh"
 
-say "python environment"
+step "python environment"
 [ -d venv ] || python3 -m venv venv
 ./venv/bin/pip install --quiet --upgrade pip
 ./venv/bin/pip install --quiet -r requirements.txt
@@ -69,6 +95,7 @@ say "python environment"
 ok "dependencies installed"
 
 # ---------------------------------------------------------------- datastores
+step "datastores (PostgreSQL and Redis)"
 if [ ! -f deploy/.env ]; then
     say "generating datastore credentials"
     POSTGRES_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
@@ -98,6 +125,7 @@ if command -v docker >/dev/null; then
 fi
 
 # -------------------------------------------------------------- environment
+step "environment"
 if [ ! -f .env ]; then
     say "setting up the environment"
     . deploy/.env 2>/dev/null || true
@@ -178,12 +206,12 @@ else
     fi
 fi
 
-say "creating the schema"
+step "creating the schema"
 set -a; . ./.env; set +a
 ./venv/bin/alembic upgrade head
 ok "schema at $(./venv/bin/alembic current 2>/dev/null | tail -1)"
 
-say "installing services"
+step "installing services"
 for unit in "${UNITS[@]}"; do
     install -m 644 "deploy/$unit.service" "/etc/systemd/system/$unit.service"
 done
@@ -191,7 +219,7 @@ systemctl daemon-reload
 systemctl enable --quiet --now kasbbook-bot
 systemctl enable --quiet --now kasbbook-api
 
-say "health"
+step "checking that it came up"
 sleep 10
 FAILED=0
 for unit in "${UNITS[@]}"; do
@@ -210,13 +238,26 @@ curl -fsS --max-time 5 http://127.0.0.1:8210/readyz >/dev/null 2>&1 \
 
 echo
 if [ "$FAILED" = 0 ]; then
-    ok "KasbBook is installed and running."
+    ELAPSED=$(( $(date +%s) - START_TIME ))
+    WEB="${KASBBOOK_API_URL:-}"
+    [ -n "$WEB" ] || WEB="http://127.0.0.1:8210"
+    echo "${G}  ╭──────────────────────────────────────────────────────────╮${N}"
+    echo "${G}  │${N}  ${G}${B}✓ KasbBook is installed and running${N}  ${D}(${ELAPSED}s)${N}"
+    echo "${G}  ╰──────────────────────────────────────────────────────────╯${N}"
     echo
-    echo "  bot logs:   journalctl -u kasbbook-bot -f"
-    echo "  api logs:   journalctl -u kasbbook-api -f"
-    echo "  api docs:   http://127.0.0.1:8210/docs"
-    echo "  update:     sudo $KASBBOOK_HOME/scripts/update.sh"
-    echo "  backup:     sudo $KASBBOOK_HOME/scripts/backup.sh"
+    echo "  ${B}Open it${N}"
+    echo "    web panel   ${C}${WEB}/${N}"
+    echo "    api docs    ${C}${WEB}/docs${N}"
+    echo "    the bot     send /start to @${TELEGRAM_BOT_USERNAME:-your bot} in Telegram"
+    echo
+    echo "  ${B}Look after it${N}"
+    echo "    bot logs    journalctl -u kasbbook-bot -f"
+    echo "    api logs    journalctl -u kasbbook-api -f"
+    echo "    update      sudo $KASBBOOK_HOME/scripts/update.sh"
+    echo "    back up     sudo $KASBBOOK_HOME/scripts/backup.sh"
+    echo
+    echo "  ${D}docs: https://emadhabibnia1385.github.io/KasbBook/  ·  powered by Emad Habibnia${N}"
+    echo
 else
     die "installation finished with problems; see the logs above"
 fi

@@ -100,6 +100,14 @@ written; `trial_balance()` on that book now returns two equal numbers.
 Mordad of 1403 — converted to a Gregorian range before the query, so the
 database never sees a Jalali value and you never see a Gregorian one.
 
+## First run, in the panel
+
+Open the panel (<https://kasbbook.nyxon.tech> for the reference deployment, or
+your own server's address) and sign in through the bot or with a username and
+password. The same books are there: a dashboard, the transaction list with
+search and filters, reports, the wallet, and — for a team book — members,
+shares and periods. See [the web panel](web-panel.md).
+
 ## The daily list
 
 **📅 Daily list**, on the home screen, opens today across every book you are on

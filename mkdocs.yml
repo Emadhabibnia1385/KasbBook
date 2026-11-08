@@ -58,6 +58,7 @@ nav:
       - Conversation design: conversation-design.md
       - Providers: providers.md
   - Using it:
+      - The web panel: web-panel.md
       - The API: api.md
       - Configuration: configuration.md
   - Running it:
@@ -120,6 +121,7 @@ plugins:
             Conversation design: طراحی گفتگو
             Providers: پیام‌رسان‌ها
             Using it: استفاده
+            The web panel: پنل وب
             The API: رابط برنامه‌نویسی
             Configuration: پیکربندی
             Running it: اجرا

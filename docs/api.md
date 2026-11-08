@@ -339,8 +339,9 @@ Telegram is what this returns.
 | `DELETE /books/{id}/periods/{p}` | only while it has issued no payslip |
 | `GET /books/{id}/periods/{p}/distribution` | income − costs − treasury = distributable (never below zero; `shortfall` is a losing month's loss) |
 | `POST /books/{id}/periods/{p}/status/{status}` | only the documented transitions |
+| `POST /books/{id}/periods/{p}/reopen` | open a closed period again (the lock permission); payslips and payments stay |
 | `POST /books/{id}/periods/{p}/close` | to locked in one step; 422, with nothing moved, if there are no payslips, they are stale, or anyone is owed |
-| `GET`/`PUT /books/{id}/shares` | who takes what; `PUT` end-dates the previous rule |
+| `GET`/`PUT /books/{id}/shares` | who takes what; `PUT` end-dates the previous rule. With `effective_to` the new rule holds only through that day and the one it interrupted resumes after |
 | `DELETE /books/{id}/shares/{user}` | stop paying this member from today; past periods keep the rule |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | hours, days, points — for measured bases |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | bonuses and deductions, signed |

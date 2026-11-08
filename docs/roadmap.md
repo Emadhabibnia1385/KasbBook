@@ -5,16 +5,6 @@ is a wish list; this one is mostly about decisions.
 
 ## Deferred on purpose
 
-### The web panel
-
-Nothing is built. The API it would sit on is finished — auth, books,
-transactions, reports, planning — so this is a front-end project, not a
-back-end one.
-
-Deferred because the people using this are in Telegram. A panel is for the
-cases a chat is genuinely bad at: a long transaction list, a spreadsheet-shaped
-report, managing many members at once.
-
 ### Eitaa
 
 Not built. `Provider.EITAA` exists in the enum so identities can reference it,
@@ -38,6 +28,26 @@ has drifted away from its messenger, which is precisely the one a mail path
 would serve.
 
 ## Done since this page was written
+
+### The web panel
+
+Built, and live at <https://kasbbook.nyxon.tech>. It was deferred while the
+API was finished; the API was the hard part, and the panel is a front-end on
+top of it. It covers the dashboard, transactions with filters, reports, the
+wallet, planning, the team's members, shares, periods and funds, and an
+activity log. See [the web panel](web-panel.md).
+
+### The activity log
+
+Every change anyone makes — from the panel, the bot or the API — is written as
+an event with who, what and when, and can be filtered and exported as CSV. It
+starts from the day it was introduced; nothing before that is reconstructed.
+
+### Team members without an account
+
+A colleague can be added by name only, paid and counted like anyone, and linked
+later to a real account. A share can hold for one period only and the previous
+one resumes. Removing a member ends their share from that day.
 
 ### Webhooks in production
 

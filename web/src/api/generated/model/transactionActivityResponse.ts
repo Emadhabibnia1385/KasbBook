@@ -12,7 +12,7 @@
  * Money is carried as a **string**, never a JSON number: JSON has one numeric
  * type and it is a float, and a bookkeeping API that loses rials is not one.
  *
- * OpenAPI spec version: 1.0.0-beta.1
+ * OpenAPI spec version: 1.5.0
  */
 
 export interface TransactionActivityResponse {

@@ -33,6 +33,19 @@ unset _unit
 EXTRA_PROVIDERS=(bale rubika)
 
 R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
+B=$'\033[1m'; D=$'\033[2m'; V=$'\033[38;5;105m'; A=$'\033[38;5;179m'
+# No colour when nobody is looking at a terminal (a log file, a pipe into `tee`): escape codes in
+# a log are noise. NO_COLOR is the convention for turning it off by hand.
+if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ]; then R=; G=; Y=; C=; N=; B=; D=; V=; A=; fi
+
+# A numbered step: «[3/9] python environment». The total is the caller's to set, because only the
+# caller knows how many steps it has.
+STEP=0
+step() {
+    STEP=$((STEP + 1))
+    echo
+    echo "${V}${B}[${STEP}/${STEPS:-?}]${N} ${B}$*${N}"
+}
 
 say()  { echo "${C}==>${N} $*"; }
 ok()   { echo "  ${G}✓${N} $*"; }

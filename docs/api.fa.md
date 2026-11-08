@@ -249,8 +249,9 @@ curl -X POST /api/v1/books/$BOOK/transactions \
 | `DELETE /books/{id}/periods/{p}` | فقط تا وقتی فیشی صادر نکرده |
 | `GET /books/{id}/periods/{p}/distribution` | درآمد − هزینه − خزانه = قابل‌توزیع (هرگز زیر صفر؛ `shortfall` زیان ماهِ زیان‌ده است) |
 | `POST /books/{id}/periods/{p}/status/{status}` | فقط گذارهای مستندشده |
+| `POST /books/{id}/periods/{p}/reopen` | دورهٔ بسته را دوباره باز کن (اجازهٔ قفل)؛ فیش‌ها و پرداخت‌ها می‌مانند |
 | `POST /books/{id}/periods/{p}/close` | یک‌جا تا قفل؛ ۴۲۲ بدون هیچ جابه‌جایی اگر فیشی نیست، فیش‌ها کهنه‌اند یا کسی طلب دارد |
-| `GET`/`PUT /books/{id}/shares` | چه کسی چه می‌برد؛ `PUT` قاعدهٔ قبلی را تاریخ‌بندی می‌کند |
+| `GET`/`PUT /books/{id}/shares` | چه کسی چه می‌برد؛ `PUT` قاعدهٔ قبلی را تاریخ‌بندی می‌کند. با `effective_to` قاعدهٔ تازه فقط تا آن روز می‌ماند و قاعده‌ای که قطع شده بعدش ادامه می‌دهد |
 | `DELETE /books/{id}/shares/{user}` | پرداخت به این عضو را از امروز متوقف کن؛ دوره‌های گذشته قاعده را نگه می‌دارند |
 | `GET`/`PUT /books/{id}/periods/{p}/performance` | ساعت، روز، امتیاز — برای مبناهای سنجشی |
 | `GET`/`POST /books/{id}/periods/{p}/adjustments` | پاداش و کسر، علامت‌دار |

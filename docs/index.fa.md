@@ -1,17 +1,18 @@
 <div class="kb-hero" markdown>
 
-<span class="kb-hero__badge">● <b>1.0.0-beta.1</b> · پایتون ۳٫۱۲ · FastAPI · MIT</span>
+<span class="kb-hero__badge">● <b>1.5.0</b> · پایتون ۳٫۱۲ · FastAPI · MIT</span>
 
 # دفتر حساب را<br><span class="kb-accent">همان‌جا نگه دار که کسب‌وکار حرف می‌زند.</span>
 
 <p class="kb-hero__sub">
 بنویس <code>فروش ۲۵۰ک</code> و ثبت می‌شود. یک حساب واحد در تلگرام، بله و روبیکا،
-و یک API روی همان قواعد. پول دقیق است، تقویم جلالی است، و پشت هر تراکنش یک سند
+در پنل وب، و یک API روی همان قواعد. پول دقیق است، تقویم جلالی است، و پشت هر تراکنش یک سند
 دوطرفهٔ تراز نشسته است.
 </p>
 
 <div class="kb-hero__actions" markdown>
 [شروع کنیم](getting-started.md){ .md-button .md-button--primary }
+[باز کردن پنل وب](https://kasbbook.nyxon.tech){ .md-button }
 [مستندات زندهٔ API](https://kasbbook.nyxon.tech/docs){ .md-button }
 </div>
 
@@ -59,6 +60,12 @@ curl -fsSL https://raw.githubusercontent.com/Emadhabibnia1385/KasbBook/main/scri
 
     آی‌دی پیام‌رسان هرگز خودِ حساب نیست — به آن اشاره می‌کند. تلگرامت را از دست
     بده، دفترهایت می‌مانند. [مدل داده](data-model.md).
+
+-   __پنل وب__
+
+    داشبورد، تراکنش‌های فیلترپذیر با هر تاریخ در هر دو تقویم، گزارش، کیف پول
+    چندارزی، حقوق تیم روی یک صفحه و گزارش رویدادها — روی گوشی نصب می‌شود، و در
+    مرورگر روی <https://kasbbook.nyxon.tech> است. [پنل وب](web-panel.md).
 
 -   __حقوق برای تیم__
 

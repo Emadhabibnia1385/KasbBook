@@ -1,18 +1,19 @@
 <div class="kb-hero" markdown>
 
-<span class="kb-hero__badge">● <b>1.0.0-beta.1</b> · Python 3.12 · FastAPI · MIT</span>
+<span class="kb-hero__badge">● <b>1.5.0</b> · Python 3.12 · FastAPI · MIT</span>
 
 # Keep the books<br><span class="kb-accent">where the business already talks.</span>
 
 <p class="kb-hero__sub">
 Type <code>فروش ۲۵۰ک</code> and it is recorded. One account across Telegram,
-Bale and Rubika, and an HTTP API over the same rules. Money is exact, the
+Bale and Rubika, a web panel, and an HTTP API over the same rules. Money is exact, the
 calendar is Jalali, and every transaction has a balanced double-entry journal
 behind it.
 </p>
 
 <div class="kb-hero__actions" markdown>
 [Get started](getting-started.md){ .md-button .md-button--primary }
+[Open the web panel](https://kasbbook.nyxon.tech){ .md-button }
 [Live API reference](https://kasbbook.nyxon.tech/docs){ .md-button }
 </div>
 
@@ -61,6 +62,13 @@ somebody types is a signing key somebody can guess. Running it twice is safe.
 
     A messenger id is never the account — it points at one. Lose a Telegram
     account and the books stay. See [the data model](data-model.md).
+
+-   __A web panel__
+
+    Dashboard, filterable transactions with every date in both calendars,
+    reports, a multi-currency wallet, the team's pay on one page and an
+    activity log — installable on a phone, in the browser at
+    <https://kasbbook.nyxon.tech>. See [the web panel](web-panel.md).
 
 -   __Payroll for teams__
 
