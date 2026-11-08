@@ -94,10 +94,22 @@ function Picker({
 	summary: string;
 	active: boolean;
 	title: string;
-	children: React.ReactNode;
+	/** What is offered; a function gets the way to close the picker, for a choice that settles it at once. */
+	children: React.ReactNode | ((close: () => void) => React.ReactNode);
 }) {
 	const [open, setOpen] = useState(false);
 	const narrow = useIsNarrow("md");
+	const close = () => setOpen(false);
+	// Choosing several things (kinds and categories, currencies) or typing days has no single moment that
+	// ends it, so every picker ends with a button that closes it on what is chosen.
+	const body = (
+		<div className="flex flex-col gap-4">
+			{typeof children === "function" ? children(close) : children}
+			<Button className="w-full" onPress={close}>
+				{t.txFilter.apply}
+			</Button>
+		</div>
+	);
 	return (
 		<>
 			<button
@@ -114,11 +126,11 @@ function Picker({
 			</button>
 			{narrow ? (
 				<BottomSheet isOpen={open} onOpenChange={setOpen} title={title}>
-					{children}
+					{body}
 				</BottomSheet>
 			) : (
 				<Modal isOpen={open} onOpenChange={setOpen} title={title} size="xs">
-					{children}
+					{body}
 				</Modal>
 			)}
 		</>
@@ -247,35 +259,41 @@ export function FilterBar({
 					active={value.range !== "all"}
 					title={t.txFilter.range}
 				>
-					<div className="flex flex-col gap-1">
-						{RANGES.map((item) => (
-							<button
-								key={item.value}
-								type="button"
-								aria-pressed={value.range === item.value}
-								className={row({ on: value.range === item.value })}
-								onClick={() => onChange({ ...value, range: item.value })}
-							>
-								{item.label}
-							</button>
-						))}
-						{value.range === "custom" ? (
-							<fieldset className="mt-2 grid gap-3">
-								<legend className="sr-only">{t.txFilter.custom}</legend>
-								<DayField
-									label={t.txExtra.since}
-									value={value.since}
-									onChange={(since) => onChange({ ...value, since })}
-								/>
-								<DayField
-									label={t.txExtra.until}
-									value={value.until}
-									errorMessage={wrongRange ? t.txExtra.badRange : undefined}
-									onChange={(until) => onChange({ ...value, until })}
-								/>
-							</fieldset>
-						) : null}
-					</div>
+					{(close) => (
+						<div className="flex flex-col gap-1">
+							{RANGES.map((item) => (
+								<button
+									key={item.value}
+									type="button"
+									aria-pressed={value.range === item.value}
+									className={row({ on: value.range === item.value })}
+									onClick={() => {
+										onChange({ ...value, range: item.value });
+										// A fixed range is the whole answer; «custom» still needs its two days.
+										if (item.value !== "custom") close();
+									}}
+								>
+									{item.label}
+								</button>
+							))}
+							{value.range === "custom" ? (
+								<fieldset className="mt-2 grid gap-3">
+									<legend className="sr-only">{t.txFilter.custom}</legend>
+									<DayField
+										label={t.txExtra.since}
+										value={value.since}
+										onChange={(since) => onChange({ ...value, since })}
+									/>
+									<DayField
+										label={t.txExtra.until}
+										value={value.until}
+										errorMessage={wrongRange ? t.txExtra.badRange : undefined}
+										onChange={(until) => onChange({ ...value, until })}
+									/>
+								</fieldset>
+							) : null}
+						</div>
+					)}
 				</Picker>
 				<Picker
 					label={t.txFilter.kindAndCategory}
@@ -357,19 +375,24 @@ export function FilterBar({
 					active={value.sort !== "newest"}
 					title={t.txFilter.sort}
 				>
-					<div className="flex flex-col gap-1">
-						{SORTS.map((item) => (
-							<button
-								key={item.value}
-								type="button"
-								aria-pressed={value.sort === item.value}
-								className={row({ on: value.sort === item.value })}
-								onClick={() => onChange({ ...value, sort: item.value })}
-							>
-								{item.label}
-							</button>
-						))}
-					</div>
+					{(close) => (
+						<div className="flex flex-col gap-1">
+							{SORTS.map((item) => (
+								<button
+									key={item.value}
+									type="button"
+									aria-pressed={value.sort === item.value}
+									className={row({ on: value.sort === item.value })}
+									onClick={() => {
+										onChange({ ...value, sort: item.value });
+										close();
+									}}
+								>
+									{item.label}
+								</button>
+							))}
+						</div>
+					)}
 				</Picker>
 				{count > 0 ? (
 					<div className="col-span-full flex justify-end">

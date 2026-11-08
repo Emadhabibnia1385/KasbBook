@@ -1,5 +1,6 @@
 export const txFilterStrings = {
 	txFilter: {
+		apply: "تأیید",
 		title: "فیلترها",
 		search: "جست‌وجو در تراکنش‌ها",
 		searchHint: "دسته یا توضیح؛ مثلاً اجاره، پست، نام مشتری",
