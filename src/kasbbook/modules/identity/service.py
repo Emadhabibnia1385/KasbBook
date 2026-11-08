@@ -38,6 +38,8 @@ from ...shared.security import (
 )
 from ...shared.parsing import to_ascii_digits
 from ...shared.regions import region_for_zone
+from .merge import MergePreview, merge_accounts
+from .merge import preview as merge_preview
 from .models import (
     DEMO_USERNAME,
     MESSENGERS,
@@ -283,20 +285,29 @@ class IdentityService:
         await self._audit(user_id, "user.contact_changed")
         return user
 
-    async def set_username(self, user_id: uuid.UUID, username: str) -> "User":
-        """The name the web login takes next to the password."""
-        user = await self.get_user(user_id)
-        if user.is_guest:
-            raise ValidationError(GUEST_REFUSAL)
+    @staticmethod
+    def check_username(username: str) -> str:
+        """The username as it is stored, or the reason it cannot be one."""
         value = to_ascii_digits((username or "").strip()).lower()
         if not USERNAME_PATTERN.match(value):
             raise ValidationError(
                 "نام کاربری باید 3 تا 32 نویسه باشد: حرف انگلیسی، عدد، نقطه یا زیرخط، و با حرف شروع شود"
             )
-        taken = await self.session.execute(
-            select(User.id).where(User.username == value, User.id != user_id)
-        )
-        if taken.first() is not None:
+        return value
+
+    async def username_taken(self, username: str, except_user: Optional[uuid.UUID] = None) -> bool:
+        stmt = select(User.id).where(User.username == username)
+        if except_user is not None:
+            stmt = stmt.where(User.id != except_user)
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def set_username(self, user_id: uuid.UUID, username: str) -> "User":
+        """The name the web login takes next to the password."""
+        user = await self.get_user(user_id)
+        if user.is_guest:
+            raise ValidationError(GUEST_REFUSAL)
+        value = self.check_username(username)
+        if await self.username_taken(value, except_user=user_id):
             raise ValidationError("این نام کاربری قابل استفاده نیست")
         user.username = value
         await self.session.flush()
@@ -774,6 +785,48 @@ class IdentityService:
         record.consumed_at = utcnow()
         await self.session.flush()
         return identity
+
+    async def preview_merge(
+        self, token: str, provider: Provider, external_id: str
+    ) -> "MergePreview":
+        """What linking this messenger to a web account would fold together, before anyone agrees.
+
+        The messenger already belongs to an account; the token names the web account that asked to link
+        it. Both are checked here so the screen that asks is never offered for something that would fail.
+        """
+        record, absorb_id = await self._merge_parties(token, provider, external_id)
+        return await merge_preview(self.session, record.user_id, absorb_id)
+
+    async def complete_merge_from_messenger(
+        self, token: str, provider: Provider, external_id: str
+    ) -> uuid.UUID:
+        """The messenger's account is folded into the web account that asked, after the person agreed.
+
+        The web account survives: it holds the username and password the person just chose.
+        """
+        record, absorb_id = await self._merge_parties(token, provider, external_id)
+        # Read before the merge, which expires everything the session holds.
+        record_id, keep_id = record.id, record.user_id
+        await merge_accounts(self.session, keep_id, absorb_id)
+        record = await self.session.get(LinkToken, record_id)
+        record.consumed_at = utcnow()
+        await self.session.flush()
+        return keep_id
+
+    async def _merge_parties(
+        self, token: str, provider: Provider, external_id: str
+    ) -> "tuple[LinkToken, uuid.UUID]":
+        record = await self._claim(token)
+        if record.direction is not LinkDirection.FROM_WEB:
+            raise InvalidLinkToken("this code is not for a messenger")
+        if record.provider is not provider:
+            raise InvalidLinkToken("this code was issued for a different messenger")
+        existing = await self.find_identity(provider, external_id)
+        if existing is None:
+            raise InvalidLinkToken("this messenger has no account to merge")
+        if existing.user_id == record.user_id:
+            raise AlreadyLinked("this messenger is already attached to your account")
+        return record, existing.user_id
 
     async def revoke_link(self, token_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> None:
         record = await self.session.get(LinkToken, token_id)

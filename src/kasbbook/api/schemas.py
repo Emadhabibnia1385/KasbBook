@@ -29,10 +29,15 @@ class MoneyModel(Model):
 
 # ----------------------------------------------------------------- auth
 class RegisterRequest(Model):
-    display_name: str = Field(min_length=1, max_length=120)
+    # Optional when a username is given: the web sign-up asks for a username and the password twice,
+    # nothing else, and the name shown is the username until the person changes it.
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    username: Optional[str] = Field(default=None, max_length=64)
     email: Optional[EmailStr] = None
     phone: Optional[str] = Field(default=None, max_length=32)
     password: str = Field(min_length=8, max_length=200)
+    # The same password again. Checked when present, so a client that asks twice is held to it.
+    password_confirm: Optional[str] = Field(default=None, max_length=200)
 
 
 class LoginRequest(Model):

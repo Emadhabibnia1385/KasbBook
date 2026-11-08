@@ -85,17 +85,27 @@ async def register(
         limiter, f"register:{client_fingerprint(request)}", REGISTER_LIMIT, REGISTER_WINDOW
     )
 
-    if not body.email and not body.phone:
-        raise ValidationError("an email address or a phone number is required")
+    if not body.email and not body.phone and not body.username:
+        raise ValidationError("a username, an email address or a phone number is required")
+    if body.password_confirm is not None and body.password_confirm != body.password:
+        raise ValidationError("رمز و تکرارش یکی نیستند")
+    if not body.display_name and not body.username:
+        raise ValidationError("a name is required")
 
     identity = IdentityService(session)
+    # The name is checked before the account is made, so a taken one leaves nothing behind.
+    username = identity.check_username(body.username) if body.username else None
+    if username and await identity.username_taken(username):
+        raise ValidationError("این نام کاربری قابل استفاده نیست")
     user = await identity.create_user(
-        display_name=body.display_name,
+        display_name=body.display_name or username,
         email=body.email,
         phone=body.phone,
         password=body.password,
         with_book=True,
     )
+    if username:
+        await identity.set_username(user.id, username)
     activity.record(
         session, category="account", action="account.registered", summary="ساخت حساب",
         user_id=user.id, via=VIA_WEB,

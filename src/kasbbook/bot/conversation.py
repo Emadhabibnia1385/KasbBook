@@ -23,7 +23,7 @@ from ..adapters.base import EventKind, IncomingEvent, OutgoingMessage
 from ..modules.activity import recorder as activity
 from ..modules.activity.models import VIA_BOT
 from ..modules.identity.models import Provider
-from ..shared.errors import KasbBookError
+from ..shared.errors import AlreadyLinked, InvalidLinkToken, KasbBookError, ValidationError
 from . import screens
 from .features.base import CANCEL_WORDS, Context, index
 from .features.account import AccountFeature
@@ -204,6 +204,12 @@ class Conversation:
         # Whatever this update changes is logged as this person's, done through the bot.
         activity.set_actor(user.id, VIA_BOT)
 
+        # The panel's «connect Telegram» link, opened by someone whose Telegram already has an account:
+        # two accounts are one person, and folding them together is asked about, never done unasked.
+        if (event.kind is EventKind.COMMAND and event.command == "start" and payload
+                and not payload.startswith("wl_")):
+            return await self._offer_merge(payload, user, event, key)
+
         if event.kind is EventKind.COMMAND:
             return await self._command(event, user, key)
         if event.kind is EventKind.CALLBACK:
@@ -245,6 +251,39 @@ class Conversation:
         )
         return await self._home(user)
 
+    async def _offer_merge(self, token: str, user, event: IncomingEvent, key: str):
+        """Show what would be folded together and wait for a tap."""
+        try:
+            preview = await self.ctx.identity.preview_merge(
+                token, self.provider, event.identity.external_id
+            )
+        except AlreadyLinked:
+            # The panel's account is this one: nothing to merge, the link was already done.
+            return await self._home(user)
+        except (InvalidLinkToken, ValidationError) as error:
+            return screens.error(str(error) or "این پیوند معتبر نیست؛ از پنل یک پیوند تازه بساز.")
+        await self.state.set(key, {"flow": "merge", "token": token})
+        return screens.merge_confirm(preview)
+
+    async def _merge_answer(self, answer: str, user, key: str, event: IncomingEvent):
+        draft = await self.state.get(key)
+        await self.state.clear(key)
+        if draft.get("flow") != "merge" or not draft.get("token"):
+            return screens.stale(None, user.display_name)
+        if answer != "yes":
+            return screens.merge_declined()
+        try:
+            survivor = await self.ctx.identity.complete_merge_from_messenger(
+                draft["token"], self.provider, event.identity.external_id
+            )
+        except (InvalidLinkToken, AlreadyLinked, ValidationError) as error:
+            return screens.error(str(error) or "ادغام انجام نشد.")
+        activity.record(
+            self.ctx.session, category="account", action="account.merged", summary="ادغام دو حساب",
+            user_id=survivor, via=VIA_BOT,
+        )
+        return screens.merge_done((await self.ctx.identity.get_user(survivor)).display_name)
+
     # ------------------------------------------------------------ commands
     async def _command(self, event: IncomingEvent, user, key: str):
         if event.command == "cancel":
@@ -266,6 +305,9 @@ class Conversation:
         feature = self._by_prefix.get(area)
         if feature is not None:
             return await feature.callback(area, parts, user, key, event)
+
+        if area == "mg":
+            return await self._merge_answer(action, user, key, event)
 
         if area == "nav":
             await self.state.clear(key)

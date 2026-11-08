@@ -11,6 +11,7 @@ import {
 	Spinner,
 	SubmitButton,
 	TextField,
+	toast,
 } from "@nyxon/nasim";
 import { authDemo, authGuest, authLogin } from "@/api/generated/auth/auth";
 import { saveSession } from "@/api/session";
@@ -18,6 +19,7 @@ import { DeveloperFooter } from "@/features/shell/DeveloperFooter";
 import { TelegramIcon } from "@/shared/icons";
 import { BrandMark } from "@/app/shell/BrandMark";
 import { t } from "@/strings";
+import { SignUpForm } from "./SignUpForm";
 import { qrcodeToSvg } from "./qr";
 import { useTelegramLogin } from "./useTelegramLogin";
 
@@ -45,6 +47,7 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 	const qr = useMemo(() => (link ? qrcodeToSvg(link) : null), [link]);
 	const [problem, setProblem] = useState<string | null>(null);
 	const [askingGuest, setAskingGuest] = useState(false);
+	const [signingUp, setSigningUp] = useState(false);
 	const [makingDemo, setMakingDemo] = useState(false);
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
@@ -119,42 +122,63 @@ export function LoginScreen({ onDone }: { onDone: () => void }) {
 
 						<Divider>{t.signin.or}</Divider>
 
-						<FormRoot
-							form={form}
-							className="flex flex-col gap-3 text-start"
-							onSubmit={async (values) => {
+						{signingUp ? (
+							<SignUpForm
+								problem={problem}
+								setProblem={setProblem}
+								onDone={(pair) => {
+									enter(pair);
+									toast.success(t.signup.done);
+								}}
+							/>
+						) : (
+							<FormRoot
+								form={form}
+								className="flex flex-col gap-3 text-start"
+								onSubmit={async (values) => {
+									setProblem(null);
+									try {
+										enter(
+											await authLogin({
+												identifier: values.username.trim(),
+												password: values.password,
+											}),
+										);
+									} catch (error) {
+										setProblem(error instanceof Error ? error.message : t.errors.unknown);
+									}
+								}}
+							>
+								<TextField
+									name="username"
+									label={t.signin.username}
+									autoComplete="username"
+									autoFocus={false}
+								/>
+								<TextField
+									name="password"
+									type="password"
+									label={t.signin.password}
+									autoComplete="current-password"
+								/>
+								{problem ? (
+									<Notice tone="danger" role="alert">
+										{problem}
+									</Notice>
+								) : null}
+								<SubmitButton>{t.signin.submit}</SubmitButton>
+							</FormRoot>
+						)}
+						<Button
+							variant="ghost"
+							className="w-full"
+							onPress={() => {
 								setProblem(null);
-								try {
-									enter(
-										await authLogin({
-											identifier: values.username.trim(),
-											password: values.password,
-										}),
-									);
-								} catch (error) {
-									setProblem(error instanceof Error ? error.message : t.errors.unknown);
-								}
+								setSigningUp((value) => !value);
 							}}
 						>
-							<TextField
-								name="username"
-								label={t.signin.username}
-								autoComplete="username"
-								autoFocus={false}
-							/>
-							<TextField
-								name="password"
-								type="password"
-								label={t.signin.password}
-								autoComplete="current-password"
-							/>
-							{problem ? (
-								<Notice tone="danger" role="alert">
-									{problem}
-								</Notice>
-							) : null}
-							<SubmitButton>{t.signin.submit}</SubmitButton>
-						</FormRoot>
+							{signingUp ? t.signup.toggleOff : t.signup.toggleOn}
+						</Button>
 
 						<Divider>{t.guest.divider}</Divider>
 						<Button variant="outline" className="w-full" onPress={() => setAskingGuest(true)}>

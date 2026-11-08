@@ -15,9 +15,12 @@ put nothing that matters in it. The panel is in Persian, right to left.
 | Way | What it is |
 |---|---|
 | **Through the bot** | The panel shows a link into the bot on Telegram; one tap on «تأیید ورود» there signs this browser in. No password is typed anywhere. |
-| **Username and password** | Chosen in *My account*; the username is lower-case and unique. |
+| **Sign up** | On the sign-in page: a username and the password typed twice, nothing else. The username is lower-case and unique. No email is asked, so there is no recovery by email — connect a messenger afterwards. |
+| **Username and password** | Sign-in for an account made that way (or one whose username was set in *My account*). |
 | **Demo** | One shared account with four books and a year of transactions. Never claimable, renewed after 14 days. |
 | **Guest** | A throwaway account; signing out removes it and everything in it. |
+
+**Connecting a messenger, and merging.** *My account → Messengers → Telegram* opens the bot with a one-time link, and that Telegram is attached to this account. If that Telegram **already had an account** — with books in it — the bot says so, names the web account, and asks before doing anything. On «بله» the two become one: the books, memberships, records, payslips and sessions' owners move to the web account, which keeps its username and password and takes the contact details it lacked. In a book both belonged to, the stronger role survives. A guest, the demo and a team member added by name are never merged, and two accounts that both have a record in the same payroll period are refused rather than counted twice. It cannot be undone.
 
 A refresh token slides, so a device in regular use never asks again. *My account →
 Devices* lists where the account is signed in — **once per device**, with the

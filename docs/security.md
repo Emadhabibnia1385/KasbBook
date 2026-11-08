@@ -94,6 +94,13 @@ HTML parsing is switched on **only** for that message, and both halves are
 escaped first. Enabling it everywhere would mean a Persian description
 containing a `<` or an `&` could break a screen or fail to send.
 
+### Merging two accounts
+
+Connecting a messenger that already has an account folds that account into the web one — only after the
+person at the messenger agrees on a screen that names the web account, because the link can be passed to
+someone else. The merge is written against the schema (every column that references `users.id` moves), runs
+in the same transaction, and ends the absorbed account's sessions. See the web panel page.
+
 ### Where the account is signed in
 
 *My account → Devices* lists open sessions **once per device**, the latest login

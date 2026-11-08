@@ -391,7 +391,7 @@ async def test_every_button_prefix_the_screens_emit_is_routed():
 # Drafts whose follow-up is a button or an attachment, never a typed line: no
 # feature reads text for them, and a line typed while one is pending starts
 # something new. Listed, so a new flow has to be placed on purpose.
-BUTTON_ONLY_FLOWS = {"quick", "costpolicy", "currency", "receipt"}
+BUTTON_ONLY_FLOWS = {"quick", "costpolicy", "currency", "receipt", "merge"}
 
 
 async def test_every_draft_flow_has_exactly_one_reader():

@@ -11,6 +11,7 @@ from .common import (
     Screen,
     back_row,
     cancel_row,
+    home_row,
     rows_of,
     rtl,
 )
@@ -23,6 +24,31 @@ PROVIDER_LABELS = {
     Provider.EITAA: "ایتا",
     Provider.WEB: "وب",
 }
+
+
+def merge_confirm(preview) -> Screen:
+    """The messenger already has an account; the web account that asked to link it is named, and the person agrees."""
+    who = f"«{preview.keep_username}»" if preview.keep_username else f"«{preview.keep_name}»"
+    books = f"{preview.absorb_books:,}"
+    text = rtl(
+        "🔗 این پیام‌رسان از قبل یک حساب کسب‌بوک دارد.\n\n"
+        f"می‌خواهی همهٔ چیزهایش ({books} دفتر و عضویت) با حساب وب {who} یکی شود؟\n\n"
+        "بعد از ادغام همه‌چیز در همان حساب وب است و از همین ربات هم به آن می‌رسی. "
+        "برگشت ندارد.\n\n"
+        "اگر خودت این لینک را از پنل نساخته‌ای، «انصراف» را بزن."
+    )
+    return text, [
+        [Button("✅ بله، یکی کن", data="mg:yes")],
+        cancel_row("mg:no"),
+    ]
+
+
+def merge_done(display_name: str) -> Screen:
+    return rtl(f"✅ حساب‌ها یکی شد؛ حالا همهٔ دفترهای {display_name} این‌جاست."), [home_row()]
+
+
+def merge_declined() -> Screen:
+    return rtl("انصراف دادی؛ چیزی عوض نشد."), [home_row()]
 
 
 def not_linked(code: str) -> Screen:

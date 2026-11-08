@@ -5615,10 +5615,17 @@
       "RegisterRequest": {
         "properties": {
           "display_name": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Display Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
           },
           "email": {
             "anyOf": [
@@ -5638,6 +5645,18 @@
             "title": "Password",
             "type": "string"
           },
+          "password_confirm": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password Confirm"
+          },
           "phone": {
             "anyOf": [
               {
@@ -5649,10 +5668,21 @@
               }
             ],
             "title": "Phone"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
           }
         },
         "required": [
-          "display_name",
           "password"
         ],
         "title": "RegisterRequest",

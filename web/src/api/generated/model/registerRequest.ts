@@ -16,16 +16,14 @@
  */
 
 export interface RegisterRequest {
-	/**
-	 * @minLength 1
-	 * @maxLength 120
-	 */
-	display_name: string;
+	display_name?: string | null;
 	email?: string | null;
 	/**
 	 * @minLength 8
 	 * @maxLength 200
 	 */
 	password: string;
+	password_confirm?: string | null;
 	phone?: string | null;
+	username?: string | null;
 }
