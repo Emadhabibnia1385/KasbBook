@@ -9,6 +9,10 @@ name: release
 on:
   push:
     tags: ["v*"]
+    # A change to the changelog on main publishes the release of its newest version, if that version is
+    # tagged and has no release yet: tagging first and writing the notes after still ends in a release.
+    branches: [main]
+    paths: [CHANGELOG.md, .github/workflows/release.yml]
   workflow_dispatch:
     inputs:
       tag:
@@ -24,16 +28,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          python3 scripts/release_notes.py "$TAG" > notes.md
+          if [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG"
+          elif [ "$REF_TYPE" = "tag" ]; then TAG="$REF_NAME"
+          else TAG="v$(grep -m1 -oP '^## \K[0-9][^ ]*' CHANGELOG.md)"; fi
+          echo "version: $TAG"
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || { echo "no tag $TAG yet; nothing to publish"; exit 0; }
+          # The notes come from the checked-out branch (its changelog and script), the release points at the tag.
+          python3 scripts/release_notes.py "$TAG" > /tmp/notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "KasbBook ${TAG#v}" --notes-file notes.md
+            gh release edit "$TAG" --title "KasbBook ${TAG#v}" --notes-file /tmp/notes.md
           else
-            gh release create "$TAG" --verify-tag --title "KasbBook ${TAG#v}" --notes-file notes.md --latest
+            gh release create "$TAG" --verify-tag --title "KasbBook ${TAG#v}" --notes-file /tmp/notes.md --latest
           fi
