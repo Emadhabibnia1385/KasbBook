@@ -1,0 +1,39 @@
+# Publishes a GitHub release when a version tag is pushed, with the notes taken from CHANGELOG.md.
+#
+#   git tag -a v1.5.0 -m "KasbBook 1.5.0" && git push origin v1.5.0
+#
+# It also runs by hand for a tag that already exists (Actions → release → Run workflow).
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing tag, for example v1.5.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          python3 scripts/release_notes.py "$TAG" > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "KasbBook ${TAG#v}" --notes-file notes.md
+          else
+            gh release create "$TAG" --verify-tag --title "KasbBook ${TAG#v}" --notes-file notes.md --latest
+          fi
