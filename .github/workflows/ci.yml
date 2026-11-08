@@ -150,7 +150,11 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+      # A pinned version: "latest" is looked up over the network on every run, and a failed lookup failed
+      # the whole job before a single check ran.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - name: Install
         run: bun install --frozen-lockfile
