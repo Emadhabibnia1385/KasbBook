@@ -311,6 +311,9 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 				/>
 			) : (
 				<DataTable<BookedTransactionResponse>
+					// The book column comes and goes with the scope; a table keeps its column count, so a new
+					// count starts a new table instead of throwing "Cell count must match column count".
+					key={showBook ? "with-book" : "no-book"}
 					ariaLabel={t.nav.transactions}
 					status={status}
 					onRetry={() => void query.refetch()}
