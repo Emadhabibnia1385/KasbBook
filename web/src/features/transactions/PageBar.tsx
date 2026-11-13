@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Pager } from "@nyxon/nasim";
 import { toAscii } from "@/shared/format";
-import { MAX_PER_PAGE, rememberPerPage } from "./perPage";
+import { MAX_PER_PAGE, PER_PAGE_CHOICES, rememberPerPage } from "./perPage";
 import { t } from "@/strings";
 
 const digits = new Intl.NumberFormat("fa-IR", { useGrouping: false });
@@ -9,19 +9,21 @@ const digits = new Intl.NumberFormat("fa-IR", { useGrouping: false });
 // Keyed by its value, so a size that changes from outside starts the box over on the new number.
 function PerPageBox({ value, onChange }: { value: number; onChange: (value: number) => void }) {
 	const [text, setText] = useState(digits.format(value));
-	const commit = () => {
-		const wanted = Number(toAscii(text).replace(/\D/g, ""));
-		// Nothing typed, or zero, puts the old number back rather than guessing.
-		if (!Number.isFinite(wanted) || wanted < 1) return setText(digits.format(value));
-		const next = Math.min(MAX_PER_PAGE, Math.trunc(wanted));
+	const choose = (next: number) => {
 		setText(digits.format(next));
 		if (next !== value) {
 			rememberPerPage(next);
 			onChange(next);
 		}
 	};
+	const commit = () => {
+		const wanted = Number(toAscii(text).replace(/\D/g, ""));
+		// Nothing typed, or zero, puts the old number back rather than guessing.
+		if (!Number.isFinite(wanted) || wanted < 1) return setText(digits.format(value));
+		choose(Math.min(MAX_PER_PAGE, Math.trunc(wanted)));
+	};
 	return (
-		<label
+		<span
 			className="inline-flex items-center gap-1.5 text-sm text-muted"
 			title={t.txFilter.perPageHint}
 		>
@@ -30,6 +32,7 @@ function PerPageBox({ value, onChange }: { value: number; onChange: (value: numb
 				type="text"
 				inputMode="numeric"
 				dir="ltr"
+				aria-label={t.txFilter.perPage}
 				value={text}
 				onChange={(event) => setText(event.target.value)}
 				onFocus={(event) => event.target.select()}
@@ -42,7 +45,23 @@ function PerPageBox({ value, onChange }: { value: number; onChange: (value: numb
 				}}
 				className="h-8 w-16 rounded-lg border border-separator bg-surface px-1 text-center text-sm text-foreground outline-none focus:border-accent"
 			/>
-		</label>
+			{/* The usual sizes in one tap; a size typed in the box that is not among them shows as blank. */}
+			<select
+				aria-label={t.txFilter.perPageQuick}
+				value={PER_PAGE_CHOICES.includes(value) ? String(value) : ""}
+				onChange={(event) => choose(Number(event.target.value))}
+				className="h-8 rounded-lg border border-separator bg-surface px-1 text-sm text-foreground outline-none focus:border-accent"
+			>
+				<option value="" disabled hidden>
+					—
+				</option>
+				{PER_PAGE_CHOICES.map((choice) => (
+					<option key={choice} value={choice}>
+						{digits.format(choice)}
+					</option>
+				))}
+			</select>
+		</span>
 	);
 }
 

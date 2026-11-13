@@ -1,0 +1,1 @@
+import{r as e}from"./rolldown-runtime-XKyaHtl9.js";import{_n as t,tt as n}from"./button-5crzzCDg.js";var r=e(t(),1);function i(e,t){let i=(0,r.useRef)(!0),a=(0,r.useRef)(null),o=n(e);(0,r.useEffect)(()=>(i.current=!0,()=>{i.current=!1}),[]),(0,r.useEffect)(()=>{let e=a.current;i.current?i.current=!1:(!e||t.some((t,n)=>!Object.is(t,e[n])))&&o(),a.current=t},t)}export{i as t};

@@ -115,3 +115,12 @@ async def test_a_page_past_the_end_is_empty_not_an_error(api):
     response = await api.get("/api/v1/transactions", headers=headers, params={
         "per_page": 4, "page": 9, "whole_days": "true"})
     assert response.status_code == 200 and response.json()["items"] == []
+
+
+async def test_the_largest_page_size_loads_and_one_more_is_refused(api):
+    headers = await seeded(api)
+    top = await api.get("/api/v1/transactions", headers=headers, params={
+        "per_page": 10000, "whole_days": "true"})
+    assert top.status_code == 200 and len(top.json()["items"]) == 6
+    over = await api.get("/api/v1/transactions", headers=headers, params={"per_page": 10001})
+    assert over.status_code == 422

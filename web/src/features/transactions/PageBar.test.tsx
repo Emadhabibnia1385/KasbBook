@@ -46,6 +46,24 @@ describe("the page size box", () => {
 		expect(screen.queryByText("صفحه بعد")).toBeNull();
 	});
 
+	it("offers the usual sizes in a menu", () => {
+		const { onPerPage } = bar();
+		const menu = screen.getByLabelText("انتخاب سریع");
+		expect(Array.from((menu as HTMLSelectElement).options).map((o) => o.value)).toEqual([
+			"",
+			"10",
+			"20",
+			"30",
+			"50",
+			"75",
+			"100",
+		]);
+		expect((menu as HTMLSelectElement).value).toBe("20");
+		fireEvent.change(menu, { target: { value: "75" } });
+		expect(onPerPage).toHaveBeenCalledWith(75);
+		expect(savedPerPage()).toBe(75);
+	});
+
 	it("ignores a stored size that is not a sane number", () => {
 		localStorage.setItem("kasbbook.transactionsPerPage", "abc");
 		expect(savedPerPage()).toBe(20);

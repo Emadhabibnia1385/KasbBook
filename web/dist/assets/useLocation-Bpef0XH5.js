@@ -1,0 +1,1 @@
+import{i as e}from"./matchContext-kazl_cX3.js";import{n as t,r as n}from"./useMatch-CHPLZIaT.js";function r(r){let i=e();return n(i.stores.location,t(r,i))}export{r as t};

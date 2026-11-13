@@ -1,6 +1,8 @@
 const DEFAULT_PER_PAGE = 20;
 // The API's own ceiling: asking for more would be refused rather than shown.
 export const MAX_PER_PAGE = 10000;
+// What the size menu offers; any other number can still be typed.
+export const PER_PAGE_CHOICES = [10, 20, 30, 50, 75, 100];
 const KEY = "kasbbook.transactionsPerPage";
 
 /** The page size this person chose last time; a stored value that is not a sane number is ignored. */

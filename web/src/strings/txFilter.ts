@@ -1,6 +1,7 @@
 export const txFilterStrings = {
 	txFilter: {
 		perPage: "تعداد در صفحه",
+		perPageQuick: "انتخاب سریع",
 		perPageHint:
 			"روزها در یک صفحه کامل می‌مانند؛ اگر یک روز از این عدد بیشتر باشد، همان روز یک صفحه می‌شود",
 		apply: "تأیید",

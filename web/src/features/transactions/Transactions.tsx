@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -204,19 +204,26 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 			filters.currencies.length ||
 			text.length >= 2,
 	);
-	const query = useTransactionsListAllTransactions({
-		...dates,
-		book_id: book ? [book.id] : undefined,
-		flow: filters.flows.length ? filters.flows : undefined,
-		category: filters.categories.length ? filters.categories : undefined,
-		q: text.length >= 2 ? text : undefined,
-		currency: filters.currencies.length ? filters.currencies : undefined,
-		sort: filters.sort,
-		page,
-		per_page: perPage,
-		// A day's entries stay together: `perPage` is how many a page aims for, not a cut through a day.
-		whole_days: true,
-	});
+	const query = useTransactionsListAllTransactions(
+		{
+			...dates,
+			book_id: book ? [book.id] : undefined,
+			flow: filters.flows.length ? filters.flows : undefined,
+			category: filters.categories.length ? filters.categories : undefined,
+			q: text.length >= 2 ? text : undefined,
+			currency: filters.currencies.length ? filters.currencies : undefined,
+			sort: filters.sort,
+			page,
+			per_page: perPage,
+			// A day's entries stay together: `perPage` is how many a page aims for, not a cut through a day.
+			whole_days: true,
+		},
+		{
+			// The old rows stay while the next page or size loads, so the page bar (and the size box someone is
+			// in the middle of using) does not vanish and come back.
+			query: { placeholderData: keepPreviousData },
+		},
+	);
 	const remove = useBooksDeleteTransaction();
 	const narrow = useIsNarrow("md");
 	// The server says how many pages there are: with whole days it alone knows where each one ends.
@@ -413,7 +420,7 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 					]}
 				/>
 			)}
-			{query.data && query.data.total > 0 ? (
+			{(query.data && query.data.total > 0) || query.isError ? (
 				<PageBar
 					page={page}
 					pageCount={pages}
