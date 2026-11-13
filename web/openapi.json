@@ -402,6 +402,10 @@
             "title": "Page",
             "type": "integer"
           },
+          "page_count": {
+            "title": "Page Count",
+            "type": "integer"
+          },
           "per_page": {
             "title": "Per Page",
             "type": "integer"
@@ -423,6 +427,7 @@
           "total",
           "page",
           "per_page",
+          "page_count",
           "totals"
         ],
         "title": "AllTransactionPage",
@@ -20979,10 +20984,22 @@
             "required": false,
             "schema": {
               "default": 50,
-              "maximum": 200,
+              "maximum": 10000,
               "minimum": 1,
               "title": "Per Page",
               "type": "integer"
+            }
+          },
+          {
+            "description": "treat per_page as a target and never split one day's entries across two pages",
+            "in": "query",
+            "name": "whole_days",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "treat per_page as a target and never split one day's entries across two pages",
+              "title": "Whole Days",
+              "type": "boolean"
             }
           },
           {

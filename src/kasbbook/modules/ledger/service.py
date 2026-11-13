@@ -12,7 +12,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional, Sequence, Tuple
+from itertools import groupby
+from typing import List, Optional, Sequence, Tuple
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -360,6 +361,27 @@ class LedgerService:
             # Stable on top of newest-first, so inside a category the latest comes first.
             return sorted(newest, key=lambda r: r.category.casefold())
         return sorted(newest, key=lambda r: r.converted_amount, reverse=(sort == "amount_desc"))
+
+    @staticmethod
+    def day_pages(rows: Sequence[Transaction], per_page: int) -> List[List[Transaction]]:
+        """The rows cut into pages that never split a day: the entries of one day are on one page.
+
+        `per_page` is a target, not a cap. Days are added to a page while they fit; the next day that
+        would overflow it starts the next page, and a day with more entries than `per_page` is a page
+        of its own, because showing half of a day's takings is worse than a long page. The rows must
+        already be in date order (either way), which is what puts a day's entries side by side.
+        """
+        pages: List[List[Transaction]] = []
+        current: List[Transaction] = []
+        for _, run in groupby(rows, key=lambda r: r.occurred_on):
+            day = list(run)
+            if current and len(current) + len(day) > per_page:
+                pages.append(current)
+                current = []
+            current.extend(day)
+        if current:
+            pages.append(current)
+        return pages
 
     @staticmethod
     def split_totals(rows: Sequence[Transaction]) -> tuple:

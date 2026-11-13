@@ -44,7 +44,11 @@ async def list_all_transactions(
     since: Optional[str] = None,
     until: Optional[str] = None,
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=50, ge=1, le=200),
+    per_page: int = Query(default=50, ge=1, le=10000),
+    whole_days: bool = Query(
+        default=False,
+        description="treat per_page as a target and never split one day's entries across two pages",
+    ),
     flow: Optional[List[str]] = Query(default=None),
     category: Optional[List[str]] = Query(default=None),
     currency: Optional[List[str]] = Query(default=None),
@@ -76,8 +80,16 @@ async def list_all_transactions(
         rows.extend(found)
     rows = list(ledger._sorted(rows, sort))
 
-    start = (page - 1) * per_page
-    visible = rows[start:start + per_page]
+    if whole_days and sort in ("newest", "oldest"):
+        # Only a date order puts a day's entries together; sorted by amount or category they are
+        # scattered, and "the same day on one page" would mean nothing.
+        pages = ledger.day_pages(rows, per_page)
+        visible = pages[page - 1] if page <= len(pages) else []
+        page_count = max(1, len(pages))
+    else:
+        start = (page - 1) * per_page
+        visible = rows[start:start + per_page]
+        page_count = max(1, -(-len(rows) // per_page))
     activities = await ledger.activities(user.id, visible)
     counts: Dict[uuid.UUID, int] = {}
     for book in books:
@@ -93,6 +105,6 @@ async def list_all_transactions(
             **base.model_dump(), book_id=book.id, book_name=book.name, book_currency=book.base_currency,
         ))
     return AllTransactionPage(
-        items=items, total=len(rows), page=page, per_page=per_page,
+        items=items, total=len(rows), page=page, per_page=per_page, page_count=page_count,
         totals=[CurrencyTotal(currency=code, income=pair[0], expense=pair[1]) for code, pair in totals.items()],
     )

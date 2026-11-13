@@ -28,9 +28,13 @@ export type TransactionsListAllTransactionsParams = {
 	page?: number;
 	/**
 	 * @minimum 1
-	 * @maximum 200
+	 * @maximum 10000
 	 */
 	per_page?: number;
+	/**
+	 * treat per_page as a target and never split one day's entries across two pages
+	 */
+	whole_days?: boolean;
 	flow?: string[] | null;
 	category?: string[] | null;
 	currency?: string[] | null;

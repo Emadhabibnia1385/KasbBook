@@ -20,6 +20,7 @@ import type { CurrencyTotal } from "./currencyTotal";
 export interface AllTransactionPage {
 	items: BookedTransactionResponse[];
 	page: number;
+	page_count: number;
 	per_page: number;
 	total: number;
 	totals: CurrencyTotal[];

@@ -1,5 +1,5 @@
 import { tv } from "tailwind-variants";
-import { EmptyState, ErrorState, Pager, TableSkeleton } from "@nyxon/nasim";
+import { EmptyState, ErrorState, TableSkeleton } from "@nyxon/nasim";
 import type { BookedTransactionResponse } from "@/api/generated/model";
 import { DownIcon, UpIcon } from "@/shared/icons";
 import { DayPair } from "@/shared/DayPair";
@@ -29,9 +29,6 @@ export function CompactRows({
 	onRetry,
 	emptyTitle,
 	empty,
-	page,
-	pageCount,
-	onPageChange,
 	onOpen,
 }: {
 	/** Across every book, each row says which one it belongs to. */
@@ -41,9 +38,6 @@ export function CompactRows({
 	onRetry: () => void;
 	emptyTitle: string;
 	empty: string;
-	page: number;
-	pageCount: number;
-	onPageChange: (page: number) => void;
 	onOpen: (row: BookedTransactionResponse) => void;
 }) {
 	if (status === "loading") return <TableSkeleton />;
@@ -87,15 +81,6 @@ export function CompactRows({
 					);
 				})}
 			</ul>
-			{pageCount > 1 ? (
-				<Pager
-					page={page}
-					pageCount={pageCount}
-					onPrevious={() => onPageChange(page - 1)}
-					onNext={() => onPageChange(page + 1)}
-					onPage={onPageChange}
-				/>
-			) : null}
 		</div>
 	);
 }

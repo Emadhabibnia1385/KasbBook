@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Transactions pages keep a day together.** A day's entries are never split across two pages, and a day bigger than the page is a page of its own. Under the list, the page and previous/next sit at the right and a box at the left sets how many transactions a page aims for (up to ten thousand, remembered on that browser) — enough to see everything on one page.
 - **Sign up on the web** with a username and the password typed twice; the panel's sign-in page has the form.
 - **Connecting Telegram merges accounts.** If that Telegram already had an account, the bot asks first and then folds it into the web account: books, memberships, records, payslips. The web account keeps its username and password.
 

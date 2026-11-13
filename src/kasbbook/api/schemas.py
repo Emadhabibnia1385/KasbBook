@@ -477,6 +477,9 @@ class AllTransactionPage(MoneyModel):
     total: int
     page: int
     per_page: int
+    # How many pages there are. Not total / per_page: with `whole_days` a page holds whole days, so
+    # only the server knows where each one ends.
+    page_count: int
     # One line per base currency among the books listed, because adding toman to dollars means nothing.
     totals: List[CurrencyTotal]
 

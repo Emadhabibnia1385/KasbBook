@@ -37,10 +37,10 @@ import { FilterBar } from "./FilterBar";
 import { type Filters, NO_FILTERS, rangeDates } from "./filters";
 import { BookField, CategoryField, FlowSwitch } from "./FormControls";
 import { MoneyFields } from "./MoneyFields";
+import { PageBar } from "./PageBar";
+import { savedPerPage } from "./perPage";
 import { amountRule } from "./rules";
 import { TransactionDetail } from "./TransactionDetail";
-
-const PER_PAGE = 20;
 
 const editSchema = z.object({
 	book_id: z.string().min(1),
@@ -185,6 +185,7 @@ function EditForm({
 
 function List({ books, book }: { books: BookResponse[]; book: BookResponse | undefined }) {
 	const [page, setPage] = useState(1);
+	const [perPage, setPerPage] = useState(savedPerPage);
 	const [opened, setOpened] = useState<BookedTransactionResponse | null>(null);
 	const [editing, setEditing] = useState<BookedTransactionResponse | null>(null);
 	const [removing, setRemoving] = useState<BookedTransactionResponse | null>(null);
@@ -212,11 +213,14 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 		currency: filters.currencies.length ? filters.currencies : undefined,
 		sort: filters.sort,
 		page,
-		per_page: PER_PAGE,
+		per_page: perPage,
+		// A day's entries stay together: `perPage` is how many a page aims for, not a cut through a day.
+		whole_days: true,
 	});
 	const remove = useBooksDeleteTransaction();
 	const narrow = useIsNarrow("md");
-	const pages = Math.max(1, Math.ceil((query.data?.total ?? 0) / PER_PAGE));
+	// The server says how many pages there are: with whole days it alone knows where each one ends.
+	const pages = query.data?.page_count ?? 1;
 	const status = query.isError ? "error" : query.isLoading ? "loading" : "ready";
 	const emptyTitle = filtered ? t.txFilter.noMatchTitle : t.transactions.emptyTitle;
 	const empty = filtered ? t.txFilter.noMatch : t.transactions.empty;
@@ -296,9 +300,6 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 					onRetry={() => void query.refetch()}
 					emptyTitle={emptyTitle}
 					empty={empty}
-					page={page}
-					pageCount={pages}
-					onPageChange={setPage}
 					onOpen={setOpened}
 				/>
 			) : (
@@ -410,9 +411,20 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 							),
 						},
 					]}
-					pagination={{ page, pageCount: pages, onPageChange: setPage }}
 				/>
 			)}
+			{query.data && query.data.total > 0 ? (
+				<PageBar
+					page={page}
+					pageCount={pages}
+					onPageChange={setPage}
+					perPage={perPage}
+					onPerPageChange={(value) => {
+						setPerPage(value);
+						setPage(1);
+					}}
+				/>
+			) : null}
 			<RulesDialog books={scope} isOpen={rulesOpen} onOpenChange={setRulesOpen} />
 			<TransactionDetail
 				row={opened}

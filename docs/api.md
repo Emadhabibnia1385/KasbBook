@@ -220,7 +220,7 @@ prefix, never the key.
 | `GET /books/{id}/transactions` | `?since=&until=&page=&per_page=`, newest first |
 | `POST /books/{id}/transactions` | see below |
 | `GET`/`DELETE /books/{id}/transactions/{tx}` | one transaction |
-| `GET /transactions` | the same list across every book the account can see (`?book_id=` repeated to narrow it); each item names its book, and `totals` is one line per base currency |
+| `GET /transactions` | the same list across every book the account can see (`?book_id=` repeated to narrow it); each item names its book, and `totals` is one line per base currency. `page_count` says how many pages there are. With `whole_days=true` (date sorts only) `per_page` is a target: a day's entries are never split across two pages, and a day bigger than `per_page` is a page of its own. `per_page` ≤ 10000 |
 | `GET /books/{id}/currencies` · `PUT /{code}` | which currencies this book may hold |
 | `GET /books/{id}/wallet` | what it holds, per currency |
 | `GET`/`POST /books/{id}/conversions` | move value between two of them; the list is a page (`page`, `per_page`, `total`), each item with its `attachment_count`. `occurred_on` is the day it happened |
