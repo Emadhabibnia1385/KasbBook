@@ -5,7 +5,7 @@ import { useTickerCodes } from "./tickerPrefs";
 import { useTickerRows } from "./useTickerRows";
 
 // A strip of the prices a shop owner glances at, for the top bar of a wide screen: the currencies chosen
-// in the settings (Tether, Tron and TON until then). Silent when there is nothing to show: a bar must not
+// in the settings (the dollar and 18-carat gold until then). Silent when there is nothing to show: a bar must not
 // announce that a price service is down.
 export function RatesTicker() {
 	const codes = useTickerCodes();
