@@ -34,6 +34,7 @@ from .routers import (
     everything,
     health,
     identities,
+    income,
     invitations,
     market,
     payroll,
@@ -190,6 +191,7 @@ def create_app(
     app.include_router(banks.between_books, prefix=api)
     app.include_router(books.router, prefix=api)
     app.include_router(everything.router, prefix=api)
+    app.include_router(income.router, prefix=api)
     app.include_router(market.router, prefix=api)
     app.include_router(reports.router, prefix=api)
     app.include_router(analytics.router, prefix=api)

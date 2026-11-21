@@ -4,6 +4,7 @@ import { activityStrings } from "./activity";
 import { capitalStrings } from "./capital";
 import { analyticsStrings } from "./analytics";
 import { foreignStrings } from "./foreign";
+import { incomeStrings } from "./income";
 import { manageStrings } from "./manage";
 import { planStrings } from "./plan";
 import { portfolioStrings } from "./portfolio";
@@ -32,6 +33,7 @@ export const t = {
 	...activityStrings,
 	...capitalStrings,
 	...foreignStrings,
+	...incomeStrings,
 	...manageStrings,
 	...planStrings,
 	...portfolioStrings,

@@ -32,6 +32,7 @@ from ..books.models import Book, Permission
 from ..books.service import BookService
 from ..capital.models import CapitalMovement
 from ..ledger.models import Account, AccountType, Flow, JournalLine, Transaction
+from ..income.models import IncomeLink
 from ..recurring.models import RecurringRule
 from .models import BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer
 
@@ -490,14 +491,16 @@ class BankService:
         capital = select(CapitalMovement.id).where(CapitalMovement.bank_account_id == bank_id)
         rules = select(RecurringRule.id).where(RecurringRule.bank_account_id == bank_id)
         legs = select(BankBookTransferLeg.id).where(BankBookTransferLeg.bank_account_id == bank_id)
+        feeds = select(IncomeLink.id).where(IncomeLink.bank_account_id == bank_id)
         if book_id is not None:
             legs = legs.where(BankBookTransferLeg.book_id == book_id)
+            feeds = feeds.where(IncomeLink.target_book_id == book_id)
         if book_id is not None:
             tx = tx.where(Transaction.book_id == book_id)
             moved = moved.where(BankTransfer.book_id == book_id)
             capital = capital.where(CapitalMovement.book_id == book_id)
             rules = rules.where(RecurringRule.book_id == book_id)
-        for query in (tx, moved, capital, rules, legs):
+        for query in (tx, moved, capital, rules, legs, feeds):
             if await self.session.scalar(query.limit(1)):
                 return True
         return False

@@ -7,6 +7,7 @@ export * from "./capital/capital";
 export * from "./currencies/currencies";
 export * from "./health/health";
 export * from "./identities/identities";
+export * from "./income/income";
 export * from "./invitations/invitations";
 export * from "./market/market";
 export * from "./payroll/payroll";

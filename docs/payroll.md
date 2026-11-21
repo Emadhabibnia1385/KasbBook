@@ -62,6 +62,35 @@ A member can be paid in any currency the book holds. The payment carries the
 rate it was made at, and the payslip counts it in its own currency — forty
 tethers is what forty tethers were worth, not forty toman.
 
+## Your income in your own book
+
+A member's pay is theirs, and it belongs in their personal accounts. An
+**income link** (`/income-links`) says: write my income from this team (or
+business) book into this book of mine, filed under this category, from this
+day. It is the member's own setting and only they can see it.
+
+`when` is one of:
+
+| mode | what is written |
+|---|---|
+| `payment` | each payment received, on its date (cash basis); voiding the payment removes it |
+| `period` | the net pay, once, when a payroll period is locked, dated the period's end; reopening removes it |
+| `daily` / `weekly` / `monthly` | your percentage share of the net income (income minus costs, never below zero) of each day, week or month |
+
+The running modes are dated the last day in the stretch that had income, so
+nothing is dated in the future, and need a percentage share. They are an
+estimate (the treasury and adjustments are not in it); the exact amount is the
+payslip. A business book has no payroll: its owner takes all of its net income,
+in the running modes only.
+
+The sync recomputes "what should my book hold for this payment, period or day?"
+from the source every time something there changes and compares it with the entry
+that exists, so a late income on a day already written changes that day's amount
+and the same event never writes twice. It is best effort: if the target book
+refuses (a closed month), the refusal is kept on the entry and shown, the team's
+own entry still succeeds, and «حساب دوباره» retries. A link is one hop only (a
+book that feeds another cannot itself be fed).
+
 ## Periods
 
 Neither issuing a payslip nor paying one closes a period. Income that arrives a

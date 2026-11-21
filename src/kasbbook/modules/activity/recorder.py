@@ -85,6 +85,7 @@ TRACKED: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
     "BankAccountLink": ("banks", "حساب بانکی دفتر", ()),
     "BankTransfer": ("banks", "انتقال بین حساب‌ها", ()),
     "BankBookTransferLeg": ("banks", "انتقال بین دفترها", ()),
+    "IncomeLink": ("income", "پیوند درآمد", ("category",)),
     "ApiKey": ("account", "کلید API", ("name", "label")),
 }
 
@@ -103,6 +104,7 @@ CATEGORY_LABELS = {
     "members": "اعضا",
     "books": "دفترها",
     "banks": "حساب‌های بانکی",
+    "income": "درآمد همگام‌شده",
     "account": "حساب و ورود",
 }
 

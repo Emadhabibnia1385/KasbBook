@@ -1,3 +1,4 @@
+import { IncomePanel } from "@/features/income/IncomePanel";
 import { BookRequired } from "@/features/books/BookRequired";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -738,5 +739,11 @@ export function Team() {
 	const { book, isLoading } = useActiveBook();
 	if (isLoading) return <PageSkeleton />;
 	if (!book) return <BookRequired />;
-	return <Members book={book} />;
+	return (
+		<div className="flex flex-col gap-5">
+			<Members book={book} />
+			{/* Your own income from this book, into your own: a person's setting, so not for a book that is itself personal. */}
+			{book.type === "personal" ? null : <IncomePanel book={book} />}
+		</div>
+	);
 }

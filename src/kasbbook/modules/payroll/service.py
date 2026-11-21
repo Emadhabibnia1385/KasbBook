@@ -200,6 +200,9 @@ class PayrollService:
         period.status = to
         if to is PeriodStatus.LOCKED:
             period.locked_at = utcnow()
+            locked_now = True
+        else:
+            locked_now = False
 
         self.session.add(
             AuditEvent(
@@ -210,6 +213,9 @@ class PayrollService:
             )
         )
         await self.session.flush()
+        if locked_now:
+            # A closed period is what «settled» means for the members who take it as income.
+            await self._income_follows(period.book_id)
         return period
 
     async def close_period(
@@ -283,7 +289,14 @@ class PayrollService:
             )
         )
         await self.session.flush()
+        await self._income_follows(period.book_id)
         return period
+
+    async def _income_follows(self, book_id: uuid.UUID) -> None:
+        """Tell the income links that read this book's payroll that a payment or a period changed."""
+        from ..income.service import IncomeSyncService
+
+        await IncomeSyncService(self.session).payroll_changed(book_id)
 
     async def _refuse_lock_over_unpaid(self, period: FinancialPeriod) -> None:
         """A locked period takes no payment, so it may not lock while one is owed.
@@ -1212,6 +1225,7 @@ class PayrollService:
         await self.session.delete(payment)
         await self.session.flush()
         await self.session.refresh(slip, attribute_names=["payments"])
+        await self._income_follows(slip.book_id)
         return slip
 
     async def ensure_current(self, period_id: uuid.UUID) -> None:
@@ -1398,4 +1412,5 @@ class PayrollService:
         await self.session.flush()
         # Reload the collection so the caller's `remaining` / `is_settled` are true.
         await self.session.refresh(slip, attribute_names=["payments"])
+        await self._income_follows(slip.book_id)
         return payment

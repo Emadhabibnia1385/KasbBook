@@ -128,6 +128,15 @@ class LedgerService:
             raise NotFound(f"account {code}")
         return found
 
+    async def _income_follows(self, book_id: uuid.UUID, *days) -> None:
+        """Tell the income links that read this book that entries changed on these days.
+
+        Best effort and cheap when nothing reads the book: the sync never raises into a recording.
+        """
+        from ..income.service import IncomeSyncService
+
+        await IncomeSyncService(self.session).touch(book_id, days)
+
     async def _money_account(self, book_id: uuid.UUID, link) -> Account:
         """Where the money sits: the bank account's own ledger account, or «نقد و بانک» without one."""
         if link is None:
@@ -267,6 +276,7 @@ class LedgerService:
             memo=f"{flow.value}: {transaction.category}",
             transaction_id=transaction.id,
         )
+        await self._income_follows(book_id, on)
         return transaction
 
     async def post_entry(
@@ -649,6 +659,7 @@ class LedgerService:
         ).with_for_update().execution_options(populate_existing=True))
         if tx is None:
             raise NotFound("این تراکنش پیدا نشد.")
+        old_day = tx.occurred_on
         await self._require_open_date(book_id, tx.occurred_on)
         moved_to = occurred_on if occurred_on is not UNSET else tx.occurred_on
         if moved_to != tx.occurred_on:
@@ -747,6 +758,7 @@ class LedgerService:
             entries[0].occurred_on = moved_to
         self._mark_edited(tx, actor_user_id)
         await self.session.flush()
+        await self._income_follows(book_id, old_day, tx.occurred_on)
         return tx
 
     async def move(
@@ -772,6 +784,7 @@ class LedgerService:
         ).with_for_update().execution_options(populate_existing=True))
         if tx is None:
             raise NotFound("این تراکنش پیدا نشد.")
+        old_day = tx.occurred_on
         await self.books.require(
             target_book_id, actor_user_id,
             Permission.RECORD_INCOME if tx.flow is Flow.INCOME else Permission.RECORD_EXPENSE,
@@ -830,6 +843,8 @@ class LedgerService:
                               memo=f"{tx.flow.value}: {tx.category}", transaction_id=tx.id)
         self._mark_edited(tx, actor_user_id)
         await self.session.flush()
+        await self._income_follows(source.id, old_day)
+        await self._income_follows(target_book_id, tx.occurred_on)
         return tx
 
     async def assign_bank(
@@ -907,6 +922,7 @@ class LedgerService:
 
         await self._require_open_date(book_id, transaction.occurred_on)
         await self._require_wallet_survives(transaction, -transaction.original_amount)
+        day = transaction.occurred_on
 
         # journal_entries → transactions and journal_lines → journal_entries are
         # both ON DELETE CASCADE, so removing the transaction takes the whole
@@ -914,4 +930,5 @@ class LedgerService:
         # warned that the second pass matched nothing.
         await self.session.delete(transaction)
         await self.session.flush()
+        await self._income_follows(book_id, day)
 

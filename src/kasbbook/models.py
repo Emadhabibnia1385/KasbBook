@@ -8,6 +8,7 @@ requirement explicit and to give migrations a single, obvious entry point.
 from .modules.activity.models import ActivityEvent
 from .modules.banks.models import BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer
 from .modules.books.models import Book, Membership, TeamInvitation
+from .modules.income.models import IncomeEntry, IncomeLink
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
 from .modules.exchange.models import BookCurrency, ConversionAttachment, CurrencyConversion
@@ -57,6 +58,8 @@ __all__ = [
     "BankAccountLink",
     "BankTransfer",
     "BankBookTransferLeg",
+    "IncomeEntry",
+    "IncomeLink",
     "ActivityEvent",
     "Account",
     "AccountLoginChallenge",

@@ -1267,3 +1267,54 @@ class BookTransferResponse(MoneyModel):
     occurred_on: date
     note: Optional[str] = None
     created_at: datetime
+
+
+# ------------------------------------------------------ income into a personal book
+class IncomeLinkRequest(MoneyModel):
+    """Write my income from a team or business book into one of my own."""
+
+    source_book_id: uuid.UUID
+    target_book_id: uuid.UUID
+    # payment (each time I am paid), period (my net pay when a payroll period closes), or a running
+    # share of the book's net income: daily, weekly or monthly.
+    mode: str
+    # What the income is filed under; left out, «درآمد از «<book>»».
+    category: Optional[str] = Field(default=None, max_length=80)
+    # Nothing before this day is written; left out, today.
+    starts_on: Optional[date] = None
+    # The target book's account the income arrives in: left out is its default, null is none.
+    bank_account_id: Optional[uuid.UUID] = None
+
+
+class IncomeLinkUpdate(MoneyModel):
+    mode: Optional[str] = None
+    category: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    starts_on: Optional[date] = None
+    is_active: Optional[bool] = None
+
+
+class IncomeLinkResponse(MoneyModel):
+    id: uuid.UUID
+    source_book_id: uuid.UUID
+    source_book_name: str
+    target_book_id: uuid.UUID
+    target_book_name: str
+    mode: str
+    category: str
+    starts_on: date
+    bank_account_id: Optional[uuid.UUID] = None
+    is_active: bool
+    # Incomes written so far, what they add up to, and how many the target book refused.
+    entries: int
+    total: Decimal
+    problems: int
+    created_at: datetime
+
+
+class IncomeEntryResponse(MoneyModel):
+    ref: str
+    occurred_on: date
+    amount: Decimal
+    transaction_id: Optional[uuid.UUID] = None
+    # Why the target book refused it, when it did; a resync tries again.
+    problem: Optional[str] = None
