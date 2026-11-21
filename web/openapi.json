@@ -1944,6 +1944,154 @@
         "title": "BookResponse",
         "type": "object"
       },
+      "BookTransferRequest": {
+        "description": "Money moved from one of your books to another: an account of each, and how much.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "from_bank_account_id": {
+            "format": "uuid",
+            "title": "From Bank Account Id",
+            "type": "string"
+          },
+          "from_book_id": {
+            "format": "uuid",
+            "title": "From Book Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "occurred_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred On"
+          },
+          "to_bank_account_id": {
+            "format": "uuid",
+            "title": "To Bank Account Id",
+            "type": "string"
+          },
+          "to_book_id": {
+            "format": "uuid",
+            "title": "To Book Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_book_id",
+          "to_book_id",
+          "from_bank_account_id",
+          "to_bank_account_id",
+          "amount"
+        ],
+        "title": "BookTransferRequest",
+        "type": "object"
+      },
+      "BookTransferResponse": {
+        "description": "One book's side of a transfer between books.",
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "bank_account_id": {
+            "format": "uuid",
+            "title": "Bank Account Id",
+            "type": "string"
+          },
+          "bank_title": {
+            "title": "Bank Title",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "occurred_on": {
+            "format": "date",
+            "title": "Occurred On",
+            "type": "string"
+          },
+          "other_book_id": {
+            "format": "uuid",
+            "title": "Other Book Id",
+            "type": "string"
+          },
+          "other_book_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Book Name"
+          },
+          "pair_id": {
+            "format": "uuid",
+            "title": "Pair Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pair_id",
+          "direction",
+          "bank_account_id",
+          "bank_title",
+          "other_book_id",
+          "amount",
+          "occurred_on",
+          "created_at"
+        ],
+        "title": "BookTransferResponse",
+        "type": "object"
+      },
       "BookUpdate": {
         "description": "What may change on a book; whatever is left out stays.",
         "properties": {
@@ -10231,6 +10379,82 @@
         ]
       }
     },
+    "/api/v1/book-transfers": {
+      "post": {
+        "description": "Move money from one of your books to another. Needs account management in both.\n\nWritten to each book as its own balanced entry, so neither book's accounts depend on the other.\nNot income and not an expense in either. The answer is the leaving book's side.",
+        "operationId": "banks_create_book_transfer",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookTransferResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Book Transfer",
+        "tags": [
+          "banks"
+        ]
+      }
+    },
     "/api/v1/books": {
       "get": {
         "operationId": "books_list_books",
@@ -12440,6 +12664,165 @@
         "summary": "Set Base Currency",
         "tags": [
           "books"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/book-transfers": {
+      "get": {
+        "description": "This book's side of every transfer to or from another book, newest first.",
+        "operationId": "banks_list_book_transfers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BookTransferResponse"
+                  },
+                  "title": "Response Banks List Book Transfers",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Book Transfers",
+        "tags": [
+          "banks"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/book-transfers/{pair_id}": {
+      "delete": {
+        "description": "Take a transfer back from both books at once.",
+        "operationId": "banks_delete_book_transfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pair_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pair Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Book Transfer",
+        "tags": [
+          "banks"
         ]
       }
     },

@@ -1238,3 +1238,32 @@ class BankAssignResponse(Model):
     moved: int
     # Closed periods are not rewritten; this is how many were left as they were.
     left: int
+
+
+class BookTransferRequest(MoneyModel):
+    """Money moved from one of your books to another: an account of each, and how much."""
+
+    from_book_id: uuid.UUID
+    to_book_id: uuid.UUID
+    from_bank_account_id: uuid.UUID
+    to_bank_account_id: uuid.UUID
+    amount: Decimal = Field(gt=0)
+    occurred_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class BookTransferResponse(MoneyModel):
+    """One book's side of a transfer between books."""
+
+    pair_id: uuid.UUID
+    # "out": the money left this book; "in": it arrived here.
+    direction: str
+    bank_account_id: uuid.UUID
+    bank_title: str
+    other_book_id: uuid.UUID
+    # Null when you are not a member of the other book: you are not told what it is called.
+    other_book_name: Optional[str] = None
+    amount: Decimal
+    occurred_on: date
+    note: Optional[str] = None
+    created_at: datetime

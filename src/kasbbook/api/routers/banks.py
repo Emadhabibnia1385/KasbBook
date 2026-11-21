@@ -15,6 +15,7 @@ from typing import List, Optional
 from fastapi import APIRouter
 
 from ...modules.banks.models import BankAccount
+from ...modules.banks.booktransfers import BookTransferService, LegRow
 from ...modules.banks.transfers import TransferRow, TransferService
 from ...modules.ledger.service import LedgerService
 from ...modules.banks.service import (
@@ -26,6 +27,8 @@ from ...modules.banks.service import (
 )
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
+    BookTransferRequest,
+    BookTransferResponse,
     BankAssignRequest,
     BankAssignResponse,
     BankTransferRequest,
@@ -44,6 +47,7 @@ from ..schemas import (
 
 router = APIRouter(prefix="/bank-accounts", tags=["banks"])
 book_router = APIRouter(prefix="/books", tags=["banks"])
+between_books = APIRouter(prefix="/book-transfers", tags=["banks"])
 
 
 def _owner_view(summary: BankSummary) -> BankAccountResponse:
@@ -262,3 +266,51 @@ async def delete_transfer(
     book_id: uuid.UUID, transfer_id: uuid.UUID, user: CurrentUser, session: SessionDep
 ) -> None:
     await TransferService(session).delete(book_id, user.id, transfer_id)
+
+
+# ------------------------------------------------------ transfers between books
+def _leg(row: LegRow) -> BookTransferResponse:
+    leg = row.leg
+    return BookTransferResponse(
+        pair_id=leg.pair_id, direction=leg.direction, bank_account_id=leg.bank_account_id,
+        bank_title=row.bank_title, other_book_id=leg.other_book_id,
+        other_book_name=row.other_book_name, amount=leg.amount, occurred_on=leg.occurred_on,
+        note=leg.note, created_at=leg.created_at,
+    )
+
+
+@between_books.post("", response_model=BookTransferResponse, status_code=201)
+async def create_book_transfer(
+    body: BookTransferRequest, user: CurrentUser, session: SessionDep
+) -> BookTransferResponse:
+    """Move money from one of your books to another. Needs account management in both.
+
+    Written to each book as its own balanced entry, so neither book's accounts depend on the other.
+    Not income and not an expense in either. The answer is the leaving book's side.
+    """
+    service = BookTransferService(session)
+    pair = await service.create(
+        user.id, from_book_id=body.from_book_id, to_book_id=body.to_book_id,
+        from_bank_account_id=body.from_bank_account_id, to_bank_account_id=body.to_bank_account_id,
+        amount=body.amount, occurred_on=body.occurred_on, note=body.note,
+    )
+    for row in await service.list(body.from_book_id, user.id):
+        if row.leg.pair_id == pair:
+            return _leg(row)
+    raise AssertionError("the leg just written is missing")
+
+
+@book_router.get("/{book_id}/book-transfers", response_model=List[BookTransferResponse])
+async def list_book_transfers(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[BookTransferResponse]:
+    """This book's side of every transfer to or from another book, newest first."""
+    return [_leg(row) for row in await BookTransferService(session).list(book_id, user.id)]
+
+
+@book_router.delete("/{book_id}/book-transfers/{pair_id}", status_code=204)
+async def delete_book_transfer(
+    book_id: uuid.UUID, pair_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    """Take a transfer back from both books at once."""
+    await BookTransferService(session).delete(book_id, user.id, pair_id)

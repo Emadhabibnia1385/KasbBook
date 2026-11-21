@@ -63,6 +63,9 @@ DEFAULT_ACCOUNTS = (
     ("1900", "خزانه", AccountType.ASSET),
     ("1500", "دارایی‌ها", AccountType.ASSET),
     ("1600", "سپردهٔ صندوق‌ها", AccountType.ASSET),
+    # What stands against the bank account on each side of a transfer between two books: money that
+    # left this book for another is a debit here, money that came from another a credit.
+    ("3100", "انتقال بین دفترها", AccountType.EQUITY),
 )
 
 CASH = "1000"

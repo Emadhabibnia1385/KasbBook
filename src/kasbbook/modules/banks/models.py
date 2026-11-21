@@ -139,3 +139,45 @@ class BankTransfer(UUIDPrimaryKey, Timestamped, Base):
     entry_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("journal_entries.id", ondelete="CASCADE"), nullable=False
     )
+
+
+class BankBookTransferLeg(UUIDPrimaryKey, Timestamped, Base):
+    """One book's side of money moved to or from another of the owner's books.
+
+    A transfer between two books is two legs, one in each, joined by `pair_id`. Each leg is a balanced
+    journal entry of its own book (the bank account against «انتقال بین دفترها»), so each book's
+    trial balance closes by itself and a book can be deleted without leaving the other with an entry
+    nothing explains. Like a transfer inside a book, it is not income or an expense: no report, budget
+    or share sees it.
+    """
+
+    __tablename__ = "bank_book_transfer_legs"
+    __table_args__ = (
+        CheckConstraint("direction in ('in', 'out')", name="leg_direction"),
+        Index("ix_book_transfer_legs_book_day", "book_id", "occurred_on"),
+        Index("ix_book_transfer_legs_pair", "pair_id"),
+        ForeignKeyConstraint(
+            ["book_id", "bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_book_transfer_leg_bank_book", deferrable=True, initially="DEFERRED",
+        ),
+    )
+
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    bank_account_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    # Shared by the two legs of one transfer.
+    pair_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    # The book on the other end. Not a foreign key: that book may be deleted, and this leg stays.
+    other_book_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    direction: Mapped[str] = mapped_column(String(3), nullable=False)
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("journal_entries.id", ondelete="CASCADE"), nullable=False
+    )

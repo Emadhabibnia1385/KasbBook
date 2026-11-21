@@ -71,6 +71,8 @@ export * from "./bookResponse";
 export * from "./booksListCategoriesParams";
 export * from "./booksListConversionsParams";
 export * from "./booksListTransactionsParams";
+export * from "./bookTransferRequest";
+export * from "./bookTransferResponse";
 export * from "./bookUpdate";
 export * from "./budgetActualItem";
 export * from "./budgetActualResponse";

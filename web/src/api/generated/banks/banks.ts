@@ -44,6 +44,8 @@ import type {
 	BankTransferUpdate,
 	BanksListTransfersParams,
 	BookBankResponse,
+	BookTransferRequest,
+	BookTransferResponse,
 	HTTPValidationError,
 } from "../model";
 
@@ -731,6 +733,118 @@ export function useBanksReconcile<
 	return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getBanksCreateBookTransferUrl = () => {
+	return `/api/v1/book-transfers`;
+};
+
+/**
+ * Move money from one of your books to another. Needs account management in both.
+ *
+ * Written to each book as its own balanced entry, so neither book's accounts depend on the other.
+ * Not income and not an expense in either. The answer is the leaving book's side.
+ * @summary Create Book Transfer
+ */
+export const banksCreateBookTransfer = async (
+	bookTransferRequest: BookTransferRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<BookTransferResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<BookTransferResponse>(getBanksCreateBookTransferUrl(), {
+		...options,
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(bookTransferRequest),
+	});
+};
+
+export const getBanksCreateBookTransferMutationKey = () => ["banksCreateBookTransfer"] as const;
+
+export const getBanksCreateBookTransferMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof banksCreateBookTransfer>>,
+		TError,
+		BanksCreateBookTransferMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof banksCreateBookTransfer>>,
+	TError,
+	BanksCreateBookTransferMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBanksCreateBookTransferMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof banksCreateBookTransfer>>,
+		BanksCreateBookTransferMutationVariables
+	> = (props) => {
+		const { data } = props ?? {};
+
+		return banksCreateBookTransfer(data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BanksCreateBookTransferMutationResult = NonNullable<
+	Awaited<ReturnType<typeof banksCreateBookTransfer>>
+>;
+export type BanksCreateBookTransferMutationBody = BookTransferRequest;
+export type BanksCreateBookTransferMutationError = ErrorType<HTTPValidationError>;
+export type BanksCreateBookTransferMutationVariables = { data: BookTransferRequest };
+
+/**
+ * @summary Create Book Transfer
+ */
+export const useBanksCreateBookTransfer = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof banksCreateBookTransfer>>,
+			TError,
+			BanksCreateBookTransferMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof banksCreateBookTransfer>>,
+	TError,
+	BanksCreateBookTransferMutationVariables,
+	TContext
+> => {
+	return useMutation(getBanksCreateBookTransferMutationOptions(options), queryClient);
+};
 export const getBanksListForBookUrl = (bookId: string) => {
 	return `/api/v1/books/${bookId}/bank-accounts`;
 };
@@ -1728,4 +1842,234 @@ export const useBanksUpdateTransfer = <TError = ErrorType<HTTPValidationError>, 
 	TContext
 > => {
 	return useMutation(getBanksUpdateTransferMutationOptions(options), queryClient);
+};
+export const getBanksListBookTransfersUrl = (bookId: string) => {
+	return `/api/v1/books/${bookId}/book-transfers`;
+};
+
+/**
+ * This book's side of every transfer to or from another book, newest first.
+ * @summary List Book Transfers
+ */
+export const banksListBookTransfers = async (
+	bookId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<BookTransferResponse[]> => {
+	return apiFetch<BookTransferResponse[]>(getBanksListBookTransfersUrl(bookId), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getBanksListBookTransfersQueryKey = (bookId: string) => {
+	return [`/api/v1/books/${bookId}/book-transfers`] as const;
+};
+
+export const useBanksListBookTransfersQueryOptions = <
+	TData = Awaited<ReturnType<typeof banksListBookTransfers>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof banksListBookTransfers>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getBanksListBookTransfersQueryKey(bookId);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof banksListBookTransfers>>> = ({ signal }) =>
+		banksListBookTransfers(bookId, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled: bookId !== null && bookId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof banksListBookTransfers>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type BanksListBookTransfersQueryResult = NonNullable<
+	Awaited<ReturnType<typeof banksListBookTransfers>>
+>;
+export type BanksListBookTransfersQueryError = ErrorType<HTTPValidationError>;
+
+export function useBanksListBookTransfers<
+	TData = Awaited<ReturnType<typeof banksListBookTransfers>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof banksListBookTransfers>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof banksListBookTransfers>>,
+					TError,
+					Awaited<ReturnType<typeof banksListBookTransfers>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBanksListBookTransfers<
+	TData = Awaited<ReturnType<typeof banksListBookTransfers>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof banksListBookTransfers>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof banksListBookTransfers>>,
+					TError,
+					Awaited<ReturnType<typeof banksListBookTransfers>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useBanksListBookTransfers<
+	TData = Awaited<ReturnType<typeof banksListBookTransfers>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof banksListBookTransfers>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary List Book Transfers
+ */
+
+export function useBanksListBookTransfers<
+	TData = Awaited<ReturnType<typeof banksListBookTransfers>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof banksListBookTransfers>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = useBanksListBookTransfersQueryOptions(bookId, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getBanksDeleteBookTransferUrl = (bookId: string, pairId: string) => {
+	return `/api/v1/books/${bookId}/book-transfers/${pairId}`;
+};
+
+/**
+ * Take a transfer back from both books at once.
+ * @summary Delete Book Transfer
+ */
+export const banksDeleteBookTransfer = async (
+	bookId: string,
+	pairId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<void> => {
+	return apiFetch<void>(getBanksDeleteBookTransferUrl(bookId, pairId), {
+		...options,
+		method: "DELETE",
+	});
+};
+
+export const getBanksDeleteBookTransferMutationKey = () => ["banksDeleteBookTransfer"] as const;
+
+export const getBanksDeleteBookTransferMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof banksDeleteBookTransfer>>,
+		TError,
+		BanksDeleteBookTransferMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof banksDeleteBookTransfer>>,
+	TError,
+	BanksDeleteBookTransferMutationVariables,
+	TContext
+> => {
+	const mutationKey = getBanksDeleteBookTransferMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof banksDeleteBookTransfer>>,
+		BanksDeleteBookTransferMutationVariables
+	> = (props) => {
+		const { bookId, pairId } = props ?? {};
+
+		return banksDeleteBookTransfer(bookId, pairId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type BanksDeleteBookTransferMutationResult = NonNullable<
+	Awaited<ReturnType<typeof banksDeleteBookTransfer>>
+>;
+
+export type BanksDeleteBookTransferMutationError = ErrorType<HTTPValidationError>;
+export type BanksDeleteBookTransferMutationVariables = { bookId: string; pairId: string };
+
+/**
+ * @summary Delete Book Transfer
+ */
+export const useBanksDeleteBookTransfer = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof banksDeleteBookTransfer>>,
+			TError,
+			BanksDeleteBookTransferMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof banksDeleteBookTransfer>>,
+	TError,
+	BanksDeleteBookTransferMutationVariables,
+	TContext
+> => {
+	return useMutation(getBanksDeleteBookTransferMutationOptions(options), queryClient);
 };

@@ -700,3 +700,127 @@ async def test_a_purchase_paid_wholly_on_a_loan_touches_no_account(api, db):
     assert bought.status_code == 201, bought.text
     assert (await totals(api, headers))[bank["id"]] == 500
     await everything_agrees(api, db, headers, [personal])
+
+
+# ----------------------------------------------------- transfers between books
+async def book_transfer(api, headers, source, target, from_bank, to_bank, amount, **extra):
+    return await api.post(f"{V1}/book-transfers", headers=headers, json={
+        "from_book_id": source["id"], "to_book_id": target["id"],
+        "from_bank_account_id": from_bank["id"], "to_bank_account_id": to_bank["id"],
+        "amount": str(amount), "occurred_on": DAY, **extra,
+    })
+
+
+async def test_money_moves_between_two_books_and_each_stays_balanced(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal], bank_name="شخصی", opening_balance="100")
+    shop = await make_bank(api, headers, [business], bank_name="کسب‌وکار")
+    await record(api, headers, business, "income", 1000)
+
+    reply = await book_transfer(api, headers, business, personal, shop, mine, 400, note="برداشت")
+    assert reply.status_code == 201, reply.text
+    assert reply.json()["direction"] == "out" and reply.json()["other_book_name"] == personal["name"]
+
+    assert await totals(api, headers) == {mine["id"]: 500, shop["id"]: 600}
+    # Not income and not an expense in either book.
+    for book, income in ((business, 1000), (personal, 0)):
+        listing = (await api.get(f"{V1}/books/{book['id']}/transactions", headers=headers)).json()
+        assert Decimal(listing["total_income"]) == income and Decimal(listing["total_expense"]) == 0
+    await everything_agrees(api, db, headers, [personal, business])
+
+    mine_side = (await api.get(f"{V1}/books/{personal['id']}/book-transfers", headers=headers)).json()
+    assert [(row["direction"], Decimal(row["amount"])) for row in mine_side] == [("in", 400)]
+    assert (await api.get(f"{V1}/books/{business['id']}/book-transfers", headers=headers)).json()[0]["direction"] == "out"
+
+
+async def test_one_shared_account_only_changes_who_it_belongs_to(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    shared = await make_bank(api, headers, [personal, business], opening_balance="50")
+    await record(api, headers, business, "income", 300)
+
+    reply = await book_transfer(api, headers, business, personal, shared, shared, 120)
+    assert reply.status_code == 201, reply.text
+    summary = (await api.get(f"{V1}/bank-accounts/{shared['id']}", headers=headers)).json()
+    # The account itself holds the same; 120 of it now counts for the personal book.
+    assert Decimal(summary["total_balance"]) == 350
+    shares = {s["book_id"]: Decimal(s["balance"]) for s in summary["shares"]}
+    assert shares == {business["id"]: 180, personal["id"]: 120}
+    await everything_agrees(api, db, headers, [personal, business])
+
+
+async def test_a_transfer_between_books_is_taken_back_from_both(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal], bank_name="شخصی")
+    shop = await make_bank(api, headers, [business], bank_name="کسب‌وکار")
+    made = (await book_transfer(api, headers, business, personal, shop, mine, 70)).json()
+
+    gone = await api.delete(f"{V1}/books/{personal['id']}/book-transfers/{made['pair_id']}", headers=headers)
+    assert gone.status_code == 204
+    assert await totals(api, headers) == {mine["id"]: 0, shop["id"]: 0}
+    for book in (personal, business):
+        assert (await api.get(f"{V1}/books/{book['id']}/book-transfers", headers=headers)).json() == []
+    await everything_agrees(api, db, headers, [personal, business])
+
+
+async def test_between_books_the_rules_hold(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal], bank_name="شخصی")
+    shop = await make_bank(api, headers, [business], bank_name="کسب‌وکار")
+    dollars = (await api.post(f"{V1}/books", headers=headers, json={
+        "name": "دلاری", "type": "business", "currency": "USD"})).json()
+    cash = await make_bank(api, headers, [dollars], bank_name="دلار", currency="USD")
+
+    assert (await book_transfer(api, headers, business, business, shop, shop, 5)).status_code == 422
+    assert (await book_transfer(api, headers, business, dollars, shop, cash, 5)).status_code == 422
+    assert (await book_transfer(api, headers, business, personal, shop, mine, 0)).status_code == 422
+    # An account that is not linked to the book it is named for is not found.
+    assert (await book_transfer(api, headers, business, personal, mine, shop, 5)).status_code == 404
+    # In use by a transfer: switched off, never removed.
+    await book_transfer(api, headers, business, personal, shop, mine, 5)
+    assert (await api.delete(f"{V1}/bank-accounts/{shop['id']}", headers=headers)).status_code == 422
+    assert (await api.delete(f"{V1}/books/{business['id']}/bank-accounts/{shop['id']}",
+                             headers=headers)).status_code == 422
+
+
+async def test_a_stranger_or_a_viewer_cannot_move_money_between_books(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal], bank_name="شخصی")
+    shop = await make_bank(api, headers, [business], bank_name="کسب‌وکار")
+    stranger = bearer(await register(api, email="stranger3@example.com"))
+    assert (await book_transfer(api, stranger, business, personal, shop, mine, 5)).status_code == 404
+
+    member = bearer(await register(api, email="member3@example.com"))
+    await api.post(f"{V1}/books/{business['id']}/members", headers=headers,
+                   json={"identifier": "member3@example.com", "role": "member"})
+    assert (await book_transfer(api, member, business, personal, shop, mine, 5)).status_code in (403, 404)
+
+
+async def test_the_other_books_name_is_not_told_to_someone_outside_it(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal], bank_name="شخصی")
+    shop = await make_bank(api, headers, [business], bank_name="کسب‌وکار")
+    await book_transfer(api, headers, business, personal, shop, mine, 5)
+
+    colleague = bearer(await register(api, email="colleague3@example.com"))
+    await api.post(f"{V1}/books/{business['id']}/members", headers=headers,
+                   json={"identifier": "colleague3@example.com", "role": "viewer"})
+    seen = (await api.get(f"{V1}/books/{business['id']}/book-transfers", headers=colleague)).json()
+    assert len(seen) == 1 and seen[0]["other_book_name"] is None
+    # And they cannot take it back: that needs account management in both books.
+    gone = await api.delete(f"{V1}/books/{business['id']}/book-transfers/{seen[0]['pair_id']}", headers=colleague)
+    assert gone.status_code == 403
+
+
+async def test_deleting_one_book_leaves_the_other_consistent(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal], bank_name="شخصی")
+    shop = await make_bank(api, headers, [business], bank_name="کسب‌وکار")
+    await book_transfer(api, headers, business, personal, shop, mine, 90)
+    me = (await api.get(f"{V1}/auth/me", headers=headers)).json()
+    from kasbbook.modules.books.service import BookService
+    async for session in db.session():
+        await BookService(session).delete_book(uuid.UUID(me["id"]), uuid.UUID(business["id"]))
+        await session.commit()
+    check = (await api.get(f"{V1}/bank-accounts/{mine['id']}/reconciliation", headers=headers)).json()
+    assert check["consistent"] is True and Decimal(check["from_journal"]) == 90
+    assert await balanced(db, personal["id"])

@@ -33,7 +33,7 @@ from ..books.service import BookService
 from ..capital.models import CapitalMovement
 from ..ledger.models import Account, AccountType, Flow, JournalLine, Transaction
 from ..recurring.models import RecurringRule
-from .models import BankAccount, BankAccountLink, BankTransfer
+from .models import BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer
 
 # "Not given" is not the same as "given as nothing": an edit that leaves a field out keeps it, and one
 # that sends null clears it. The ledger shares this marker so the two services mean the same thing.
@@ -283,6 +283,13 @@ class BankService:
             .where(CapitalMovement.bank_account_id == bank_id)
         )).all():
             spent[book_id] = spent.get(book_id, ZERO) + delta
+        # Money moved to or from another book: in is a gain here, out a loss, and the account's total
+        # follows only when the other end is a different account.
+        for book_id, direction, amount in (await self.session.execute(
+            select(BankBookTransferLeg.book_id, BankBookTransferLeg.direction, BankBookTransferLeg.amount)
+            .where(BankBookTransferLeg.bank_account_id == bank_id)
+        )).all():
+            spent[book_id] = spent.get(book_id, ZERO) + (amount if direction == "in" else -amount)
         shares = [
             ShareCheck(s.book_id, s.book_name, s.balance, spent.pop(s.book_id, ZERO))
             for s in summary.shares
@@ -482,12 +489,15 @@ class BankService:
         )
         capital = select(CapitalMovement.id).where(CapitalMovement.bank_account_id == bank_id)
         rules = select(RecurringRule.id).where(RecurringRule.bank_account_id == bank_id)
+        legs = select(BankBookTransferLeg.id).where(BankBookTransferLeg.bank_account_id == bank_id)
+        if book_id is not None:
+            legs = legs.where(BankBookTransferLeg.book_id == book_id)
         if book_id is not None:
             tx = tx.where(Transaction.book_id == book_id)
             moved = moved.where(BankTransfer.book_id == book_id)
             capital = capital.where(CapitalMovement.book_id == book_id)
             rules = rules.where(RecurringRule.book_id == book_id)
-        for query in (tx, moved, capital, rules):
+        for query in (tx, moved, capital, rules, legs):
             if await self.session.scalar(query.limit(1)):
                 return True
         return False

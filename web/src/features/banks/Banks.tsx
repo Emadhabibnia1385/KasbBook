@@ -31,6 +31,7 @@ import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { BankBalances, BankShareDonut, BankSplitPanel } from "./BankBalances";
 import { BankDialog } from "./BankForm";
+import { BookTransfers } from "./BookTransfers";
 import { Transfers } from "./Transfers";
 
 /** 6037 9972 5500 8764: a card number is read in fours. */
@@ -401,6 +402,7 @@ function Content({ book, books }: { book: BookResponse; books: BookResponse[] })
 			<BankBalances book={book} />
 			<BankSplitPanel book={book} />
 			<Transfers book={book} />
+			<BookTransfers book={book} books={books} />
 			<SectionCard title={t.banks.title}>
 				<Mine book={book} books={books} />
 			</SectionCard>

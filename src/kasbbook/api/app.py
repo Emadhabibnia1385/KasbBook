@@ -187,6 +187,7 @@ def create_app(
     app.include_router(currencies.router, prefix=api)
     app.include_router(banks.router, prefix=api)
     app.include_router(banks.book_router, prefix=api)
+    app.include_router(banks.between_books, prefix=api)
     app.include_router(books.router, prefix=api)
     app.include_router(everything.router, prefix=api)
     app.include_router(market.router, prefix=api)

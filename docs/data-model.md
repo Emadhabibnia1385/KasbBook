@@ -137,6 +137,12 @@ balanced journal entry, never a transaction, so it cannot move income, expense
 or anyone's share. The reconciliation counts transfers on the transactions side
 too.
 
+A transfer between two *books* is two `BankBookTransferLeg` rows, one per book,
+joined by a pair id: the bank account against the equity account «انتقال بین
+دفترها» in each. Each leg is a balanced entry of its own book, so deleting one
+book leaves the other consistent. The same shared account may be both ends, which
+moves only how much of it counts for each book.
+
 Everything that moves cash can name the account: a transaction, a transfer,
 a recurring rule (which keeps the account it was made with), a loan installment,
 and an asset, fund or loan-principal movement. Left out, the book's default is

@@ -6,7 +6,7 @@ requirement explicit and to give migrations a single, obvious entry point.
 """
 
 from .modules.activity.models import ActivityEvent
-from .modules.banks.models import BankAccount, BankAccountLink, BankTransfer
+from .modules.banks.models import BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer
 from .modules.books.models import Book, Membership, TeamInvitation
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
@@ -56,6 +56,7 @@ __all__ = [
     "BankAccount",
     "BankAccountLink",
     "BankTransfer",
+    "BankBookTransferLeg",
     "ActivityEvent",
     "Account",
     "AccountLoginChallenge",

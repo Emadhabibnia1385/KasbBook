@@ -31,6 +31,7 @@ export async function refreshMoney(queryClient: QueryClient, bookId: string): Pr
 					// A transaction moves money in an account, and every book that shares the account sees it.
 					key.includes("/bank-accounts") ||
 					key.includes("/bank-transfers") ||
+					key.includes("/book-transfers") ||
 					key === "/api/v1/transactions"
 				);
 			},
