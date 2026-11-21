@@ -1185,3 +1185,44 @@ class BankReconciliationResponse(MoneyModel):
     from_journal: Decimal
     from_transactions: Decimal
     consistent: bool
+
+
+class BankTransferRequest(MoneyModel):
+    from_bank_account_id: uuid.UUID
+    to_bank_account_id: uuid.UUID
+    amount: Decimal = Field(gt=0)
+    occurred_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class BankTransferUpdate(MoneyModel):
+    from_bank_account_id: Optional[uuid.UUID] = None
+    to_bank_account_id: Optional[uuid.UUID] = None
+    amount: Optional[Decimal] = Field(default=None, gt=0)
+    occurred_on: Optional[date] = None
+    # Null clears the note.
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class BankTransferResponse(MoneyModel):
+    id: uuid.UUID
+    from_bank_account_id: uuid.UUID
+    from_title: str
+    to_bank_account_id: uuid.UUID
+    to_title: str
+    amount: Decimal
+    occurred_on: date
+    note: Optional[str] = None
+    created_at: datetime
+
+
+class BankAssignRequest(Model):
+    # Limit it to a stretch of time; both left out means every transaction that names no account.
+    since: Optional[date] = None
+    until: Optional[date] = None
+
+
+class BankAssignResponse(Model):
+    moved: int
+    # Closed periods are not rewritten; this is how many were left as they were.
+    left: int

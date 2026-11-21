@@ -31,7 +31,7 @@ from ...shared.parsing import to_ascii_digits
 from ..books.models import Book, Permission
 from ..books.service import BookService
 from ..ledger.models import Account, AccountType, Flow, JournalLine, Transaction
-from .models import BankAccount, BankAccountLink
+from .models import BankAccount, BankAccountLink, BankTransfer
 
 # "Not given" is not the same as "given as nothing": an edit that leaves a field out keeps it, and one
 # that sends null clears it. The ledger shares this marker so the two services mean the same thing.
@@ -252,7 +252,7 @@ class BankService:
         )
 
     async def reconcile(self, owner_id: uuid.UUID, bank_id: uuid.UUID) -> Reconciliation:
-        """The balance from the journal and the balance from the transactions, to be compared.
+        """The balance from the journal and the balance from the transactions and transfers, side by side.
 
         They are separate derivations on purpose. If a transaction's journal entry ever differed from
         the transaction, or something wrote to the account's ledger without one, they would disagree
@@ -266,12 +266,19 @@ class BankService:
         spent: Dict[uuid.UUID, Decimal] = {}
         for book_id, flow, amount in rows:
             spent[book_id] = spent.get(book_id, ZERO) + (amount if flow is Flow.INCOME else -amount)
+        # A transaction naming this account in a book that has no link to it is a broken row; counting
+        # it here (and not in the journal) is exactly how the difference gets noticed.
+        # What moved between this account and the book's others counts too: in is a gain, out a loss.
+        for book_id, from_id, to_id, amount in (await self.session.execute(
+            select(BankTransfer.book_id, BankTransfer.from_bank_account_id,
+                   BankTransfer.to_bank_account_id, BankTransfer.amount)
+            .where((BankTransfer.from_bank_account_id == bank_id) | (BankTransfer.to_bank_account_id == bank_id))
+        )).all():
+            spent[book_id] = spent.get(book_id, ZERO) + (amount if to_id == bank_id else -amount)
         shares = [
             ShareCheck(s.book_id, s.book_name, s.balance, spent.pop(s.book_id, ZERO))
             for s in summary.shares
         ]
-        # A transaction naming this account in a book that has no link to it is a broken row; counting
-        # it here (and not in the journal) is exactly how the difference gets noticed.
         stray = sum(spent.values(), ZERO)
         opening = quantize(summary.bank.opening_balance)
         return Reconciliation(
@@ -352,10 +359,8 @@ class BankService:
     async def delete(self, owner_id: uuid.UUID, bank_id: uuid.UUID) -> None:
         """Only an account nothing was ever recorded against can go; any other is switched off."""
         bank = await self._owned(owner_id, bank_id)
-        if await self.session.scalar(select(Transaction.id).where(
-            Transaction.bank_account_id == bank.id
-        ).limit(1)):
-            raise ValidationError("روی این حساب تراکنش ثبت شده؛ به‌جای حذف، غیرفعالش کن.")
+        if await self._used(bank.id):
+            raise ValidationError("روی این حساب تراکنش یا انتقال ثبت شده؛ به‌جای حذف، غیرفعالش کن.")
         accounts = [row.ledger_account_id for row in (await self.session.scalars(
             select(BankAccountLink).where(BankAccountLink.bank_account_id == bank.id)
         )).all()]
@@ -451,17 +456,26 @@ class BankService:
         await self.books.require(book_id, actor_id, Permission.MANAGE_ACCOUNTS)
         link = await self._link(book_id, bank_id)
         await self._lock_book(book_id)
-        if await self.session.scalar(select(Transaction.id).where(
-            Transaction.book_id == book_id, Transaction.bank_account_id == bank_id
-        ).limit(1)):
+        if await self._used(bank_id, book_id):
             raise ValidationError(
-                "در این دفتر روی این حساب تراکنش ثبت شده؛ به‌جای جدا کردن، غیرفعالش کن."
+                "در این دفتر روی این حساب تراکنش یا انتقال ثبت شده؛ به‌جای جدا کردن، غیرفعالش کن."
             )
         account_id = link.ledger_account_id
         await self.session.delete(link)
         await self.session.flush()
         await self.session.execute(delete(Account).where(Account.id == account_id))
         await self.session.flush()
+
+    async def _used(self, bank_id: uuid.UUID, book_id: Optional[uuid.UUID] = None) -> bool:
+        """Whether anything was recorded against the account: a transaction or either end of a transfer."""
+        tx = select(Transaction.id).where(Transaction.bank_account_id == bank_id)
+        moved = select(BankTransfer.id).where(
+            (BankTransfer.from_bank_account_id == bank_id) | (BankTransfer.to_bank_account_id == bank_id)
+        )
+        if book_id is not None:
+            tx = tx.where(Transaction.book_id == book_id)
+            moved = moved.where(BankTransfer.book_id == book_id)
+        return bool(await self.session.scalar(tx.limit(1)) or await self.session.scalar(moved.limit(1)))
 
     async def _link(self, book_id: uuid.UUID, bank_id: uuid.UUID) -> BankAccountLink:
         link = await self.session.scalar(select(BankAccountLink).where(

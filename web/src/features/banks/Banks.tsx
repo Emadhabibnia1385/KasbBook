@@ -14,6 +14,7 @@ import {
 	getBanksListMineQueryKey,
 	useBanksDelete,
 	useBanksListForBook,
+	useBanksAssign,
 	useBanksListMine,
 	useBanksLink,
 	useBanksReconcile,
@@ -25,11 +26,12 @@ import type { BankAccountResponse, BookResponse } from "@/api/generated/model";
 import { BookRequired } from "@/features/books/BookRequired";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { PlusIcon } from "@/shared/icons";
-import { formatMoney } from "@/shared/format";
+import { formatAmount, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { BankBalances, BankShareDonut, BankSplitPanel } from "./BankBalances";
 import { BankDialog } from "./BankForm";
+import { Transfers } from "./Transfers";
 
 /** 6037 9972 5500 8764: a card number is read in fours. */
 function grouped(card: string): string {
@@ -81,7 +83,9 @@ function BankCard({
 	const link = useBanksLink();
 	const unlink = useBanksUnlink();
 	const remove = useBanksDelete();
+	const assign = useBanksAssign();
 	const [removing, setRemoving] = useState(false);
+	const [assigning, setAssigning] = useState(false);
 	const here = bank.shares.find((share) => share.book_id === book.id);
 	const others = bank.shares.filter((share) => share.book_id !== book.id);
 	const refresh = () =>
@@ -260,10 +264,40 @@ function BankCard({
 				>
 					{bank.is_active ? t.banks.switchOffAll : t.banks.switchOnAll}
 				</Button>
+				{here?.is_active && bank.is_active ? (
+					<Button size="sm" variant="secondary" onPress={() => setAssigning(true)}>
+						{t.banks.assign}
+					</Button>
+				) : null}
 				<Button size="sm" variant="danger-soft" onPress={() => setRemoving(true)}>
 					{t.banks.remove}
 				</Button>
 			</footer>
+			<ConfirmDialog
+				isOpen={assigning}
+				onOpenChange={setAssigning}
+				title={t.banks.assignTitle}
+				description={t.banks.assignBody}
+				confirmLabel={t.banks.assignConfirm}
+				onConfirm={async () => {
+					try {
+						const result = await assign.mutateAsync({
+							bookId: book.id,
+							bankId: bank.id,
+							data: {},
+						});
+						await refresh();
+						toast.success(
+							result.moved === 0
+								? t.banks.assignNone
+								: `${formatAmount(result.moved)} ${t.banks.assignDone}${result.left ? ` — ${formatAmount(result.left)} ${t.banks.assignLeft}` : ""}`,
+						);
+					} catch (error) {
+						reportFailure(error);
+						throw error;
+					}
+				}}
+			/>
 			<ConfirmDialog
 				isOpen={removing}
 				onOpenChange={setRemoving}
@@ -366,6 +400,7 @@ function Content({ book, books }: { book: BookResponse; books: BookResponse[] })
 			<PageHeader title={t.banks.title} description={`${book.name} — ${t.banks.lead}`} />
 			<BankBalances book={book} />
 			<BankSplitPanel book={book} />
+			<Transfers book={book} />
 			<SectionCard title={t.banks.title}>
 				<Mine book={book} books={books} />
 			</SectionCard>

@@ -12,10 +12,22 @@ ledger account holds, so it cannot drift from the transactions the way a stored 
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint, Uuid, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...shared.database import Base, Timestamped, UUIDPrimaryKey
@@ -83,3 +95,47 @@ class BankAccountLink(UUIDPrimaryKey, Timestamped, Base):
     # Off means: not offered for new transactions here, still shown on the ones that used it.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class BankTransfer(UUIDPrimaryKey, Timestamped, Base):
+    """Money moved from one of a book's accounts to another of the same book.
+
+    Deliberately not a transaction. `compute_distribution` adds up income and expense to decide what
+    everyone is paid, so a transfer recorded as both would inflate the pie and move every member's
+    share for money that never left the book. It is a journal entry of its own: debit where the money
+    arrives, credit where it left. Both accounts must be linked to this book, which is what keeps each
+    book's trial balance closed; moving money between two *books* is a different thing (an owner's
+    draw or contribution) and is not this.
+    """
+
+    __tablename__ = "bank_transfers"
+    __table_args__ = (
+        CheckConstraint("from_bank_account_id != to_bank_account_id", name="transfer_between_two_accounts"),
+        Index("ix_bank_transfers_book_day", "book_id", "occurred_on"),
+        ForeignKeyConstraint(
+            ["book_id", "from_bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_transfer_from_book", deferrable=True, initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["book_id", "to_bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_transfer_to_book", deferrable=True, initially="DEFERRED",
+        ),
+    )
+
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    from_bank_account_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    to_bank_account_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # The journal entry that carries it. Removed with it: the transfer is the entry's only meaning.
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("journal_entries.id", ondelete="CASCADE"), nullable=False
+    )

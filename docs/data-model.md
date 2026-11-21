@@ -132,6 +132,11 @@ ledger account holds, so it cannot drift from the transactions.
 transactions, and says whether the two agree. The opening balance is a fact
 about the account, not a transaction, so it never counts as income.
 
+A `BankTransfer` moves money between two accounts of the *same* book: one
+balanced journal entry, never a transaction, so it cannot move income, expense
+or anyone's share. The reconciliation counts transfers on the transactions side
+too.
+
 Only the owner sees the whole balance and what each book did; a member of one
 book sees that book's share and the last four digits of the card. An account
 used in a book cannot be unlinked from it or deleted — it is switched off.

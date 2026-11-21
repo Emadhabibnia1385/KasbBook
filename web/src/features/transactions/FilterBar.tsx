@@ -8,6 +8,7 @@ import {
 	getBooksListCategoriesQueryKey,
 	getBooksListCurrenciesQueryKey,
 } from "@/api/generated/books/books";
+import { banksListForBook, getBanksListForBookQueryKey } from "@/api/generated/banks/banks";
 import type { BookResponse } from "@/api/generated/model";
 import { ChevronDownIcon } from "@/shared/icons";
 import { DayField } from "@/shared/DayField";
@@ -182,6 +183,21 @@ export function FilterBar({
 			),
 		),
 	];
+	// The accounts the money went through, from every book in view; one shared by two books is one choice.
+	const bankLists = useQueries({
+		queries: books.map((book) => ({
+			queryKey: getBanksListForBookQueryKey(book.id),
+			queryFn: () => banksListForBook(book.id),
+		})),
+	});
+	const bankSeen = new Set<string>();
+	const bankOptions = bankLists
+		.flatMap((query) => query.data ?? [])
+		.filter((bank) => {
+			if (bankSeen.has(bank.id)) return false;
+			bankSeen.add(bank.id);
+			return true;
+		});
 	// What is typed is shown at once; what the list asks for follows after a pause.
 	const [typed, setTyped] = useState(value.q);
 	const settled = useDebounced(typed);
@@ -198,7 +214,7 @@ export function FilterBar({
 			value.flows.includes(category.flow as FlowKey),
 	);
 	// Range, kind and sort are always there; categories and a second currency only when there is a choice.
-	const cells = 3 + (currencyOptions.length > 1 ? 1 : 0);
+	const cells = 3 + (currencyOptions.length > 1 ? 1 : 0) + (bankOptions.length > 0 ? 1 : 0);
 	const kindPicked: KindKey = value.flows.length === 1 ? (value.flows[0] as FlowKey) : "all";
 	// Choosing a kind drops the categories that do not belong to it.
 	const pickKind = (kind: KindKey) => {
@@ -363,6 +379,40 @@ export function FilterBar({
 									<span dir="ltr" className="text-xs text-muted">
 										{code}
 									</span>
+								</button>
+							))}
+						</div>
+					</Picker>
+				) : null}
+				{bankOptions.length > 0 ? (
+					<Picker
+						label={t.banks.account}
+						summary={
+							value.banks.length
+								? bankOptions
+										.filter((bank) => value.banks.includes(bank.id))
+										.map((bank) => bank.title)
+										.join("، ")
+								: t.common.all
+						}
+						active={value.banks.length > 0}
+						title={t.banks.account}
+					>
+						<div className="flex flex-col gap-1">
+							{bankOptions.map((bank) => (
+								<button
+									key={bank.id}
+									type="button"
+									aria-pressed={value.banks.includes(bank.id)}
+									className={row({ on: value.banks.includes(bank.id) })}
+									onClick={() => onChange({ ...value, banks: toggle(value.banks, bank.id) })}
+								>
+									<bdi className="truncate">{bank.title}</bdi>
+									{bank.card_last4 ? (
+										<span dir="ltr" className="text-xs text-muted">
+											{bank.card_last4}
+										</span>
+									) : null}
 								</button>
 							))}
 						</div>

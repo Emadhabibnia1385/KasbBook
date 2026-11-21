@@ -9,11 +9,14 @@ only the second, so nothing here lets one book learn what another did with the s
 from __future__ import annotations
 
 import uuid
-from typing import List
+from datetime import date
+from typing import List, Optional
 
 from fastapi import APIRouter
 
 from ...modules.banks.models import BankAccount
+from ...modules.banks.transfers import TransferRow, TransferService
+from ...modules.ledger.service import LedgerService
 from ...modules.banks.service import (
     UNSET,
     BankService,
@@ -23,6 +26,11 @@ from ...modules.banks.service import (
 )
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
+    BankAssignRequest,
+    BankAssignResponse,
+    BankTransferRequest,
+    BankTransferResponse,
+    BankTransferUpdate,
     BankAccountRequest,
     BankAccountResponse,
     BankAccountUpdate,
@@ -179,3 +187,78 @@ async def unlink(
 ) -> None:
     """Stop using the account in this book; refused once a transaction here used it."""
     await BankService(session).unlink(user.id, book_id, bank_id)
+
+
+@book_router.post("/{book_id}/bank-accounts/{bank_id}/assign", response_model=BankAssignResponse)
+async def assign(
+    book_id: uuid.UUID, bank_id: uuid.UUID, body: BankAssignRequest, user: CurrentUser,
+    session: SessionDep,
+) -> BankAssignResponse:
+    """Put the transactions that name no account on this one, for a book that predates accounts."""
+    moved, left = await LedgerService(session).assign_bank(
+        book_id, user.id, bank_id, since=body.since, until=body.until
+    )
+    return BankAssignResponse(moved=moved, left=left)
+
+
+# ------------------------------------------------------------ transfers
+def _transfer(row: TransferRow) -> BankTransferResponse:
+    t = row.transfer
+    return BankTransferResponse(
+        id=t.id, from_bank_account_id=t.from_bank_account_id, from_title=row.from_title,
+        to_bank_account_id=t.to_bank_account_id, to_title=row.to_title, amount=t.amount,
+        occurred_on=t.occurred_on, note=t.note, created_at=t.created_at,
+    )
+
+
+async def _one_transfer(session, book_id: uuid.UUID, user_id: uuid.UUID, transfer_id: uuid.UUID):
+    from ...shared.errors import NotFound
+
+    for row in await TransferService(session).list(book_id, user_id):
+        if row.transfer.id == transfer_id:
+            return _transfer(row)
+    raise NotFound("این انتقال پیدا نشد.")
+
+
+@book_router.get("/{book_id}/bank-transfers", response_model=List[BankTransferResponse])
+async def list_transfers(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    since: Optional[date] = None, until: Optional[date] = None,
+    bank_account_id: Optional[uuid.UUID] = None,
+) -> List[BankTransferResponse]:
+    """Money moved between this book's accounts, newest first."""
+    rows = await TransferService(session).list(
+        book_id, user.id, since=since, until=until, bank_account_id=bank_account_id
+    )
+    return [_transfer(row) for row in rows]
+
+
+@book_router.post("/{book_id}/bank-transfers", response_model=BankTransferResponse, status_code=201)
+async def create_transfer(
+    book_id: uuid.UUID, body: BankTransferRequest, user: CurrentUser, session: SessionDep
+) -> BankTransferResponse:
+    """Move money from one of the book's accounts to another. Not income and not an expense."""
+    transfer = await TransferService(session).create(
+        book_id, user.id, from_bank_account_id=body.from_bank_account_id,
+        to_bank_account_id=body.to_bank_account_id, amount=body.amount,
+        occurred_on=body.occurred_on, note=body.note,
+    )
+    return await _one_transfer(session, book_id, user.id, transfer.id)
+
+
+@book_router.patch("/{book_id}/bank-transfers/{transfer_id}", response_model=BankTransferResponse)
+async def update_transfer(
+    book_id: uuid.UUID, transfer_id: uuid.UUID, body: BankTransferUpdate, user: CurrentUser,
+    session: SessionDep,
+) -> BankTransferResponse:
+    await TransferService(session).update(
+        book_id, user.id, transfer_id, **body.model_dump(exclude_unset=True)
+    )
+    return await _one_transfer(session, book_id, user.id, transfer_id)
+
+
+@book_router.delete("/{book_id}/bank-transfers/{transfer_id}", status_code=204)
+async def delete_transfer(
+    book_id: uuid.UUID, transfer_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    await TransferService(session).delete(book_id, user.id, transfer_id)

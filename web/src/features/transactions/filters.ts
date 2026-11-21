@@ -24,6 +24,8 @@ export type Filters = {
 	categories: string[];
 	/** The money it was paid in: «only the TON ones». */
 	currencies: string[];
+	/** The bank accounts the money went through (ids). */
+	banks: string[];
 	/** Not a filter: it orders what is shown, so «clear filters» leaves it alone. */
 	sort: SortKey;
 };
@@ -36,6 +38,7 @@ export const NO_FILTERS: Filters = {
 	flows: [],
 	categories: [],
 	currencies: [],
+	banks: [],
 	sort: "newest",
 };
 
@@ -81,7 +84,8 @@ export function activeCount(filters: Filters): number {
 		(filters.range !== "all" ? 1 : 0) +
 		filters.flows.length +
 		filters.categories.length +
-		filters.currencies.length
+		filters.currencies.length +
+		filters.banks.length
 	);
 }
 

@@ -223,6 +223,7 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 			filters.flows.length ||
 			filters.categories.length ||
 			filters.currencies.length ||
+			filters.banks.length ||
 			text.length >= 2,
 	);
 	const query = useTransactionsListAllTransactions(
@@ -233,6 +234,7 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 			category: filters.categories.length ? filters.categories : undefined,
 			q: text.length >= 2 ? text : undefined,
 			currency: filters.currencies.length ? filters.currencies : undefined,
+			bank_account_id: filters.banks.length ? filters.banks : undefined,
 			sort: filters.sort,
 			page,
 			per_page: perPage,

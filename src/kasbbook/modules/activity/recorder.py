@@ -83,6 +83,7 @@ TRACKED: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
     "Membership": ("members", "عضو دفتر", ()),
     "Book": ("books", "دفتر", ("name",)),
     "BankAccountLink": ("banks", "حساب بانکی دفتر", ()),
+    "BankTransfer": ("banks", "انتقال بین حساب‌ها", ()),
     "ApiKey": ("account", "کلید API", ("name", "label")),
 }
 

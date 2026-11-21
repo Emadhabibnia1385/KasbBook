@@ -829,6 +829,62 @@ class LedgerService:
         await self.session.flush()
         return tx
 
+    async def assign_bank(
+        self, book_id: uuid.UUID, actor_user_id: uuid.UUID, bank_account_id: uuid.UUID,
+        since: Optional[date] = None, until: Optional[date] = None,
+    ) -> Tuple[int, int]:
+        """Put the book's transactions that name no account on one, and return (moved, left).
+
+        For a book that was keeping everything in «نقد و بانک» before accounts existed. Each
+        transaction's entry is rebuilt through the one writer, from the old account to the bank's own,
+        so the book stays balanced throughout. Only money in the book's own currency can sit in an
+        account, and a transaction in a closed period is left as it was and counted in `left`.
+        """
+        await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
+        await self.books.require(book_id, actor_user_id, Permission.MANAGE_ACCOUNTS)
+        await self.categories.lock_book(book_id)
+        book = await self.books.get_book(book_id)
+        link = await self.banks.resolve(book_id, bank_account_id, in_base_currency=True)
+        assert link is not None
+        stmt = select(Transaction).where(
+            Transaction.book_id == book_id, Transaction.bank_account_id.is_(None),
+            Transaction.original_currency == book.base_currency,
+        ).with_for_update().execution_options(populate_existing=True)
+        if since is not None:
+            stmt = stmt.where(Transaction.occurred_on >= since)
+        if until is not None:
+            stmt = stmt.where(Transaction.occurred_on <= until)
+        rows = (await self.session.scalars(stmt.order_by(Transaction.occurred_on))).all()
+        await self.ensure_chart_of_accounts(book_id)
+        bank = await self._money_account(book_id, link)
+        other = {Flow.INCOME: await self.account(book_id, INCOME),
+                 Flow.EXPENSE: await self.account(book_id, EXPENSE)}
+        moved = left = 0
+        for tx in rows:
+            try:
+                await self._require_open_date(book_id, tx.occurred_on)
+            except PermissionDenied:
+                left += 1
+                continue
+            entries = (await self.session.scalars(select(JournalEntry).where(
+                JournalEntry.book_id == book_id, JournalEntry.transaction_id == tx.id
+            ))).all()
+            if (len(entries) != 1 or not entries[0].is_balanced
+                    or entries[0].total_debit != tx.converted_amount):
+                raise BalanceError("سند یکی از تراکنش‌ها معتبر نیست؛ اختصاص انجام نشد.")
+            await self.session.delete(entries[0])
+            await self.session.flush()
+            amount = tx.converted_amount
+            lines = ([(bank.id, amount, ZERO), (other[tx.flow].id, ZERO, amount)]
+                     if tx.flow is Flow.INCOME else
+                     [(other[tx.flow].id, amount, ZERO), (bank.id, ZERO, amount)])
+            await self.post_entry(book_id, tx.occurred_on, lines,
+                                  memo=f"{tx.flow.value}: {tx.category}", transaction_id=tx.id)
+            tx.bank_account_id = link.bank_account_id
+            moved += 1
+        await self.session.flush()
+        return moved, left
+
     async def delete(
         self, book_id: uuid.UUID, user_id: uuid.UUID, transaction_id: uuid.UUID
     ) -> None:

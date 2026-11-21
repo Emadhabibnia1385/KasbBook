@@ -441,3 +441,141 @@ async def test_deleting_a_transaction_returns_its_money_to_the_account(api, db):
     assert await total() == 100
     await api.delete(f"{V1}/books/{personal['id']}/transactions/{tx['id']}", headers=headers)
     assert await total() == 10
+
+
+# ------------------------------------------------------------------ transfers
+async def transfer(api, headers, book, source, target, amount, **extra):
+    return await api.post(f"{V1}/books/{book['id']}/bank-transfers", headers=headers, json={
+        "from_bank_account_id": source["id"], "to_bank_account_id": target["id"],
+        "amount": str(amount), "occurred_on": DAY, **extra,
+    })
+
+
+async def totals(api, headers):
+    return {b["id"]: Decimal(b["total_balance"]) for b in (await api.get(f"{V1}/bank-accounts", headers=headers)).json()}
+
+
+async def test_a_transfer_moves_money_between_accounts_without_touching_income_or_expense(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی", opening_balance="1000")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    await record(api, headers, personal, "income", 400, bank_account_id=first["id"])
+
+    reply = await transfer(api, headers, personal, first, second, 300, note="جابه‌جایی")
+    assert reply.status_code == 201, reply.text
+    assert reply.json()["from_title"] == "ملی علی رضایی" and reply.json()["to_title"] == "ملت علی رضایی"
+
+    assert await totals(api, headers) == {first["id"]: 1100, second["id"]: 300}
+    # Neither income nor expense moved, so no report or share could notice.
+    listing = (await api.get(f"{V1}/books/{personal['id']}/transactions", headers=headers)).json()
+    assert Decimal(listing["total_income"]) == 400 and Decimal(listing["total_expense"]) == 0
+    for bank in (first, second):
+        check = (await api.get(f"{V1}/bank-accounts/{bank['id']}/reconciliation", headers=headers)).json()
+        assert check["consistent"] is True
+    assert await balanced(db, personal["id"])
+
+
+async def test_a_transfer_can_be_edited_and_removed(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    made = (await transfer(api, headers, personal, first, second, 100)).json()
+
+    edited = await api.patch(f"{V1}/books/{personal['id']}/bank-transfers/{made['id']}", headers=headers,
+                             json={"amount": "250", "note": "اصلاح"})
+    assert edited.status_code == 200, edited.text
+    assert Decimal(edited.json()["amount"]) == 250 and edited.json()["note"] == "اصلاح"
+    assert await totals(api, headers) == {first["id"]: -250, second["id"]: 250}
+
+    reversed_ = await api.patch(f"{V1}/books/{personal['id']}/bank-transfers/{made['id']}", headers=headers,
+                                json={"from_bank_account_id": second["id"], "to_bank_account_id": first["id"]})
+    assert reversed_.status_code == 200
+    assert await totals(api, headers) == {first["id"]: 250, second["id"]: -250}
+    assert await balanced(db, personal["id"])
+
+    assert (await api.delete(f"{V1}/books/{personal['id']}/bank-transfers/{made['id']}", headers=headers)).status_code == 204
+    assert await totals(api, headers) == {first["id"]: 0, second["id"]: 0}
+    assert (await api.get(f"{V1}/books/{personal['id']}/bank-transfers", headers=headers)).json() == []
+    assert await balanced(db, personal["id"])
+
+
+async def test_a_transfer_between_the_same_account_or_a_foreign_one_is_refused(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    elsewhere = await make_bank(api, headers, [business], bank_name="ملت")
+    assert (await transfer(api, headers, personal, first, first, 10)).status_code == 422
+    # An account that is not linked to this book is not found, whoever owns it.
+    assert (await transfer(api, headers, personal, first, elsewhere, 10)).status_code == 404
+    assert (await transfer(api, headers, personal, first, first, 0)).status_code == 422
+
+
+async def test_an_account_with_a_transfer_is_switched_off_not_removed(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    await transfer(api, headers, personal, first, second, 10)
+    assert (await api.delete(f"{V1}/bank-accounts/{second['id']}", headers=headers)).status_code == 422
+    assert (await api.delete(f"{V1}/books/{personal['id']}/bank-accounts/{second['id']}",
+                             headers=headers)).status_code == 422
+
+
+async def test_only_account_managers_move_money_and_a_member_can_read_them(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    member = bearer(await register(api, email="member@example.com"))
+    await api.post(f"{V1}/books/{personal['id']}/members", headers=headers,
+                   json={"identifier": "member@example.com", "role": "member"})
+    assert (await transfer(api, member, personal, first, second, 5)).status_code == 403
+    await transfer(api, headers, personal, first, second, 5)
+    assert (await api.get(f"{V1}/books/{personal['id']}/bank-transfers", headers=member)).status_code == 200
+
+
+async def test_a_stranger_cannot_reach_a_books_transfers(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    made = (await transfer(api, headers, personal, first, second, 5)).json()
+    stranger = bearer(await register(api, email="stranger2@example.com"))
+    assert (await api.get(f"{V1}/books/{personal['id']}/bank-transfers", headers=stranger)).status_code == 404
+    assert (await transfer(api, stranger, personal, first, second, 5)).status_code == 404
+    assert (await api.delete(f"{V1}/books/{personal['id']}/bank-transfers/{made['id']}",
+                             headers=stranger)).status_code == 404
+
+
+# --------------------------------------------------------------------- assign
+async def test_old_transactions_can_be_put_on_an_account_and_the_books_stay_balanced(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    # Recorded before the book had any account: they sit on «نقد و بانک».
+    await record(api, headers, personal, "income", 300)
+    await record(api, headers, personal, "expense", 80)
+    bank = await make_bank(api, headers, [personal])
+    await record(api, headers, personal, "income", 1000, bank_account_id=None)
+
+    done = await api.post(f"{V1}/books/{personal['id']}/bank-accounts/{bank['id']}/assign",
+                          headers=headers, json={})
+    assert done.status_code == 200, done.text
+    assert done.json() == {"moved": 3, "left": 0}
+    assert (await totals(api, headers))[bank["id"]] == 1220
+    check = (await api.get(f"{V1}/bank-accounts/{bank['id']}/reconciliation", headers=headers)).json()
+    assert check["consistent"] is True
+    assert await balanced(db, personal["id"])
+    # Nothing is left to assign the second time.
+    again = await api.post(f"{V1}/books/{personal['id']}/bank-accounts/{bank['id']}/assign",
+                           headers=headers, json={})
+    assert again.json() == {"moved": 0, "left": 0}
+
+
+async def test_assigning_can_be_limited_to_a_range_and_skips_other_currencies(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    await api.put(f"{V1}/books/{personal['id']}/currencies/USDT", headers=headers, json={"enabled": True})
+    await record(api, headers, personal, "income", 10, currency="USDT", conversion_rate="100000")
+    await record(api, headers, personal, "income", 50, occurred_on="2026-01-02")
+    await record(api, headers, personal, "income", 70, occurred_on="2026-06-02")
+    bank = await make_bank(api, headers, [personal])
+    # Made after the transactions, so the default does not apply to them.
+    done = await api.post(f"{V1}/books/{personal['id']}/bank-accounts/{bank['id']}/assign",
+                          headers=headers, json={"since": "2026-05-01"})
+    assert done.json() == {"moved": 1, "left": 0}
+    assert (await totals(api, headers))[bank["id"]] == 70
+    assert await balanced(db, personal["id"])
