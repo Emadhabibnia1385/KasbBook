@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Paying a loan installment on the web asks which account it comes from**, starting on the book's default, like every other form that moves money.
 - **Every place that moves money can name the account.** Recurring rules keep the account they were made with (the book's default at that moment unless one is chosen) and record each date through it; paying a loan installment, buying or selling an asset, and paying into or being paid by a fund take `bank_account_id` too (left out is the book's default, null is none). The cash of an asset, a fund or a loan's principal now counts in the account's balance and in its reconciliation. An account used by a rule or a movement is switched off, never removed.
 - **Bank accounts in the bot.** *🏦 حساب‌های بانکی* in a book's menu lists the accounts with this book's share and lets you make one the default; a transaction shows its account and has a button to move it to another or to none, and a quick entry says which account it went through.
 - **Transfers between accounts.** Money moved from one of a book's bank accounts to another is recorded as a transfer, not as income or an expense, so no report, budget or member share moves; both balances change, and the books stay balanced. A transfer can be edited or removed; an account that has one is switched off, not deleted. Both accounts must be in the same book (moving money between two books is not this).

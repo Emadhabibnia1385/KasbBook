@@ -1,12 +1,14 @@
 import { BookRequired } from "@/features/books/BookRequired";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import {
 	Button,
 	Collapsible,
 	ConfirmDialog,
 	EmptyState,
 	ErrorState,
+	FormRoot,
 	Modal,
 	PageHeader,
 	PageSkeleton,
@@ -34,6 +36,7 @@ import type {
 	DebtResponse,
 	LoanResponse,
 } from "@/api/generated/model";
+import { BankField } from "@/features/banks/BankField";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
@@ -301,6 +304,8 @@ function Loans({ book }: { book: BookResponse }) {
 	const [addKind, setAddKind] = useState<"loan" | "fund">("loan");
 	const [paying, setPaying] = useState<LoanResponse | null>(null);
 	const [removing, setRemoving] = useState<LoanResponse | null>(null);
+	// The account an installment is paid from: empty until the book's accounts load, then the default.
+	const bankForm = useForm<{ bank_account_id: string }>({ defaultValues: { bank_account_id: "" } });
 	return (
 		<>
 			<Intro>{t.plan.loansIntro}</Intro>
@@ -349,7 +354,14 @@ function Loans({ book }: { book: BookResponse }) {
 									{finished ? (
 										<StatusChip tone="success" label={t.planningForms.allPaid} />
 									) : (
-										<Button size="sm" variant="secondary" onPress={() => setPaying(loan)}>
+										<Button
+											size="sm"
+											variant="secondary"
+											onPress={() => {
+												bankForm.reset({ bank_account_id: "" });
+												setPaying(loan);
+											}}
+										>
 											{t.planningForms.payInstallment}
 										</Button>
 									)}
@@ -405,11 +417,16 @@ function Loans({ book }: { book: BookResponse }) {
 				onConfirm={async () => {
 					if (!paying) return;
 					try {
+						const chosen = bankForm.getValues("bank_account_id");
 						// Sending the count we saw makes a double tap or a retry a refusal, not a second payment.
 						await pay.mutateAsync({
 							bookId: book.id,
 							loanId: paying.id,
-							params: { expected_paid_count: paying.paid_count },
+							params: {
+								expected_paid_count: paying.paid_count,
+								// Empty (accounts not loaded) leaves it to the book's default; «none» is no account.
+								bank_account_id: chosen === "" ? undefined : chosen,
+							},
 						});
 						await Promise.all([
 							queryClient.invalidateQueries({ queryKey: getPlanningListLoansQueryKey(book.id) }),
@@ -421,7 +438,14 @@ function Loans({ book }: { book: BookResponse }) {
 						throw error;
 					}
 				}}
-			/>
+			>
+				{paying ? (
+					// Chosen for this one installment, from the book's own accounts.
+					<FormRoot form={bankForm} onSubmit={() => {}}>
+						<BankField name="bank_account_id" bookId={book.id} />
+					</FormRoot>
+				) : null}
+			</ConfirmDialog>
 			<ConfirmDialog
 				isOpen={removing !== null}
 				onOpenChange={(open) => !open && setRemoving(null)}
