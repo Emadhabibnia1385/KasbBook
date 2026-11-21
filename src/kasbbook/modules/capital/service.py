@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
+from ..banks.service import UNSET
 from ..books.models import Permission
 from ..books.service import BookService
 from ..ledger.models import Flow, JournalEntry, Scope
@@ -121,6 +122,7 @@ class CapitalService:
         note: Optional[str] = None,
         instrument: Optional[str] = None,
         loan_id: Optional[uuid.UUID] = None,
+        bank_account_id=UNSET,
     ) -> Asset:
         """Buy something that is kept.
 
@@ -215,12 +217,13 @@ class CapitalService:
         await post_movement(
             self.session, book_id, user_id, on, "asset_purchase", lines,
             cash_delta=-down, memo=f"خرید دارایی: {asset.name}",
-            asset_id=asset.id, loan_id=asset.loan_id,
+            asset_id=asset.id, loan_id=asset.loan_id, bank_account_id=bank_account_id,
         )
         return asset
 
     async def sell_asset(
-        self, book_id: uuid.UUID, user_id: uuid.UUID, asset_id: uuid.UUID, price, on: date
+        self, book_id: uuid.UUID, user_id: uuid.UUID, asset_id: uuid.UUID, price, on: date,
+        bank_account_id=UNSET,
     ) -> Asset:
         """Sell it. The cost comes back as cash; what it sold above or below its cost is the only
         income or expense in it, and is recorded as one."""
@@ -236,6 +239,7 @@ class CapitalService:
             self.session, book_id, user_id, on, "asset_sale",
             [(CASH, asset.cost, ZERO), (ASSETS, ZERO, asset.cost)],
             cash_delta=asset.cost, memo=f"فروش دارایی: {asset.name}", asset_id=asset.id,
+            bank_account_id=bank_account_id,
         )
         difference = received - asset.cost
         if difference != ZERO:
@@ -245,6 +249,8 @@ class CapitalService:
                 scope=Scope.PERSONAL,
                 category=GAIN_CATEGORY if difference > ZERO else LOSS_CATEGORY,
                 amount=abs(difference), occurred_on=on, description=asset.name,
+                # What it sold for lands in one account: the cost and the gain alike.
+                bank_account_id=bank_account_id,
             )
         asset.sold_on = on
         asset.sold_for = received
@@ -321,7 +327,7 @@ class CapitalService:
 
     async def contribute(
         self, book_id: uuid.UUID, user_id: uuid.UUID, fund_id: uuid.UUID,
-        on: date, amount=None,
+        on: date, amount=None, bank_account_id=UNSET,
     ) -> Fund:
         """Pay one month in. Before the turn it builds the claim on the fund; after it, it pays back
         what was received beyond what had been paid in. Never an expense."""
@@ -336,6 +342,7 @@ class CapitalService:
                 self.session, book_id, user_id, on, "fund_contribution",
                 [(FUNDS, value, ZERO), (CASH, ZERO, value)],
                 cash_delta=-value, memo=f"قسط صندوق: {fund.name}", fund_id=fund.id,
+                bank_account_id=bank_account_id,
             )
             fund.claim = quantize(to_decimal(fund.claim) + value)
         else:
@@ -346,6 +353,7 @@ class CapitalService:
                 self.session, book_id, user_id, on, "fund_repayment",
                 [(LOANS, pay, ZERO), (CASH, ZERO, pay)],
                 cash_delta=-pay, memo=f"بازپرداخت صندوق: {fund.name}", fund_id=fund.id,
+                bank_account_id=bank_account_id,
             )
             fund.owed = quantize(to_decimal(fund.owed) - pay)
         fund.paid_months += 1
@@ -354,7 +362,7 @@ class CapitalService:
 
     async def receive_payout(
         self, book_id: uuid.UUID, user_id: uuid.UUID, fund_id: uuid.UUID,
-        on: date, amount=None,
+        on: date, amount=None, bank_account_id=UNSET,
     ) -> Fund:
         """The turn: the pool is paid out. It settles the claim built so far, and the rest is a debt
         to the fund, paid back through the months still to come. Not income."""
@@ -374,6 +382,7 @@ class CapitalService:
         await post_movement(
             self.session, book_id, user_id, on, "fund_payout", lines,
             cash_delta=value, memo=f"دریافت نوبت صندوق: {fund.name}", fund_id=fund.id,
+            bank_account_id=bank_account_id,
         )
         fund.claim = quantize(to_decimal(fund.claim) - settled)
         fund.owed = quantize(to_decimal(fund.owed) + excess)

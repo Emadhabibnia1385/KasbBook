@@ -17,4 +17,8 @@
 
 export type PlanningPayInstallmentParams = {
 	expected_paid_count?: number | null;
+	/**
+	 * the account the instalment is paid from; `none` for no account; left out, the book's default
+	 */
+	bank_account_id?: string | null;
 };

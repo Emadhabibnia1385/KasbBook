@@ -582,6 +582,18 @@
             "title": "Acquired On",
             "type": "string"
           },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "cost": {
             "anyOf": [
               {
@@ -854,6 +866,18 @@
       },
       "AssetSaleRequest": {
         "properties": {
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "price": {
             "anyOf": [
               {
@@ -2656,6 +2680,18 @@
               }
             ],
             "title": "Amount"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
           },
           "on": {
             "format": "date",
@@ -6283,6 +6319,18 @@
             ],
             "title": "Amount"
           },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "category": {
             "maxLength": 80,
             "minLength": 1,
@@ -6341,6 +6389,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Amount",
             "type": "string"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
           },
           "category": {
             "title": "Category",
@@ -6426,6 +6486,18 @@
               }
             ],
             "title": "Amount"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
           },
           "description": {
             "anyOf": [
@@ -16392,6 +16464,24 @@
                 }
               ],
               "title": "Expected Paid Count"
+            }
+          },
+          {
+            "description": "the account the instalment is paid from; `none` for no account; left out, the book's default",
+            "in": "query",
+            "name": "bank_account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the account the instalment is paid from; `none` for no account; left out, the book's default",
+              "title": "Bank Account Id"
             }
           },
           {

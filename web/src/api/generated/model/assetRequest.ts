@@ -17,6 +17,7 @@
 
 export interface AssetRequest {
 	acquired_on: string;
+	bank_account_id?: string | null;
 	cost: number | string;
 	down_payment?: number | string | null;
 	installment_amount?: number | string | null;

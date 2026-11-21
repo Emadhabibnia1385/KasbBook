@@ -198,6 +198,7 @@ from .transactions import (
     pick_currency,
     ask_rate,
 )
+from .banks import bank_changed, bank_code, bank_home, pick_for_transaction
 from .wallet import (
     currency_home,
     currency_settings,
@@ -214,6 +215,10 @@ from .wallet import (
 
 __all__ = [
     "Button",
+    "bank_changed",
+    "bank_home",
+    "pick_for_transaction",
+    "bank_code",
     "PROVIDER_LABELS",
     "not_linked",
     "merge_confirm",

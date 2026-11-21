@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..modules.activity import recorder as activity
 from ..modules.activity.models import VIA_API, VIA_WEB
+from ..modules.banks.service import UNSET
 from ..modules.identity.auth import AuthError, AuthService
 from ..modules.identity.models import User
 from ..shared.database import Database
@@ -165,3 +166,10 @@ def client_fingerprint(request: Request) -> str:
         if hops:
             return hops[-1]
     return request.client.host if request.client else "unknown"
+
+
+def bank_choice(body) -> object:
+    """The bank account a request asked for: left out, `UNSET` (the service picks the book's default);
+    an explicit null, `None` (no account); otherwise the id. One reading, shared by every route that
+    records money, so none of them can mean something different by the same field."""
+    return body.bank_account_id if "bank_account_id" in body.model_fields_set else UNSET

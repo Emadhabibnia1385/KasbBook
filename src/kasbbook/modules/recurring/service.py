@@ -15,6 +15,7 @@ from ...shared.calendars import Calendar
 from ...shared.errors import BalanceError, NotFound, PermissionDenied, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
 from ...shared.security import utcnow
+from ..banks.service import UNSET
 from ..books.models import Book, BookType, Permission
 from ..books.service import BookService
 from ..ledger.models import Flow, Scope, Transaction
@@ -60,6 +61,7 @@ class RecurringService:
         description: Optional[str] = None,
         mode: Mode = Mode.AUTO,
         first_booked: bool = False,
+        bank_account_id=UNSET,
     ) -> RecurringRule:
         """Define a rule.
 
@@ -84,6 +86,9 @@ class RecurringService:
         first = (
             next_run_after(period, starts_on, calendars.of(book)) if first_booked else starts_on
         )
+        # The account is settled now and kept on the rule: left out it is the book's default at this
+        # moment, so changing the default later does not quietly move an old rule.
+        link = await self.ledger.banks.resolve(book_id, bank_account_id, in_base_currency=True)
         rule = RecurringRule(
             book_id=book_id,
             created_by_user_id=user_id,
@@ -91,6 +96,7 @@ class RecurringService:
             category=category[:80],
             amount=value,
             description=description,
+            bank_account_id=link.bank_account_id if link else None,
             period=period,
             next_run_on=first,
             mode=mode,
@@ -162,6 +168,7 @@ class RecurringService:
         mode: Optional[Mode] = None,
         amount=None,
         description: Optional[str] = None,
+        bank_account_id=UNSET,
     ) -> RecurringRule:
         """Change how a rule behaves or what it records from now on; what it already recorded stays."""
         rule = await self._owned(book_id, rule_id)
@@ -175,6 +182,9 @@ class RecurringService:
             rule.amount = value
         if description is not None:
             rule.description = description.strip() or None
+        if bank_account_id is not UNSET:
+            link = await self.ledger.banks.resolve(book_id, bank_account_id, in_base_currency=True)
+            rule.bank_account_id = link.bank_account_id if link else None
         await self.session.flush()
         return rule
 
@@ -249,6 +259,7 @@ class RecurringService:
             amount=value,
             description=rule.description,
             occurred_on=occurrence.due_on,
+            bank_account_id=rule.bank_account_id,
         )
         occurrence.status = OccurrenceStatus.CONFIRMED
         occurrence.transaction_id = transaction.id
@@ -340,6 +351,7 @@ class RecurringService:
                         amount=rule.amount,
                         description=rule.description,
                         occurred_on=when,
+                        bank_account_id=rule.bank_account_id,
                     )
                 except PermissionDenied:
                     # The author's permission was just confirmed, so this is

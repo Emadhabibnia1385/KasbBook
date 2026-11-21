@@ -137,6 +137,11 @@ balanced journal entry, never a transaction, so it cannot move income, expense
 or anyone's share. The reconciliation counts transfers on the transactions side
 too.
 
+Everything that moves cash can name the account: a transaction, a transfer,
+a recurring rule (which keeps the account it was made with), a loan installment,
+and an asset, fund or loan-principal movement. Left out, the book's default is
+used; an explicit null means no account.
+
 Only the owner sees the whole balance and what each book did; a member of one
 book sees that book's share and the last four digits of the card. An account
 used in a book cannot be unlinked from it or deleted — it is switched off.

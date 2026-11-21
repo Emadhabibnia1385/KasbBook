@@ -377,7 +377,7 @@ def ask_amount(category: str, currency: str | None = None, problem: Optional[str
 def transaction_saved(
     book: Book, flow: Flow, category: str, amount: Decimal, currency: str,
     on: Optional[date] = None, note: Optional[str] = None, *,
-    inferred: bool = False, undo_id: str = "", nonce: str = "",
+    inferred: bool = False, undo_id: str = "", nonce: str = "", bank_title: str = "",
 ) -> Screen:
     """What was recorded, said back in full so a wrong reading is seen at once.
 
@@ -392,6 +392,8 @@ def transaction_saved(
     facts = [category, f"دفتر {book.name}"]
     if on is not None:
         facts.append(jalali.to_text(on))
+    if bank_title:
+        facts.append(f"حساب {bank_title}")
     lines = [f"✅ {word} {fmt(amount, currency)} ثبت شد", " · ".join(facts)]
     if note:
         lines.append(note)
@@ -554,7 +556,9 @@ def _receipt_line(tx) -> str:
     return f"{label} — {tx.receipt_file_name}" if tx.receipt_file_name else label
 
 
-def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Screen:
+def transaction_detail(
+    book: Book, tx, origin: str = "", activity=None, bank_title: str = ""
+) -> Screen:
     """One transaction, and a way back to wherever it was opened from.
 
     `origin` is "a" when it came from the all-books daily list and "b" when it
@@ -578,6 +582,8 @@ def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Scree
     if tx.original_currency != book.base_currency:
         lines.append(f"مبلغ اصلی: {fmt(tx.original_amount, tx.original_currency)}"
                      f" (نرخ {tx.conversion_rate})")
+    if bank_title:
+        lines.append(f"حساب بانکی: {bank_title}")
     if tx.description:
         lines.append(f"توضیح: {tx.description}")
     if tx.receipt_file_id:
@@ -599,6 +605,9 @@ def transaction_detail(book: Book, tx, origin: str = "", activity=None) -> Scree
         Button("✏️ توضیحات", data=f"td:ed:{tx.id}{tail}"),
         Button("✏️ تاریخ", data=f"td:eo:{tx.id}{tail}"),
     ])
+    # Offered only where the transaction can sit in an account at all: money in the book's own currency.
+    if tx.original_currency == book.base_currency:
+        buttons.append([Button("🏦 حساب بانکی", data=f"ba:pk:{tx.id}{tail}")])
     if tx.receipt_file_id:
         buttons.append([
             Button("🧾 دیدن رسید", data=f"td:rcpv:{tx.id}{tail}"),

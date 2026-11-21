@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
+from ...modules.banks.service import UNSET
 from ...modules.budgets.models import BudgetKind
 from ...modules.budgets.service import BudgetService
 from ...modules.debts.models import Direction
@@ -155,6 +156,10 @@ async def create_loan(
 async def pay_installment(
     book_id: uuid.UUID, loan_id: uuid.UUID, user: CurrentUser, session: SessionDep,
     expected_paid_count: Optional[int] = Query(default=None, ge=0),
+    bank_account_id: Optional[str] = Query(
+        default=None,
+        description="the account the instalment is paid from; `none` for no account; left out, the book's default",
+    ),
 ) -> LoanResponse:
     """Record one instalment. It books an expense as well as advancing the loan.
 
@@ -163,8 +168,17 @@ async def pay_installment(
     """
     loans = LoanService(session)
     loan = await loans.get(book_id, user.id, loan_id)
+    if bank_account_id is None:
+        bank = UNSET
+    elif bank_account_id == "none":
+        bank = None
+    else:
+        try:
+            bank = uuid.UUID(bank_account_id)
+        except ValueError:
+            raise ValidationError("bank_account_id must be an account id or none") from None
     await loans.record_payment(book_id, user.id, loan_id,
-                               expected_paid_count=expected_paid_count)
+                               expected_paid_count=expected_paid_count, bank_account_id=bank)
     return _loan(await loans.progress(book_id, user.id, loan))
 
 

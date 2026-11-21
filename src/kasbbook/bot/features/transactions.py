@@ -393,7 +393,8 @@ class TransactionsFeature(Feature):
 
     async def _transaction_screen(self, book, tx, user, origin=""):
         activity = (await self.ctx.ledger.activities(user.id, [tx]))[tx.id]
-        text, buttons = screens.transaction_detail(book, tx, origin, activity)
+        title = (await self.ctx.ledger.banks.titles([tx.bank_account_id])).get(tx.bank_account_id, "")
+        text, buttons = screens.transaction_detail(book, tx, origin, activity, title)
         if tx.receipt_file_id:
             if tx.receipt_provider == self.ctx.provider.value:
                 self.ctx.forward_file_id, self.ctx.forward_file_kind = tx.receipt_file_id, tx.receipt_kind
@@ -682,6 +683,8 @@ class TransactionsFeature(Feature):
             transaction.converted_amount, book.base_currency,
             transaction.occurred_on, transaction.description,
             inferred=inferred, undo_id=undo_id, nonce=nonce,
+            bank_title=(await self.ctx.ledger.banks.titles([transaction.bank_account_id]))
+            .get(transaction.bank_account_id, ""),
         )
 
     async def _quick_undo(self, transaction_id: str, nonce: str, user, key: str):

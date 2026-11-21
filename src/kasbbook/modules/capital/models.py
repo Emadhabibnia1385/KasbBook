@@ -15,7 +15,7 @@ from datetime import date
 from typing import Optional
 
 import sqlalchemy as sa
-from sqlalchemy import Date, Enum, ForeignKey, Index, Integer, String, Text, Uuid
+from sqlalchemy import Date, Enum, ForeignKey, ForeignKeyConstraint, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...shared.database import Base, Timestamped, UUIDPrimaryKey
@@ -98,7 +98,15 @@ class CapitalMovement(UUIDPrimaryKey, Timestamped, Base):
     """One posting of such money: which journal entry it wrote and how much cash it moved."""
 
     __tablename__ = "capital_movements"
-    __table_args__ = (Index("ix_capital_book_date", "book_id", "occurred_on"),)
+    __table_args__ = (
+        Index("ix_capital_book_date", "book_id", "occurred_on"),
+        # The account must be one this very book is linked to; empty means «نقد و بانک».
+        ForeignKeyConstraint(
+            ["book_id", "bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_capital_bank_book", deferrable=True, initially="DEFERRED",
+        ),
+    )
 
     book_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
@@ -106,6 +114,8 @@ class CapitalMovement(UUIDPrimaryKey, Timestamped, Base):
     actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # The bank account the cash of this movement went through, when it moved any.
+    bank_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
     kind: Mapped[str] = mapped_column(String(24), nullable=False)
     amount: Mapped[Money] = mapped_column(Money, nullable=False)

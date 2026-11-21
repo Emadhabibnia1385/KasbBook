@@ -17,5 +17,6 @@
 
 export interface CircleMovementRequest {
 	amount?: number | string | null;
+	bank_account_id?: string | null;
 	on: string;
 }

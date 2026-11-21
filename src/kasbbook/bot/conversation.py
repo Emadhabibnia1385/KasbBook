@@ -27,6 +27,7 @@ from ..shared.errors import AlreadyLinked, InvalidLinkToken, KasbBookError, Vali
 from . import screens
 from .features.base import CANCEL_WORDS, Context, index
 from .features.account import AccountFeature
+from .features.banks import BanksFeature
 from .features.books import BooksFeature
 from .features.payroll import PayrollFeature
 from .features.planning import PlanningFeature
@@ -41,6 +42,7 @@ from .state import StateStore, conversation_key
 # unlucky button press.
 FEATURES: tuple = (
     AccountFeature,
+    BanksFeature,
     BooksFeature,
     PayrollFeature,
     PlanningFeature,

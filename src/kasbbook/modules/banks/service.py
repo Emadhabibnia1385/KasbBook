@@ -30,7 +30,9 @@ from ...shared.money import ZERO, quantize
 from ...shared.parsing import to_ascii_digits
 from ..books.models import Book, Permission
 from ..books.service import BookService
+from ..capital.models import CapitalMovement
 from ..ledger.models import Account, AccountType, Flow, JournalLine, Transaction
+from ..recurring.models import RecurringRule
 from .models import BankAccount, BankAccountLink, BankTransfer
 
 # "Not given" is not the same as "given as nothing": an edit that leaves a field out keeps it, and one
@@ -275,6 +277,12 @@ class BankService:
             .where((BankTransfer.from_bank_account_id == bank_id) | (BankTransfer.to_bank_account_id == bank_id))
         )).all():
             spent[book_id] = spent.get(book_id, ZERO) + (amount if to_id == bank_id else -amount)
+        # Cash that moved with an asset, a fund or a loan's principal: none of it is a transaction.
+        for book_id, delta in (await self.session.execute(
+            select(CapitalMovement.book_id, CapitalMovement.cash_delta)
+            .where(CapitalMovement.bank_account_id == bank_id)
+        )).all():
+            spent[book_id] = spent.get(book_id, ZERO) + delta
         shares = [
             ShareCheck(s.book_id, s.book_name, s.balance, spent.pop(s.book_id, ZERO))
             for s in summary.shares
@@ -472,10 +480,17 @@ class BankService:
         moved = select(BankTransfer.id).where(
             (BankTransfer.from_bank_account_id == bank_id) | (BankTransfer.to_bank_account_id == bank_id)
         )
+        capital = select(CapitalMovement.id).where(CapitalMovement.bank_account_id == bank_id)
+        rules = select(RecurringRule.id).where(RecurringRule.bank_account_id == bank_id)
         if book_id is not None:
             tx = tx.where(Transaction.book_id == book_id)
             moved = moved.where(BankTransfer.book_id == book_id)
-        return bool(await self.session.scalar(tx.limit(1)) or await self.session.scalar(moved.limit(1)))
+            capital = capital.where(CapitalMovement.book_id == book_id)
+            rules = rules.where(RecurringRule.book_id == book_id)
+        for query in (tx, moved, capital, rules):
+            if await self.session.scalar(query.limit(1)):
+                return True
+        return False
 
     async def _link(self, book_id: uuid.UUID, bank_id: uuid.UUID) -> BankAccountLink:
         link = await self.session.scalar(select(BankAccountLink).where(

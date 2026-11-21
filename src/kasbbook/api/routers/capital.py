@@ -15,7 +15,7 @@ from fastapi import APIRouter
 from ...modules.capital.models import AssetKind
 from ...modules.capital.service import CapitalService
 from ...shared.errors import ValidationError
-from ..deps import CurrentUser, SessionDep
+from ..deps import CurrentUser, SessionDep, bank_choice
 from ..schemas import (
     AssetRequest,
     AssetResponse,
@@ -81,7 +81,7 @@ async def buy_asset(
         down_payment=body.down_payment, installment_amount=body.installment_amount,
         installment_count=body.installment_count, loan_starts_on=body.loan_starts_on,
         quantity=body.quantity, unit=body.unit, note=body.note,
-        instrument=body.instrument, loan_id=body.loan_id,
+        instrument=body.instrument, loan_id=body.loan_id, bank_account_id=bank_choice(body),
     )
     return _asset(asset)
 
@@ -93,7 +93,7 @@ async def sell_asset(
 ) -> AssetResponse:
     """Sell it: the cost returns as cash, and the gain or loss is recorded as income or an expense."""
     return _asset(await CapitalService(session).sell_asset(
-        book_id, user.id, asset_id, body.price, body.sold_on))
+        book_id, user.id, asset_id, body.price, body.sold_on, bank_account_id=bank_choice(body)))
 
 
 @router.delete("/assets/{asset_id}", status_code=204)
@@ -128,7 +128,7 @@ async def contribute(
 ) -> CircleResponse:
     """Pay one month into the fund (or, after the turn, back what was received beyond what was paid)."""
     return _fund(await CapitalService(session).contribute(
-        book_id, user.id, fund_id, body.on, body.amount))
+        book_id, user.id, fund_id, body.on, body.amount, bank_account_id=bank_choice(body)))
 
 
 @router.post("/funds/{fund_id}/receive", response_model=CircleResponse)
@@ -138,7 +138,7 @@ async def receive_payout(
 ) -> CircleResponse:
     """The turn comes: the pool is paid out. Not income."""
     return _fund(await CapitalService(session).receive_payout(
-        book_id, user.id, fund_id, body.on, body.amount))
+        book_id, user.id, fund_id, body.on, body.amount, bank_account_id=bank_choice(body)))
 
 
 @router.delete("/funds/{fund_id}", status_code=204)

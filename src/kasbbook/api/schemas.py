@@ -513,12 +513,17 @@ class RecurringRequest(MoneyModel):
     mode: str = "ask"
     # True when the person has just recorded the first date by hand, so the schedule begins after it.
     first_booked: bool = False
+    # The account each date is recorded through: left out is the book's default at this moment, null is
+    # none. Kept on the rule, so a later change of default does not move it.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class RecurringUpdate(MoneyModel):
     mode: Optional[str] = None
     amount: Optional[Decimal] = Field(default=None, gt=0)
     description: Optional[str] = Field(default=None, max_length=500)
+    # Another of the book's accounts, or null for none; left out, it stays.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class ConfirmOccurrence(MoneyModel):
@@ -550,6 +555,7 @@ class RecurringResponse(MoneyModel):
     last_run_on: Optional[date] = None
     is_active: bool
     mode: str = "auto"
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 # -------------------------------------------------------------- reports
@@ -906,6 +912,8 @@ class AssetRequest(MoneyModel):
     loan_id: Optional[uuid.UUID] = None
     # What it is, when the market prices it (`gold18`, `EMAMI`, `TRX`…): then it is valued at today's price.
     instrument: Optional[str] = Field(default=None, max_length=16)
+    # The account the cash paid now came out of: left out is the book's default, null is none.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class AssetResponse(MoneyModel):
@@ -926,6 +934,8 @@ class AssetResponse(MoneyModel):
 class AssetSaleRequest(MoneyModel):
     price: Decimal = Field(gt=0)
     sold_on: date
+    # The account the money arrived in: left out is the book's default, null is none.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class CircleRequest(MoneyModel):
@@ -956,6 +966,8 @@ class CircleMovementRequest(MoneyModel):
     on: date
     # Left out, the fund's own monthly amount (or, for the turn, its payout).
     amount: Optional[Decimal] = Field(default=None, gt=0)
+    # The account the money moved through: left out is the book's default, null is none.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class CapitalOverviewResponse(MoneyModel):

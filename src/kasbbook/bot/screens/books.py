@@ -118,6 +118,7 @@ def book_menu(book: Book) -> Screen:
         Button("💳 وام و اقساط", data=f"ln:list:{book.id}"),
         Button("🔁 تراکنش تکرارشونده", data=f"rr:list:{book.id}"),
         Button("👛 کیف پول و ارزها", data=f"cu:home:{book.id}"),
+        Button("🏦 حساب‌های بانکی", data=f"ba:home:{book.id}"),
     ]
     # Only where there is more than one person to pay. On a personal book the
     # whole idea is noise, so it is not offered.

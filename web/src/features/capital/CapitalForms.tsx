@@ -12,6 +12,8 @@ import {
 } from "@/api/generated/capital/capital";
 import type { BookResponse, CircleResponse } from "@/api/generated/model";
 import { pickedDay, todayPicker } from "@/shared/dates";
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { DayField } from "@/shared/DayField";
 import { formatMoney, toAscii } from "@/shared/format";
 import { reportFailure } from "@/shared/mutations";
@@ -56,6 +58,8 @@ const buySchema = z.object({
 	installment: z.string(),
 	installment_count: z.string(),
 	loan_starts_on: z.string(),
+	// The account the cash paid now comes out of: empty until the book's accounts load.
+	bank_account_id: z.string(),
 });
 type BuyValues = z.input<typeof buySchema>;
 
@@ -77,6 +81,7 @@ export function BuyAssetForm({ book, onDone }: { book: BookResponse; onDone: () 
 			installment: "",
 			installment_count: "",
 			loan_starts_on: todayPicker(),
+			bank_account_id: "",
 		},
 	});
 	const loan = useWatch({ control: form.control, name: "loan" });
@@ -114,6 +119,7 @@ export function BuyAssetForm({ book, onDone }: { book: BookResponse; onDone: () 
 							acquired_on: pickedDay(values.acquired_on),
 							quantity: values.quantity ? values.quantity : null,
 							unit: values.unit || null,
+							bank_account_id: bankValue(values.bank_account_id),
 							...(values.loan
 								? {
 										down_payment: values.down ? values.down : null,
@@ -133,6 +139,7 @@ export function BuyAssetForm({ book, onDone }: { book: BookResponse; onDone: () 
 			}}
 		>
 			<TextField name="name" label={t.capital.name} isRequired />
+			<BankField name="bank_account_id" bookId={book.id} />
 			<SelectField name="kind" label={t.capital.kind} options={KINDS} />
 			<TextField name="cost" label={t.capital.cost} inputMode="decimal" dir="ltr" isRequired />
 			<DayField name="acquired_on" label={t.capital.date} isRequired />
@@ -179,7 +186,11 @@ export function BuyAssetForm({ book, onDone }: { book: BookResponse; onDone: () 
 }
 
 // --------------------------------------------------------------- selling
-const sellSchema = z.object({ price: amount, sold_on: z.string().min(1) });
+const sellSchema = z.object({
+	price: amount,
+	sold_on: z.string().min(1),
+	bank_account_id: z.string(),
+});
 type SellValues = z.input<typeof sellSchema>;
 
 export function SellAssetForm({
@@ -195,7 +206,11 @@ export function SellAssetForm({
 	const sell = useCapitalSellAsset();
 	const form = useForm<SellValues>({
 		resolver: zodResolver(sellSchema),
-		defaultValues: { price: String(Number(asset.cost)), sold_on: todayPicker() },
+		defaultValues: {
+			price: String(Number(asset.cost)),
+			sold_on: todayPicker(),
+			bank_account_id: "",
+		},
 	});
 	return (
 		<FormRoot
@@ -207,7 +222,11 @@ export function SellAssetForm({
 					await sell.mutateAsync({
 						bookId: book.id,
 						assetId: asset.id,
-						data: { price: values.price, sold_on: pickedDay(values.sold_on) },
+						data: {
+							price: values.price,
+							sold_on: pickedDay(values.sold_on),
+							bank_account_id: bankValue(values.bank_account_id),
+						},
 					});
 					await refresh(queryClient, book.id);
 					toast.success(t.capital.sellDone);
@@ -226,6 +245,7 @@ export function SellAssetForm({
 				isRequired
 			/>
 			<DayField name="sold_on" label={t.capital.sellDate} isRequired />
+			<BankField name="bank_account_id" bookId={book.id} />
 			<SubmitButton>{t.capital.sell}</SubmitButton>
 		</FormRoot>
 	);
@@ -322,7 +342,11 @@ export function FundForm({ book, onDone }: { book: BookResponse; onDone: () => v
 }
 
 // ------------------------------------------------- paying in, being paid
-const moveSchema = z.object({ on: z.string().min(1), amount: optionalAmount });
+const moveSchema = z.object({
+	on: z.string().min(1),
+	amount: optionalAmount,
+	bank_account_id: z.string(),
+});
 type MoveValues = z.input<typeof moveSchema>;
 
 /** One month into the fund, or the turn out of it: the day, and an amount only when it differs from the fund's own. */
@@ -342,7 +366,7 @@ export function FundMoveForm({
 	const receive = useCapitalReceivePayout();
 	const form = useForm<MoveValues>({
 		resolver: zodResolver(moveSchema),
-		defaultValues: { on: todayPicker(), amount: "" },
+		defaultValues: { on: todayPicker(), amount: "", bank_account_id: "" },
 	});
 	return (
 		<FormRoot
@@ -350,7 +374,11 @@ export function FundMoveForm({
 			className="flex flex-col gap-4"
 			onSubmit={async (raw) => {
 				const values = moveSchema.parse(raw);
-				const data = { on: pickedDay(values.on), amount: values.amount ? values.amount : null };
+				const data = {
+					on: pickedDay(values.on),
+					amount: values.amount ? values.amount : null,
+					bank_account_id: bankValue(values.bank_account_id),
+				};
 				try {
 					if (mode === "pay") {
 						await contribute.mutateAsync({ bookId: book.id, fundId: fund.id, data });
@@ -379,6 +407,7 @@ export function FundMoveForm({
 				inputMode="decimal"
 				dir="ltr"
 			/>
+			<BankField name="bank_account_id" bookId={book.id} />
 			<SubmitButton>{mode === "pay" ? t.capital.payMonth : t.capital.receive}</SubmitButton>
 		</FormRoot>
 	);

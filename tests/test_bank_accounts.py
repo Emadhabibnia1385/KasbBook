@@ -579,3 +579,124 @@ async def test_assigning_can_be_limited_to_a_range_and_skips_other_currencies(ap
     assert done.json() == {"moved": 1, "left": 0}
     assert (await totals(api, headers))[bank["id"]] == 70
     assert await balanced(db, personal["id"])
+
+
+# ------------------------------------------- the other things that move money
+async def everything_agrees(api, db, headers, books):
+    for bank in (await api.get(f"{V1}/bank-accounts", headers=headers)).json():
+        check = (await api.get(f"{V1}/bank-accounts/{bank['id']}/reconciliation", headers=headers)).json()
+        assert check["consistent"] is True, check
+    for book in books:
+        assert await balanced(db, book["id"])
+
+
+async def test_a_recurring_rule_keeps_the_account_it_was_made_with(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    made = await api.post(f"{V1}/books/{personal['id']}/recurring", headers=headers, json={
+        "flow": "expense", "category": "اجاره", "amount": "100", "period": "monthly",
+        "starts_on": DAY, "mode": "ask", "bank_account_id": second["id"]})
+    assert made.status_code == 201, made.text
+    assert made.json()["bank_account_id"] == second["id"]
+
+    # Changing the book's default later does not move a rule that was made earlier.
+    await api.patch(f"{V1}/books/{personal['id']}/bank-accounts/{second['id']}", headers=headers,
+                    json={"is_default": True})
+    pending = (await api.get(f"{V1}/books/{personal['id']}/recurring/pending", headers=headers)).json()
+    assert pending == []  # nothing due yet: the job has not run
+
+    left_out = await api.post(f"{V1}/books/{personal['id']}/recurring", headers=headers, json={
+        "flow": "expense", "category": "برق", "amount": "50", "period": "monthly",
+        "starts_on": DAY, "mode": "ask"})
+    assert left_out.json()["bank_account_id"] == second["id"]  # the default at that moment
+    none = await api.post(f"{V1}/books/{personal['id']}/recurring", headers=headers, json={
+        "flow": "expense", "category": "آب", "amount": "20", "period": "monthly",
+        "starts_on": DAY, "mode": "ask", "bank_account_id": None})
+    assert none.json()["bank_account_id"] is None
+
+    changed = await api.patch(f"{V1}/books/{personal['id']}/recurring/{made.json()['id']}",
+                              headers=headers, json={"bank_account_id": first["id"]})
+    assert changed.json()["bank_account_id"] == first["id"]
+    # An account used by a rule is switched off, not unlinked.
+    assert (await api.delete(f"{V1}/books/{personal['id']}/bank-accounts/{first['id']}",
+                             headers=headers)).status_code == 422
+
+
+async def test_a_confirmed_recurring_date_goes_through_the_rules_account(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    rule = (await api.post(f"{V1}/books/{personal['id']}/recurring", headers=headers, json={
+        "flow": "expense", "category": "اجاره", "amount": "100", "period": "monthly",
+        "starts_on": "2020-01-01", "mode": "ask"})).json()
+    async for session in db.session():
+        from kasbbook.modules.recurring.service import RecurringService
+        await RecurringService(session).run_due()
+        await session.commit()
+    pending = (await api.get(f"{V1}/books/{personal['id']}/recurring/pending", headers=headers)).json()
+    assert pending and rule["bank_account_id"] == bank["id"]
+    await api.post(f"{V1}/books/{personal['id']}/recurring/occurrences/{pending[0]['id']}/confirm",
+                   headers=headers, json={})
+    listing = (await api.get(f"{V1}/books/{personal['id']}/transactions", headers=headers)).json()["items"]
+    assert listing and all(row["bank_account_id"] == bank["id"] for row in listing)
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_a_loan_installment_is_paid_from_the_chosen_account(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی")
+    second = await make_bank(api, headers, [personal], bank_name="ملت")
+    loan = (await api.post(f"{V1}/books/{personal['id']}/loans", headers=headers, json={
+        "title": "وام", "installment_amount": "100", "installment_count": 4, "starts_on": DAY})).json()
+
+    await api.post(f"{V1}/books/{personal['id']}/loans/{loan['id']}/pay", headers=headers,
+                   params={"bank_account_id": second["id"]})
+    await api.post(f"{V1}/books/{personal['id']}/loans/{loan['id']}/pay", headers=headers)
+    await api.post(f"{V1}/books/{personal['id']}/loans/{loan['id']}/pay", headers=headers,
+                   params={"bank_account_id": "none"})
+    by_id = await totals(api, headers)
+    assert by_id[second["id"]] == -100 and by_id[first["id"]] == -100  # the default is the first account
+    bad = await api.post(f"{V1}/books/{personal['id']}/loans/{loan['id']}/pay", headers=headers,
+                         params={"bank_account_id": "not-an-id"})
+    assert bad.status_code == 422
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_assets_and_funds_move_cash_through_an_account_and_still_agree(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal], opening_balance="10000")
+    other = await make_bank(api, headers, [personal], bank_name="ملت")
+
+    asset = (await api.post(f"{V1}/books/{personal['id']}/capital/assets", headers=headers, json={
+        "name": "طلا", "kind": "gold", "cost": "3000", "acquired_on": DAY})).json()
+    assert (await totals(api, headers))[bank["id"]] == 7000
+
+    sold = await api.post(f"{V1}/books/{personal['id']}/capital/assets/{asset['id']}/sell", headers=headers,
+                          json={"price": "3500", "sold_on": DAY, "bank_account_id": other["id"]})
+    assert sold.status_code == 200, sold.text
+    # The cost and the gain both arrive in the account chosen for the sale.
+    assert (await totals(api, headers))[other["id"]] == 3500
+
+    fund = (await api.post(f"{V1}/books/{personal['id']}/capital/funds", headers=headers, json={
+        "name": "صندوق", "monthly_amount": "200", "months": 3, "payout_amount": "600",
+        "starts_on": DAY})).json()
+    await api.post(f"{V1}/books/{personal['id']}/capital/funds/{fund['id']}/contribute", headers=headers,
+                   json={"on": DAY})
+    await api.post(f"{V1}/books/{personal['id']}/capital/funds/{fund['id']}/receive", headers=headers,
+                   json={"on": DAY, "bank_account_id": other["id"]})
+    after = await totals(api, headers)
+    assert after[bank["id"]] == 6800 and after[other["id"]] == 4100
+    await everything_agrees(api, db, headers, [personal])
+    # Used by a movement: switched off, never removed.
+    assert (await api.delete(f"{V1}/bank-accounts/{other['id']}", headers=headers)).status_code == 422
+
+
+async def test_a_purchase_paid_wholly_on_a_loan_touches_no_account(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal], opening_balance="500")
+    bought = await api.post(f"{V1}/books/{personal['id']}/capital/assets", headers=headers, json={
+        "name": "ماشین", "kind": "other", "cost": "1000", "acquired_on": DAY,
+        "installment_amount": "100", "installment_count": 10, "down_payment": "0"})
+    assert bought.status_code == 201, bought.text
+    assert (await totals(api, headers))[bank["id"]] == 500
+    await everything_agrees(api, db, headers, [personal])

@@ -17,6 +17,7 @@
 
 export interface RecurringUpdate {
 	amount?: number | string | null;
+	bank_account_id?: string | null;
 	description?: string | null;
 	mode?: string | null;
 }

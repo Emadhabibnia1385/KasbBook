@@ -18,6 +18,7 @@
 export interface RecurringResponse {
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	amount: string;
+	bank_account_id?: string | null;
 	category: string;
 	description?: string | null;
 	flow: string;

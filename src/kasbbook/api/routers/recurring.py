@@ -16,7 +16,7 @@ from ...modules.ledger.models import Flow
 from ...modules.recurring.models import Mode, Period
 from ...modules.recurring.service import RecurringService
 from ...shared.errors import ValidationError
-from ..deps import CurrentUser, SessionDep
+from ..deps import CurrentUser, SessionDep, bank_choice
 from ..schemas import (
     ConfirmOccurrence,
     PendingOccurrenceResponse,
@@ -41,7 +41,7 @@ def _rule(row) -> RecurringResponse:
         id=row.id, flow=row.flow.value, category=row.category, amount=row.amount,
         description=row.description, period=row.period.value,
         next_run_on=row.next_run_on, last_run_on=row.last_run_on,
-        is_active=row.is_active, mode=row.mode.value,
+        is_active=row.is_active, mode=row.mode.value, bank_account_id=row.bank_account_id,
     )
 
 
@@ -60,7 +60,7 @@ async def create_rule(
         book_id, user.id, _as_enum(Flow, body.flow, "flow"), body.category,
         body.amount, _as_enum(Period, body.period, "period"), body.starts_on,
         description=body.description, mode=_as_enum(Mode, body.mode, "mode"),
-        first_booked=body.first_booked,
+        first_booked=body.first_booked, bank_account_id=bank_choice(body),
     )
     return _rule(rule)
 
@@ -111,7 +111,7 @@ async def update_rule(
     rule = await RecurringService(session).update_rule(
         book_id, user.id, rule_id,
         mode=_as_enum(Mode, body.mode, "mode") if body.mode else None,
-        amount=body.amount, description=body.description,
+        amount=body.amount, description=body.description, bank_account_id=bank_choice(body),
     )
     return _rule(rule)
 

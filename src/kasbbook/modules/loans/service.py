@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...shared import calendars, jalali
 from ...shared.errors import NotFound, ValidationError
 from ...shared.money import ZERO, quantize, to_decimal
+from ..banks.service import UNSET
 from ..books.models import Permission
 from ..books.service import BookService
 from ..ledger.models import Flow, Scope, Transaction
@@ -162,6 +163,7 @@ class LoanService:
         loan_id: uuid.UUID,
         on: Optional[date] = None,
         expected_paid_count: Optional[int] = None,
+        bank_account_id=UNSET,
     ) -> Transaction:
         """One installment: a real expense in the ledger, linked back to the loan.
 
@@ -191,7 +193,7 @@ class LoanService:
         paid_on = on or jalali.today_in((await self.books.get_book(book_id)).timezone)
 
         if loan.kind == "capital":
-            return await self._pay_capital(loan, user_id, paid, paid_on)
+            return await self._pay_capital(loan, user_id, paid, paid_on, bank_account_id)
 
         transaction = await self.ledger.record(
             book_id=book_id,
@@ -202,6 +204,7 @@ class LoanService:
             amount=loan.installment_amount,
             description=loan.title,
             occurred_on=paid_on,
+            bank_account_id=bank_account_id,
         )
 
         self.session.add(
@@ -212,7 +215,9 @@ class LoanService:
         await self.session.flush()
         return transaction
 
-    async def _pay_capital(self, loan: Loan, user_id: uuid.UUID, paid: int, paid_on: date):
+    async def _pay_capital(
+        self, loan: Loan, user_id: uuid.UUID, paid: int, paid_on: date, bank_account_id=UNSET
+    ):
         """An installment of a loan that bought something kept.
 
         Most of it repays the debt, which is not an expense; only what exceeds the share of the
@@ -233,13 +238,14 @@ class LoanService:
                 self.session, loan.book_id, user_id, paid_on, "loan_principal",
                 [(LOANS, repaid, ZERO), (CASH, ZERO, repaid)],
                 cash_delta=-repaid, memo=f"قسط وام: {loan.title}", loan_id=loan.id,
+                bank_account_id=bank_account_id,
             )
         transaction = None
         if interest > ZERO:
             transaction = await self.ledger.record(
                 book_id=loan.book_id, actor_user_id=user_id, flow=Flow.EXPENSE,
                 scope=Scope.PERSONAL, category=INTEREST_CATEGORY, amount=interest,
-                description=loan.title, occurred_on=paid_on,
+                description=loan.title, occurred_on=paid_on, bank_account_id=bank_account_id,
             )
         self.session.add(
             LoanPayment(

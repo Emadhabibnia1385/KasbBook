@@ -206,6 +206,7 @@ PLACEHOLDER_BYTES = [
     (re.compile(r"\bid$|_id$|\.id\b"), 36),
     (re.compile(r"^view$"), 36),                      # "a", or a book's UUID
     (re.compile(r"^(token|day)$|^day_token\("), 8),
+    (re.compile(r"^bank_code\("), 8),                  # the first 8 hex digits of a bank account id
     (re.compile(r"code$"), 8),
     (re.compile(r"^nonce$"), 6),
     (re.compile(r"^spec$"), 10),

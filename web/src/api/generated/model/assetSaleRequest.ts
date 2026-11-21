@@ -16,6 +16,7 @@
  */
 
 export interface AssetSaleRequest {
+	bank_account_id?: string | null;
 	price: number | string;
 	sold_on: string;
 }

@@ -140,6 +140,8 @@ function Fields({
 							description: values.description || null,
 							mode: values.mode,
 							first_booked: firstBooked,
+							// The rule keeps the account chosen here for every date it records.
+							bank_account_id: bankValue(values.bank_account_id),
 						},
 					});
 				try {

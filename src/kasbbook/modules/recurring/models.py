@@ -12,7 +12,18 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Date, Enum, ForeignKey, Index, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...shared.database import Base, Timestamped, UUIDPrimaryKey
@@ -44,6 +55,12 @@ class RecurringRule(UUIDPrimaryKey, Timestamped, Base):
     __table_args__ = (
         # The job asks one question: what is due? This is the index for it.
         Index("ix_recurring_due", "is_active", "next_run_on"),
+        # One of this book's own accounts, or none.
+        ForeignKeyConstraint(
+            ["book_id", "bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_recurring_bank_book", deferrable=True, initially="DEFERRED",
+        ),
     )
 
     book_id: Mapped[uuid.UUID] = mapped_column(
@@ -58,6 +75,9 @@ class RecurringRule(UUIDPrimaryKey, Timestamped, Base):
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     amount: Mapped[Money] = mapped_column(Money, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Chosen when the rule is made (the book's default, an account, or none) and kept: each date it
+    # comes due is recorded through it. Rules from before accounts existed are «none», as they were.
+    bank_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
 
     period: Mapped[Period] = mapped_column(
         Enum(Period, native_enum=False, length=16), nullable=False
