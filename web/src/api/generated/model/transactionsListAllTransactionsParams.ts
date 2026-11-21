@@ -40,4 +40,5 @@ export type TransactionsListAllTransactionsParams = {
 	currency?: string[] | null;
 	q?: string | null;
 	sort?: string;
+	bank_account_id?: string[] | null;
 };

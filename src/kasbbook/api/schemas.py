@@ -393,6 +393,9 @@ class TransactionRequest(MoneyModel):
     description: Optional[str] = Field(default=None, max_length=500)
     occurred_on: Optional[date] = None
     scope: Optional[str] = None
+    # The bank account the money moved through, one of this book's own. Left out, it is the book's
+    # default account; an explicit null means no account at all.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class TransactionUpdate(MoneyModel):
@@ -407,6 +410,8 @@ class TransactionUpdate(MoneyModel):
     conversion_rate: Optional[Decimal] = Field(default=None, gt=0)
     # Moves it to another book of the same base currency: «recorded in the wrong one».
     book_id: Optional[uuid.UUID] = None
+    # Another of this book's accounts, or null for none. Left out, it stays as it was.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class TransactionActivityResponse(Model):
@@ -438,6 +443,9 @@ class TransactionResponse(MoneyModel):
     attachment_count: int = 0
     receipt_kind: Optional[str] = None
     receipt_file_name: Optional[str] = None
+    bank_account_id: Optional[uuid.UUID] = None
+    # What the account is called: its own name, or the bank and the holder.
+    bank_account_title: Optional[str] = None
 
 
 class AttachmentResponse(Model):
@@ -1068,3 +1076,112 @@ class FinancialNoteResponse(MoneyModel):
     value_on: Optional[date] = None
     gain: Optional[Decimal] = None
 
+
+
+# ------------------------------------------------------------ bank accounts
+class BankAccountRequest(MoneyModel):
+    # The bank and the holder are required; everything else is for whoever needs to copy a number.
+    bank_name: str = Field(min_length=1, max_length=80)
+    holder_name: str = Field(min_length=1, max_length=120)
+    # Shown instead of "bank holder" when given.
+    display_name: Optional[str] = Field(default=None, max_length=80)
+    card_number: Optional[str] = Field(default=None, max_length=40)
+    account_number: Optional[str] = Field(default=None, max_length=40)
+    sheba: Optional[str] = Field(default=None, max_length=40)
+    # What was in the account before anything was recorded here: not income, not a transaction.
+    opening_balance: Decimal = Decimal("0")
+    # Defaults to the first book's base currency (or toman); a book links it only if it matches.
+    currency: Optional[str] = Field(default=None, max_length=8)
+    # Books to link it to straight away; the owner must be allowed to manage accounts in each.
+    book_ids: List[uuid.UUID] = Field(default_factory=list)
+
+
+class BankAccountUpdate(MoneyModel):
+    bank_name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    holder_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    # Null clears it, and the account goes back to being shown as "bank holder".
+    display_name: Optional[str] = Field(default=None, max_length=80)
+    card_number: Optional[str] = Field(default=None, max_length=40)
+    account_number: Optional[str] = Field(default=None, max_length=40)
+    sheba: Optional[str] = Field(default=None, max_length=40)
+    opening_balance: Optional[Decimal] = None
+    is_active: Optional[bool] = None
+
+
+class BankLinkRequest(Model):
+    make_default: bool = False
+
+
+class BankLinkUpdate(Model):
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+
+
+class BankShareResponse(MoneyModel):
+    """One book's part of an account."""
+
+    book_id: uuid.UUID
+    book_name: str
+    # What this book's own transactions have put into the account, net of what they took out.
+    balance: Decimal
+    is_active: bool
+    is_default: bool
+
+
+class BankAccountResponse(MoneyModel):
+    """An account as its owner sees it: every number, every book, and the one real balance."""
+
+    id: uuid.UUID
+    title: str
+    bank_name: str
+    holder_name: str
+    display_name: Optional[str] = None
+    card_number: Optional[str] = None
+    account_number: Optional[str] = None
+    sheba: Optional[str] = None
+    currency: str
+    opening_balance: Decimal
+    is_active: bool
+    # Opening balance plus every book's share: the balance the bank itself would show.
+    total_balance: Decimal
+    shares: List[BankShareResponse]
+    created_at: datetime
+
+
+class BookBankResponse(MoneyModel):
+    """An account as one book sees it, which is what is chosen from when recording."""
+
+    id: uuid.UUID
+    title: str
+    bank_name: str
+    holder_name: str
+    display_name: Optional[str] = None
+    card_last4: Optional[str] = None
+    # Only for the account's owner and the book's account managers; empty for everyone else.
+    card_number: Optional[str] = None
+    account_number: Optional[str] = None
+    sheba: Optional[str] = None
+    currency: str
+    # Off in this book, or off everywhere: not offered for a new transaction, still shown on old ones.
+    is_active: bool
+    is_default: bool
+    is_owner: bool
+    # This book's own share; null for someone who may not view reports. Never the account's total,
+    # which would show what other books did.
+    balance: Optional[Decimal] = None
+
+
+class BankShareCheckResponse(MoneyModel):
+    book_id: uuid.UUID
+    book_name: str
+    journal: Decimal
+    transactions: Decimal
+
+
+class BankReconciliationResponse(MoneyModel):
+    bank_id: uuid.UUID
+    opening: Decimal
+    shares: List[BankShareCheckResponse]
+    from_journal: Decimal
+    from_transactions: Decimal
+    consistent: bool

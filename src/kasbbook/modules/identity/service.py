@@ -588,6 +588,16 @@ class IdentityService:
         ).scalars().all():
             await books.delete_book(user_id, book.id)
 
+        # Accounts nobody uses any more go with their owner. One still linked to a book that someone
+        # else keeps stays, and counts below as something this person authored.
+        from ..banks.models import BankAccount, BankAccountLink
+
+        await self.session.execute(delete(BankAccount).where(
+            BankAccount.owner_user_id == user_id,
+            BankAccount.id.notin_(select(BankAccountLink.bank_account_id)),
+        ))
+        await self.session.flush()
+
         # Access to everyone else's books ends here, whether or not the row does.
         await self.session.execute(
             delete(Membership).where(Membership.user_id == user_id)
@@ -601,6 +611,7 @@ class IdentityService:
             (Transaction, Transaction.actor_user_id),
             (Adjustment, Adjustment.recorded_by),
             (RecurringRule, RecurringRule.created_by_user_id),
+            (BankAccount, BankAccount.owner_user_id),
         ):
             authored += (
                 await self.session.execute(

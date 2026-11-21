@@ -112,6 +112,31 @@ wear the rejection before reaching `sendDocument`. All three are nullable —
 every receipt attached before they existed has them empty, and the code falls
 back to guessing for those.
 
+## Bank accounts
+
+A bank account belongs to a person, not to a book, so one account can serve a
+personal book and a business book at once. A `BankAccountLink` puts it in a
+book, and gives that book its own ledger account for it: a book never writes
+against another book's ledger account, so every book's trial balance still
+closes by itself.
+
+```
+BankAccount (owner, bank_name*, holder_name*, display_name, card, account, sheba, opening_balance)
+  └── BankAccountLink (book, ledger account, is_active, is_default)  ×  any number of books
+Transaction.bank_account_id → the account the money moved through (optional)
+```
+
+The balance is not stored. It is the opening balance plus what each book's
+ledger account holds, so it cannot drift from the transactions.
+`GET /bank-accounts/{id}/reconciliation` works it out a second way, from the
+transactions, and says whether the two agree. The opening balance is a fact
+about the account, not a transaction, so it never counts as income.
+
+Only the owner sees the whole balance and what each book did; a member of one
+book sees that book's share and the last four digits of the card. An account
+used in a book cannot be unlinked from it or deleted — it is switched off.
+Money in another currency than the book's own goes through no account.
+
 ## Currencies and the wallet
 
 A book may hold more than one currency. `BookCurrency` lists the ones it is

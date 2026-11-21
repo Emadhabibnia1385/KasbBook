@@ -47,4 +47,8 @@ export type BooksListTransactionsParams = {
 	 * newest, oldest, amount_desc, amount_asc or category
 	 */
 	sort?: string;
+	/**
+	 * only through these bank accounts; repeat for several
+	 */
+	bank_account_id?: string[] | null;
 };

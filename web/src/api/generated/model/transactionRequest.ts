@@ -17,6 +17,7 @@
 
 export interface TransactionRequest {
 	amount: number | string;
+	bank_account_id?: string | null;
 	/**
 	 * @minLength 1
 	 * @maxLength 80

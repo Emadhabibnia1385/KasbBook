@@ -6,6 +6,7 @@ requirement explicit and to give migrations a single, obvious entry point.
 """
 
 from .modules.activity.models import ActivityEvent
+from .modules.banks.models import BankAccount, BankAccountLink
 from .modules.books.models import Book, Membership, TeamInvitation
 from .modules.budgets.models import Budget
 from .modules.debts.models import Debt
@@ -52,6 +53,8 @@ from .shared.database import Base
 # stated in a way the linter understands, rather than a noqa it ignores.
 __all__ = [
     "Base",
+    "BankAccount",
+    "BankAccountLink",
     "ActivityEvent",
     "Account",
     "AccountLoginChallenge",

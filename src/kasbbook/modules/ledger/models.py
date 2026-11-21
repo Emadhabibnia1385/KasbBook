@@ -121,6 +121,13 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
             ["book_id", "category_id"], ["categories.book_id", "categories.id"],
             name="fk_transaction_category_book", deferrable=True, initially="DEFERRED",
         ),
+        # The account must be one this very book is linked to: another book's account is refused by
+        # the database itself, not only by the service. Empty means no account (cash, or unknown).
+        ForeignKeyConstraint(
+            ["book_id", "bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_transaction_bank_book", deferrable=True, initially="DEFERRED",
+        ),
     )
 
     book_id: Mapped[uuid.UUID] = mapped_column(
@@ -144,6 +151,9 @@ class Transaction(UUIDPrimaryKey, Timestamped, Base):
     )
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     category_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    # Which bank account the money came into or went out of; its journal lines sit on that account's
+    # ledger account in this book. See modules/banks.
+    bank_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     # A receipt lives on the messenger that received it: storing the provider's

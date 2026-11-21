@@ -915,6 +915,476 @@
         "title": "AttachmentResponse",
         "type": "object"
       },
+      "BankAccountRequest": {
+        "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Number"
+          },
+          "bank_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Bank Name",
+            "type": "string"
+          },
+          "book_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Book Ids",
+            "type": "array"
+          },
+          "card_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Number"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "holder_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Holder Name",
+            "type": "string"
+          },
+          "opening_balance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Opening Balance"
+          },
+          "sheba": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheba"
+          }
+        },
+        "required": [
+          "bank_name",
+          "holder_name"
+        ],
+        "title": "BankAccountRequest",
+        "type": "object"
+      },
+      "BankAccountResponse": {
+        "description": "An account as its owner sees it: every number, every book, and the one real balance.",
+        "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Number"
+          },
+          "bank_name": {
+            "title": "Bank Name",
+            "type": "string"
+          },
+          "card_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "holder_name": {
+            "title": "Holder Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "opening_balance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Opening Balance",
+            "type": "string"
+          },
+          "shares": {
+            "items": {
+              "$ref": "#/components/schemas/BankShareResponse"
+            },
+            "title": "Shares",
+            "type": "array"
+          },
+          "sheba": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheba"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_balance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Balance",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "bank_name",
+          "holder_name",
+          "currency",
+          "opening_balance",
+          "is_active",
+          "total_balance",
+          "shares",
+          "created_at"
+        ],
+        "title": "BankAccountResponse",
+        "type": "object"
+      },
+      "BankAccountUpdate": {
+        "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Number"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "card_number": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Number"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "holder_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Name"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "opening_balance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Balance"
+          },
+          "sheba": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheba"
+          }
+        },
+        "title": "BankAccountUpdate",
+        "type": "object"
+      },
+      "BankLinkRequest": {
+        "properties": {
+          "make_default": {
+            "default": false,
+            "title": "Make Default",
+            "type": "boolean"
+          }
+        },
+        "title": "BankLinkRequest",
+        "type": "object"
+      },
+      "BankLinkUpdate": {
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "is_default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Default"
+          }
+        },
+        "title": "BankLinkUpdate",
+        "type": "object"
+      },
+      "BankReconciliationResponse": {
+        "properties": {
+          "bank_id": {
+            "format": "uuid",
+            "title": "Bank Id",
+            "type": "string"
+          },
+          "consistent": {
+            "title": "Consistent",
+            "type": "boolean"
+          },
+          "from_journal": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "From Journal",
+            "type": "string"
+          },
+          "from_transactions": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "From Transactions",
+            "type": "string"
+          },
+          "opening": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Opening",
+            "type": "string"
+          },
+          "shares": {
+            "items": {
+              "$ref": "#/components/schemas/BankShareCheckResponse"
+            },
+            "title": "Shares",
+            "type": "array"
+          }
+        },
+        "required": [
+          "bank_id",
+          "opening",
+          "shares",
+          "from_journal",
+          "from_transactions",
+          "consistent"
+        ],
+        "title": "BankReconciliationResponse",
+        "type": "object"
+      },
+      "BankShareCheckResponse": {
+        "properties": {
+          "book_id": {
+            "format": "uuid",
+            "title": "Book Id",
+            "type": "string"
+          },
+          "book_name": {
+            "title": "Book Name",
+            "type": "string"
+          },
+          "journal": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Journal",
+            "type": "string"
+          },
+          "transactions": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Transactions",
+            "type": "string"
+          }
+        },
+        "required": [
+          "book_id",
+          "book_name",
+          "journal",
+          "transactions"
+        ],
+        "title": "BankShareCheckResponse",
+        "type": "object"
+      },
+      "BankShareResponse": {
+        "description": "One book's part of an account.",
+        "properties": {
+          "balance": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance",
+            "type": "string"
+          },
+          "book_id": {
+            "format": "uuid",
+            "title": "Book Id",
+            "type": "string"
+          },
+          "book_name": {
+            "title": "Book Name",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "book_id",
+          "book_name",
+          "balance",
+          "is_active",
+          "is_default"
+        ],
+        "title": "BankShareResponse",
+        "type": "object"
+      },
       "BaseCurrencyRequest": {
         "properties": {
           "code": {
@@ -992,6 +1462,123 @@
           "file"
         ],
         "title": "Body_books_add_conversion_attachment",
+        "type": "object"
+      },
+      "BookBankResponse": {
+        "description": "An account as one book sees it, which is what is chosen from when recording.",
+        "properties": {
+          "account_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Number"
+          },
+          "balance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balance"
+          },
+          "bank_name": {
+            "title": "Bank Name",
+            "type": "string"
+          },
+          "card_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Last4"
+          },
+          "card_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Number"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "holder_name": {
+            "title": "Holder Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          },
+          "sheba": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheba"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "bank_name",
+          "holder_name",
+          "currency",
+          "is_active",
+          "is_default",
+          "is_owner"
+        ],
+        "title": "BookBankResponse",
         "type": "object"
       },
       "BookRequest": {
@@ -1133,6 +1720,29 @@
             "default": 0,
             "title": "Attachment Count",
             "type": "integer"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
+          "bank_account_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Title"
           },
           "book_currency": {
             "title": "Book Currency",
@@ -6193,6 +6803,18 @@
             ],
             "title": "Amount"
           },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "category": {
             "maxLength": 80,
             "minLength": 1,
@@ -6283,6 +6905,29 @@
             "default": 0,
             "title": "Attachment Count",
             "type": "integer"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
+          "bank_account_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Title"
           },
           "category": {
             "title": "Category",
@@ -6439,6 +7084,18 @@
               }
             ],
             "title": "Amount"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
           },
           "book_id": {
             "anyOf": [
@@ -8815,6 +9472,452 @@
         ]
       }
     },
+    "/api/v1/bank-accounts": {
+      "get": {
+        "description": "Every account you own, with its balance and how much of it belongs to each book.",
+        "operationId": "banks_list_mine",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BankAccountResponse"
+                  },
+                  "title": "Response Banks List Mine",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Mine",
+        "tags": [
+          "banks"
+        ]
+      },
+      "post": {
+        "description": "Add an account. Only the bank and the holder are required; `book_ids` links it right away.",
+        "operationId": "banks_create",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankAccountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create",
+        "tags": [
+          "banks"
+        ]
+      }
+    },
+    "/api/v1/bank-accounts/{bank_id}": {
+      "delete": {
+        "description": "Only an account nothing was recorded against; any other is switched off instead.",
+        "operationId": "banks_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete",
+        "tags": [
+          "banks"
+        ]
+      },
+      "get": {
+        "operationId": "banks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankAccountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get",
+        "tags": [
+          "banks"
+        ]
+      },
+      "patch": {
+        "description": "Change what was sent. A field left out stays; a null clears the optional ones.",
+        "operationId": "banks_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankAccountUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankAccountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update",
+        "tags": [
+          "banks"
+        ]
+      }
+    },
+    "/api/v1/bank-accounts/{bank_id}/reconciliation": {
+      "get": {
+        "description": "The balance worked out two independent ways, per book and in total. They must agree.",
+        "operationId": "banks_reconcile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankReconciliationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reconcile",
+        "tags": [
+          "banks"
+        ]
+      }
+    },
     "/api/v1/books": {
       "get": {
         "operationId": "books_list_books",
@@ -10109,6 +11212,353 @@
         "summary": "Weekday",
         "tags": [
           "analytics"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/bank-accounts": {
+      "get": {
+        "description": "The accounts this book uses, the default first. What the transaction form chooses from.",
+        "operationId": "banks_list_for_book",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BookBankResponse"
+                  },
+                  "title": "Response Banks List For Book",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List For Book",
+        "tags": [
+          "banks"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/bank-accounts/{bank_id}": {
+      "delete": {
+        "description": "Stop using the account in this book; refused once a transaction here used it.",
+        "operationId": "banks_unlink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlink",
+        "tags": [
+          "banks"
+        ]
+      },
+      "patch": {
+        "description": "Switch the account on or off in this book, or make it this book's default.",
+        "operationId": "banks_update_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankLinkUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookBankResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Link",
+        "tags": [
+          "banks"
+        ]
+      },
+      "put": {
+        "description": "Use one of your accounts in this book. The book's first account becomes its default.",
+        "operationId": "banks_link",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bank_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Bank Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookBankResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link",
+        "tags": [
+          "banks"
         ]
       }
     },
@@ -19003,6 +20453,28 @@
             }
           },
           {
+            "description": "only through these bank accounts; repeat for several",
+            "in": "query",
+            "name": "bank_account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only through these bank accounts; repeat for several",
+              "title": "Bank Account Id"
+            }
+          },
+          {
             "in": "header",
             "name": "authorization",
             "required": false,
@@ -21084,6 +22556,26 @@
               "default": "newest",
               "title": "Sort",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bank_account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bank Account Id"
             }
           },
           {

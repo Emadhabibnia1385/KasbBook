@@ -25,6 +25,7 @@ from ...shared.security import utcnow
 from ..books.models import Permission
 from ..exchange.models import CURRENCY_NAMES
 from ..exchange.service import ExchangeService
+from ..banks.service import UNSET, BankService
 from ..books.service import BookService
 from ..identity.models import AuditEvent, User
 from ..loans.models import LoanPayment
@@ -67,13 +68,13 @@ DEFAULT_ACCOUNTS = (
 CASH = "1000"
 INCOME = "4000"
 EXPENSE = "5000"
-UNSET = object()
 
 
 class LedgerService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.books = BookService(session)
+        self.banks = BankService(session)
         self.categories = CategoryService(session)
 
     async def _require_open_date(self, book_id, on):
@@ -124,6 +125,15 @@ class LedgerService:
             raise NotFound(f"account {code}")
         return found
 
+    async def _money_account(self, book_id: uuid.UUID, link) -> Account:
+        """Where the money sits: the bank account's own ledger account, or «نقد و بانک» without one."""
+        if link is None:
+            return await self.account(book_id, CASH)
+        account = await self.session.get(Account, link.ledger_account_id)
+        if account is None or account.book_id != book_id:
+            raise NotFound("account")
+        return account
+
     # ---------------------------------------------------------- transactions
     async def record(
         self,
@@ -145,8 +155,14 @@ class LedgerService:
         receipt_kind: Optional[str] = None,
         receipt_file_name: Optional[str] = None,
         receipt_mime_type: Optional[str] = None,
+        bank_account_id=UNSET,
     ) -> Transaction:
-        """Record one transaction and its balanced journal entry."""
+        """Record one transaction and its balanced journal entry.
+
+        `bank_account_id` is the account the money moved through. Left out, it is the book's default
+        account (if it has one); `None` is "no account", deliberately. Either way the choice is made
+        here, once, so the bot, the API and a recurring rule all mean the same thing by it.
+        """
         needed = (
             Permission.RECORD_INCOME if flow is Flow.INCOME else Permission.RECORD_EXPENSE
         )
@@ -194,9 +210,13 @@ class LedgerService:
         converted = quantize(original * rate)
         if converted <= ZERO:
             raise BalanceError("an entry of zero moves nothing")
+        bank = await self.banks.resolve(
+            book_id, bank_account_id, in_base_currency=original_currency == book.base_currency
+        )
         category_row = await self.categories._ensure(book_id, category, flow)
         transaction = Transaction(
             book_id=book_id,
+            bank_account_id=bank.bank_account_id if bank else None,
             actor_user_id=actor_user_id,
             # The book's day, not the server's: see jalali.today_in.
             occurred_on=on,
@@ -225,7 +245,7 @@ class LedgerService:
         await self.session.flush()
 
         await self.ensure_chart_of_accounts(book_id)
-        cash = await self.account(book_id, CASH)
+        cash = await self._money_account(book_id, bank)
         other = await self.account(
             book_id, INCOME if flow is Flow.INCOME else EXPENSE
         )
@@ -300,6 +320,7 @@ class LedgerService:
         text: Optional[str] = None,
         currencies: Optional[Sequence[str]] = None,
         sort: str = "oldest",
+        bank_account_ids: Optional[Sequence[uuid.UUID]] = None,
     ) -> Sequence[Transaction]:
         """The book's transactions, narrowed by any of: dates, income/expense, categories, words.
 
@@ -322,6 +343,8 @@ class LedgerService:
         if currencies:
             # The money it was paid in, not the book's: «only the TON ones».
             stmt = stmt.where(Transaction.original_currency.in_(list(currencies)))
+        if bank_account_ids:
+            stmt = stmt.where(Transaction.bank_account_id.in_(list(bank_account_ids)))
         needle = (text or "").strip()
         if len(needle) >= 2:
             # `%` and `_` are LIKE wildcards: "50%" must find "50%", and `\` is escaped first
@@ -606,11 +629,12 @@ class LedgerService:
     async def update(
         self, book_id, actor_user_id, transaction_id, *, category=UNSET,
         amount=UNSET, description=UNSET, occurred_on=UNSET,
-        flow=UNSET, currency=UNSET, conversion_rate=UNSET,
+        flow=UNSET, currency=UNSET, conversion_rate=UNSET, bank_account_id=UNSET,
     ) -> Transaction:
         await self.books.require(book_id, actor_user_id, Permission.EDIT_TRANSACTION)
         if all(value is UNSET for value in (
             category, amount, description, occurred_on, flow, currency, conversion_rate,
+            bank_account_id,
         )):
             raise ValidationError("یک تغییر معتبر بفرست.")
         if (category is None or amount is None or occurred_on is None or flow is None
@@ -664,6 +688,18 @@ class LedgerService:
             LoanPayment.transaction_id == tx.id
         ).limit(1)):
             raise ValidationError("مبلغ، ارز و نوع پرداخت قسط از این صفحه قابل ویرایش نیست.")
+        # Left out, the account stays as it was; a new one has to be chosen from this book's own.
+        if bank_account_id is UNSET or bank_account_id == tx.bank_account_id:
+            new_link = await self.banks.link_for(book_id, tx.bank_account_id)
+            if new_link is not None and new_currency != book.base_currency:
+                raise ValidationError("برای مبلغ به ارز دیگر، حساب بانکی را بردار.")
+        else:
+            new_link = await self.banks.resolve(
+                book_id, bank_account_id, in_base_currency=new_currency == book.base_currency
+            )
+        new_bank_id = new_link.bank_account_id if new_link else None
+        # Which account the money sits in is part of the entry, so changing it rebuilds the entry too.
+        rebuild = money_changed or new_bank_id != tx.bank_account_id
         converted = quantize(original * new_rate)
         if converted <= ZERO:
             raise ValidationError("مبلغ تبدیل‌شده باید بیشتر از صفر باشد.")
@@ -675,8 +711,8 @@ class LedgerService:
         if (len(entries) != 1 or not entries[0].is_balanced
                 or entries[0].total_debit != tx.converted_amount):
             raise BalanceError("سند این تراکنش معتبر نیست؛ ویرایش انجام نشد.")
-        if money_changed:
-            cash = await self.account(book_id, CASH)
+        if rebuild:
+            cash = await self._money_account(book_id, new_link)
             other = await self.account(book_id, INCOME if new_flow is Flow.INCOME else EXPENSE)
         # A kind change needs a category of the new kind, so it is looked up again even if the name stays.
         category_row = (await self.categories._ensure(book_id, new_category, new_flow)
@@ -685,7 +721,7 @@ class LedgerService:
         tx.category, tx.category_id = category_row.name, category_row.id
         tx.description = new_description
         tx.occurred_on = moved_to
-        if money_changed:
+        if rebuild:
             # Rebuild through the one ledger writer; neither client is allowed to write individual
             # journal lines. The rate is the one on the form: frozen again, as at record time.
             await self.session.delete(entries[0])
@@ -694,6 +730,7 @@ class LedgerService:
                      if new_flow is Flow.INCOME else
                      [(other.id, converted, ZERO), (cash.id, ZERO, converted)])
             tx.flow = new_flow
+            tx.bank_account_id = new_bank_id
             tx.original_amount, tx.converted_amount = original, converted
             tx.original_currency, tx.conversion_rate = new_currency, new_rate
             tx.base_currency = book.base_currency
@@ -776,8 +813,12 @@ class LedgerService:
             .where(TransactionAttachment.transaction_id == tx.id)
             .values(book_id=target_book_id)
         )
+        # The account belongs to the book it was linked in. If the target book uses it too, the
+        # transaction keeps it; if not, it arrives with none rather than with a stranger's account.
+        target_link = await self.banks.link_for(target_book_id, tx.bank_account_id)
+        tx.bank_account_id = target_link.bank_account_id if target_link else None
         await self.ensure_chart_of_accounts(target_book_id)
-        cash = await self.account(target_book_id, CASH)
+        cash = await self._money_account(target_book_id, target_link)
         other = await self.account(target_book_id, INCOME if tx.flow is Flow.INCOME else EXPENSE)
         lines = ([(cash.id, tx.converted_amount, ZERO), (other.id, ZERO, tx.converted_amount)]
                  if tx.flow is Flow.INCOME else

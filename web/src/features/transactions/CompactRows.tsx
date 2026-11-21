@@ -70,6 +70,9 @@ export function CompactRows({
 										<span className="shrink-0">
 											<DayPair iso={item.occurred_on} bookId={item.book_id} inline />
 										</span>
+										{item.bank_account_title ? (
+											<bdi className="max-w-[40%] shrink-0 truncate">{item.bank_account_title}</bdi>
+										) : null}
 										{item.description ? (
 											<bdi className="min-w-0 truncate">{item.description}</bdi>
 										) : null}

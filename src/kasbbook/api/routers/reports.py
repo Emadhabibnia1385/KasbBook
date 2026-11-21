@@ -18,6 +18,7 @@ from ...modules.reports import service as reports
 from ...shared.errors import ValidationError
 from ...shared.money import ZERO, quantize
 from ..deps import CurrentUser, SessionDep
+from ...modules.banks.service import BankService
 from ...modules.ledger.service import LedgerService
 from ..schemas import (
     CategoryLine,
@@ -98,8 +99,9 @@ async def search(
         book_id, user.id, q, page=page - 1, per_page=per_page
     )
     activities = await LedgerService(session).activities(user.id, rows)
+    banks = await BankService(session).titles([row.bank_account_id for row in rows])
     return TransactionSearchPage(
-        items=[_transaction(row, activities[row.id]) for row in rows],
+        items=[_transaction(row, activities[row.id], banks=banks) for row in rows],
         # An empty search returns the bare ZERO, so the wire shape is fixed here.
         total=total, total_amount=quantize(total_amount), page=page, per_page=per_page,
     )

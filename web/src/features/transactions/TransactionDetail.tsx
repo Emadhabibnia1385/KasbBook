@@ -109,6 +109,9 @@ function Body({ row }: { row: BookedTransactionResponse }) {
 							}
 						: null,
 					{ label: t.scope.book, value: row.book_name },
+					...(row.bank_account_title
+						? [{ label: t.banks.account, value: row.bank_account_title }]
+						: []),
 					{ label: t.transactions.kind, value: income ? t.common.income : t.common.expense },
 					{
 						label: t.transactions.date,

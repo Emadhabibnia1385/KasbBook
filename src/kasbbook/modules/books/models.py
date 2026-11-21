@@ -80,6 +80,7 @@ class Permission(str, enum.Enum):
     EXPORT = "export"
     VIEW_OTHERS_PAY = "view_others_pay"
     LOCK_PERIOD = "lock_period"
+    MANAGE_ACCOUNTS = "manage_accounts"
 
 
 # What each role may do. Deliberately explicit rather than computed from an
@@ -98,6 +99,7 @@ ROLE_PERMISSIONS = {
         Permission.MANAGE_TREASURY,
         Permission.MANAGE_PAYROLL,
         Permission.MANAGE_BUDGETS,
+        Permission.MANAGE_ACCOUNTS,
         Permission.EXPORT,
         Permission.VIEW_OTHERS_PAY,
     },

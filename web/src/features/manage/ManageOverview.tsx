@@ -5,6 +5,7 @@ import { useBooksWallet } from "@/api/generated/books/books";
 import { usePayrollListPayslips, usePayrollListPeriods } from "@/api/generated/payroll/payroll";
 import type { BookResponse } from "@/api/generated/model";
 import { Loaded } from "@/features/analytics/Loaded";
+import { BankBalances, BankSplitPanel } from "@/features/banks/BankBalances";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { useQuotes } from "@/features/market/useQuotes";
 import { isPayrollBook } from "@/features/payroll/shared";
@@ -170,6 +171,10 @@ export function ManageOverview() {
 			<ManageTabs />
 			<PageHeader title={t.manage.title} description={t.manage.lead} />
 			<Balances book={book} />
+			<div className="grid gap-5 lg:grid-cols-2">
+				<BankBalances book={book} />
+				<BankSplitPanel book={book} />
+			</div>
 			<Savings book={book} />
 			{isPayrollBook(book) ? <Salaries book={book} /> : null}
 		</div>

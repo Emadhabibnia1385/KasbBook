@@ -13,6 +13,7 @@ import {
 	WeekdayPanel,
 } from "@/features/analytics/charts";
 import { ForeignPanel } from "@/features/analytics/ForeignPanel";
+import { BankBalances, BankSplitPanel } from "@/features/banks/BankBalances";
 import { CompareCards } from "@/features/analytics/kpis";
 import { TopCategories } from "@/features/analytics/tables";
 import { useActiveBook } from "@/features/books/useActiveBook";
@@ -39,6 +40,10 @@ function Body({ book, period }: { book: BookResponse; period: string }) {
 				<ScopeDonutPanel book={book} period={period} title={r.scopeTitle} />
 			</div>
 			<WeekdayPanel book={book} period={period} title={r.weekdayTitle} />
+			<div className="grid gap-5 lg:grid-cols-2">
+				<BankBalances book={book} />
+				<BankSplitPanel book={book} />
+			</div>
 			<div className="grid gap-5 lg:grid-cols-2">
 				<TopCategories book={book} period={period} flow="expense" title={r.topExpense} limit={12} />
 				<TopCategories book={book} period={period} flow="income" title={r.topIncome} limit={12} />

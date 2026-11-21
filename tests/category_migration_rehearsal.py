@@ -53,7 +53,7 @@ def rehearse_categories(engine, config):
             key=lambda row: row["id"])
         assert [dict(row) for row in before] == [
             {key: value for key, value in row.items() if key not in
-             {"category_id", "last_edited_at", "last_edited_by_id"}} for row in after]
+             {"category_id", "bank_account_id", "last_edited_at", "last_edited_by_id"}} for row in after]
         for transaction in after:
             assert transaction["last_edited_at"] == transaction["updated_at"]
             assert transaction["last_edited_by_id"] is None

@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAccountRouteImport } from './routes/_app.account'
+import { Route as AppBanksRouteImport } from './routes/_app.banks'
 import { Route as AppBooksRouteImport } from './routes/_app.books'
 import { Route as AppCapitalRouteImport } from './routes/_app.capital'
 import { Route as AppManageRouteImport } from './routes/_app.manage'
@@ -47,6 +48,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAccountRoute = AppAccountRouteImport.update({
   id: '/account',
   path: '/account',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBanksRoute = AppBanksRouteImport.update({
+  id: '/banks',
+  path: '/banks',
   getParentRoute: () => AppRoute,
 } as any)
 const AppBooksRoute = AppBooksRouteImport.update({
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
   '/account': typeof AppAccountRoute
+  '/banks': typeof AppBanksRoute
   '/books': typeof AppBooksRoute
   '/capital': typeof AppCapitalRoute
   '/manage': typeof AppManageRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/account': typeof AppAccountRoute
+  '/banks': typeof AppBanksRoute
   '/books': typeof AppBooksRoute
   '/capital': typeof AppCapitalRoute
   '/manage': typeof AppManageRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/account': typeof AppAccountRoute
+  '/_app/banks': typeof AppBanksRoute
   '/_app/books': typeof AppBooksRoute
   '/_app/capital': typeof AppCapitalRoute
   '/_app/manage': typeof AppManageRoute
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/account'
+    | '/banks'
     | '/books'
     | '/capital'
     | '/manage'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/account'
+    | '/banks'
     | '/books'
     | '/capital'
     | '/manage'
@@ -241,6 +252,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/_app/account'
+    | '/_app/banks'
     | '/_app/books'
     | '/_app/capital'
     | '/_app/manage'
@@ -293,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/account'
       fullPath: '/account'
       preLoaderRoute: typeof AppAccountRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/banks': {
+      id: '/_app/banks'
+      path: '/banks'
+      fullPath: '/banks'
+      preLoaderRoute: typeof AppBanksRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/books': {
@@ -431,6 +450,7 @@ const AppTeamRouteWithChildren =
 
 interface AppRouteChildren {
   AppAccountRoute: typeof AppAccountRoute
+  AppBanksRoute: typeof AppBanksRoute
   AppBooksRoute: typeof AppBooksRoute
   AppCapitalRoute: typeof AppCapitalRoute
   AppManageRoute: typeof AppManageRoute
@@ -447,6 +467,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAccountRoute: AppAccountRoute,
+  AppBanksRoute: AppBanksRoute,
   AppBooksRoute: AppBooksRoute,
   AppCapitalRoute: AppCapitalRoute,
   AppManageRoute: AppManageRoute,

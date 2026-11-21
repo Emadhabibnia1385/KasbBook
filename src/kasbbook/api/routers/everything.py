@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Query
 
+from ...modules.banks.service import BankService
 from ...modules.books.service import BookService
 from ...modules.ledger.attachments import AttachmentService
 from ...modules.ledger.models import Flow
@@ -54,6 +55,7 @@ async def list_all_transactions(
     currency: Optional[List[str]] = Query(default=None),
     q: Optional[str] = Query(default=None, max_length=100),
     sort: str = Query(default="newest"),
+    bank_account_id: Optional[List[uuid.UUID]] = Query(default=None),
 ) -> AllTransactionPage:
     books = await BookService(session).books_for_user(user.id)
     by_id = {book.id: book for book in books}
@@ -72,6 +74,7 @@ async def list_all_transactions(
             book.id, user.id, _day(since, "since"), _day(until, "until"),
             flows=flows, categories=category or None, text=q,
             currencies=[c.upper() for c in currency] if currency else None, sort="oldest",
+            bank_account_ids=bank_account_id or None,
         )
         income, expense = LedgerService.split_totals(found)
         line = totals.setdefault(book.base_currency, [Decimal("0"), Decimal("0")])
@@ -98,9 +101,10 @@ async def list_all_transactions(
             counts.update(await AttachmentService(session).counts(book.id, user.id, ids))
 
     items = []
+    titles = await BankService(session).titles([row.bank_account_id for row in visible])
     for row in visible:
         book = by_id[row.book_id]
-        base = _transaction(row, activities[row.id], counts.get(row.id, 0))
+        base = _transaction(row, activities[row.id], counts.get(row.id, 0), titles)
         items.append(BookedTransactionResponse(
             **base.model_dump(), book_id=book.id, book_name=book.name, book_currency=book.base_currency,
         ))

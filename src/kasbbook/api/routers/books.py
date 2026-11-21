@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, Query, Request, UploadFile
 from fastapi.responses import Response
 from urllib.parse import quote
 
+from ...modules.banks.service import UNSET, BankService
 from ...modules.books.models import BookType, CostPolicy, Permission, Role
 from ...modules.books.service import BookService
 from ...modules.books.invitations import InvitationService
@@ -451,6 +452,7 @@ async def list_transactions(
     currency: Optional[List[str]] = Query(default=None, description="the money it was paid in; repeat for several"),
     q: Optional[str] = Query(default=None, max_length=100, description="words in the category or the note"),
     sort: str = Query(default="newest", description="newest, oldest, amount_desc, amount_asc or category"),
+    bank_account_id: Optional[List[uuid.UUID]] = Query(default=None, description="only through these bank accounts; repeat for several"),
 ) -> TransactionPage:
     from datetime import date as date_type
 
@@ -467,6 +469,7 @@ async def list_transactions(
         flows=[_as_enum(Flow, value, "flow") for value in flow] if flow else None,
         categories=category or None, text=q,
         currencies=[c.upper() for c in currency] if currency else None, sort=sort,
+        bank_account_ids=bank_account_id or None,
     )
     totals = LedgerService.split_totals(rows)
     rows = list(rows)
@@ -475,8 +478,9 @@ async def list_transactions(
     activities = await LedgerService(session).activities(user.id, visible)
     counts = await AttachmentService(session).counts(book_id, user.id, [row.id for row in visible])
 
+    banks = await BankService(session).titles([row.bank_account_id for row in visible])
     return TransactionPage(
-        items=[_transaction(row, activities[row.id], counts.get(row.id, 0)) for row in visible],
+        items=[_transaction(row, activities[row.id], counts.get(row.id, 0), banks) for row in visible],
         total=len(rows), page=page, per_page=per_page,
         total_income=totals[0], total_expense=totals[1],
     )
@@ -506,9 +510,11 @@ async def record_transaction(
         description=body.description,
         currency=body.currency,
         conversion_rate=body.conversion_rate,
+        # Left out is the book's default account; an explicit null is none. The service decides.
+        bank_account_id=body.bank_account_id if "bank_account_id" in body.model_fields_set else UNSET,
     )
     activity = (await LedgerService(session).activities(user.id, [transaction]))[transaction.id]
-    return _transaction(transaction, activity)
+    return _transaction(transaction, activity, banks=await BankService(session).titles([transaction.bank_account_id]))
 
 
 @router.get("/{book_id}/transactions/{transaction_id}", response_model=TransactionResponse)
@@ -520,7 +526,7 @@ async def get_transaction(
         raise NotFound("transaction")
     activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
     count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
-    return _transaction(row, activity, count)
+    return _transaction(row, activity, count, await BankService(session).titles([row.bank_account_id]))
 
 
 @router.delete("/{book_id}/transactions/{transaction_id}", status_code=204)
@@ -546,14 +552,14 @@ async def edit_transaction(book_id: uuid.UUID, transaction_id: uuid.UUID, body: 
             row = await ledger.get_transaction(book_id, user.id, transaction_id)
             activity = (await ledger.activities(user.id, [row]))[row.id]
             count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
-            return _transaction(row, activity, count)
+            return _transaction(row, activity, count, await BankService(session).titles([row.bank_account_id]))
     row = await ledger.update(book_id, user.id, transaction_id, **changes)
     activity = (await LedgerService(session).activities(user.id, [row]))[row.id]
     count = (await AttachmentService(session).counts(book_id, user.id, [row.id])).get(row.id, 0)
-    return _transaction(row, activity, count)
+    return _transaction(row, activity, count, await BankService(session).titles([row.bank_account_id]))
 
 
-def _transaction(row, activity, attachment_count: int = 0) -> TransactionResponse:
+def _transaction(row, activity, attachment_count: int = 0, banks=None) -> TransactionResponse:
     return TransactionResponse(
         id=row.id,
         flow=row.flow.value,
@@ -571,6 +577,8 @@ def _transaction(row, activity, attachment_count: int = 0) -> TransactionRespons
         receipt_kind=row.receipt_kind,
         receipt_file_name=row.receipt_file_name,
         attachment_count=attachment_count,
+        bank_account_id=row.bank_account_id,
+        bank_account_title=(banks or {}).get(row.bank_account_id),
     )
 
 

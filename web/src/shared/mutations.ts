@@ -26,7 +26,11 @@ export async function refreshMoney(queryClient: QueryClient, bookId: string): Pr
 				const key = String(query.queryKey[0]);
 				// Reports and charts of every book, and the list that spans all of them.
 				return (
-					key.includes("/reports/") || key.includes("/analytics/") || key === "/api/v1/transactions"
+					key.includes("/reports/") ||
+					key.includes("/analytics/") ||
+					// A transaction moves money in an account, and every book that shares the account sees it.
+					key.includes("/bank-accounts") ||
+					key === "/api/v1/transactions"
 				);
 			},
 		}),

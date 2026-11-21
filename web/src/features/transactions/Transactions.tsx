@@ -19,6 +19,8 @@ import {
 import { useBooksDeleteTransaction, useBooksEditTransaction } from "@/api/generated/books/books";
 import type { BookedTransactionResponse, BookResponse } from "@/api/generated/model";
 import { useTransactionsListAllTransactions } from "@/api/generated/transactions/transactions";
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { openQuick } from "@/features/quick/quickBus";
 import { PendingRecurring } from "@/features/recurring/PendingRecurring";
@@ -51,6 +53,8 @@ const editSchema = z.object({
 	category: z.string().trim().min(1, { error: t.transactions.needCategory }).max(80),
 	description: z.string().max(300),
 	occurred_on: z.string().min(1, { error: t.days.needDate }),
+	// «none», an account, or empty while the book's accounts are still loading.
+	bank_account_id: z.string(),
 });
 type EditValues = z.input<typeof editSchema>;
 
@@ -86,9 +90,11 @@ function EditForm({
 			category: row.category,
 			description: row.description ?? "",
 			occurred_on: toPicker(row.occurred_on),
+			bank_account_id: row.bank_account_id ?? "none",
 		},
 	});
 	const flow = useWatch({ control: form.control, name: "flow" });
+	const currency = useWatch({ control: form.control, name: "currency" });
 	const targetId = useWatch({ control: form.control, name: "book_id" });
 	// The book it is going to: its categories and currencies are the ones on offer.
 	const book = books.find((b) => b.id === targetId) ?? {
@@ -101,6 +107,8 @@ function EditForm({
 		if (book.id === seen.current) return;
 		seen.current = book.id;
 		form.setValue("category", "");
+		// The account was one of the old book's: the new book offers its own, starting from its default.
+		form.setValue("bank_account_id", "");
 	}, [book.id, form]);
 	return (
 		<FormRoot
@@ -131,6 +139,13 @@ function EditForm({
 					changes.description = values.description || null;
 				if (pickedDay(values.occurred_on) !== row.occurred_on)
 					changes.occurred_on = pickedDay(values.occurred_on);
+				// Another currency has no account; otherwise only a changed choice is sent.
+				const bank = bankValue(values.bank_account_id);
+				if (other) {
+					if (row.bank_account_id) changes.bank_account_id = null;
+				} else if (bank !== undefined && (bank ?? null) !== (row.bank_account_id ?? null)) {
+					changes.bank_account_id = bank;
+				}
 				if (Object.keys(changes).length === 0) {
 					onDone();
 					return;
@@ -166,6 +181,12 @@ function EditForm({
 					isRequired
 				/>
 				<DayField name="occurred_on" label={t.transactions.date} isRequired />
+				<BankField
+					key={`bank-${book.id}`}
+					name="bank_account_id"
+					bookId={book.id}
+					hidden={currency !== book.currency}
+				/>
 			</div>
 			<div className="flex flex-col gap-4">
 				<TextField name="description" label={t.transactions.note} />
@@ -345,6 +366,11 @@ function List({ books, book }: { books: BookResponse[]; book: BookResponse | und
 							className: "w-36",
 							cell: (row) => (
 								<span className="flex min-w-0 flex-col items-center">
+									{row.bank_account_title ? (
+										<bdi className="order-last max-w-full truncate text-xs text-muted">
+											{row.bank_account_title}
+										</bdi>
+									) : null}
 									<span className="flex items-center justify-center gap-2">
 										<button
 											type="button"

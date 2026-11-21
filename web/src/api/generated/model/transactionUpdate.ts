@@ -17,6 +17,7 @@
 
 export interface TransactionUpdate {
 	amount?: number | string | null;
+	bank_account_id?: string | null;
 	book_id?: string | null;
 	category?: string | null;
 	conversion_rate?: number | string | null;

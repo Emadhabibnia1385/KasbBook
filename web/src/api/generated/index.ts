@@ -1,6 +1,7 @@
 export * from "./activity/activity";
 export * from "./analytics/analytics";
 export * from "./auth/auth";
+export * from "./banks/banks";
 export * from "./books/books";
 export * from "./capital/capital";
 export * from "./currencies/currencies";

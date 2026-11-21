@@ -22,6 +22,8 @@ import type { TransactionActivityResponse } from "./transactionActivityResponse"
 export interface BookedTransactionResponse {
 	activity: TransactionActivityResponse;
 	attachment_count?: number;
+	bank_account_id?: string | null;
+	bank_account_title?: string | null;
 	book_currency: string;
 	book_id: string;
 	book_name: string;

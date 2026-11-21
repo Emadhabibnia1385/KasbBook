@@ -20,6 +20,8 @@ import {
 	getRecurringListRulesQueryKey,
 	useRecurringCreateRule,
 } from "@/api/generated/recurring/recurring";
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { lastBook, rememberBook } from "@/features/books/lastBook";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { pickedDay, toPicker } from "@/shared/dates";
@@ -43,6 +45,8 @@ const schema = z.object({
 	// asked for, and checked, when it is another one.
 	currency: z.string(),
 	rate: z.string().transform(toAscii),
+	// The account it goes through: empty until the book's own list is here, then «none» or an account.
+	bank_account_id: z.string(),
 	// Today unless changed: most entries are made the day they happen.
 	occurred_on: z.string().min(1, { error: t.days.needDate }),
 	// A repeating transaction: how often, and whether each date asks first or records itself.
@@ -75,6 +79,7 @@ function Fields({
 			description: "",
 			currency: first?.currency ?? "IRT",
 			rate: "",
+			bank_account_id: "",
 			occurred_on: toPicker(todayIso()),
 			repeat: false,
 			period: "monthly",
@@ -86,6 +91,7 @@ function Fields({
 	const repeat = useWatch({ control: form.control, name: "repeat" });
 	const mode = useWatch({ control: form.control, name: "mode" });
 	const day = useWatch({ control: form.control, name: "occurred_on" });
+	const currency = useWatch({ control: form.control, name: "currency" });
 	const book = books.find((b) => b.id === bookId) ?? first;
 	// Files chosen before the transaction exists wait here and are sent once it does.
 	const [files, setFiles] = useState<File[]>([]);
@@ -98,6 +104,8 @@ function Fields({
 		form.setValue("category", "");
 		form.setValue("currency", book.currency);
 		form.setValue("rate", "");
+		// Another book has its own accounts and its own default.
+		form.setValue("bank_account_id", "");
 	}, [book, form]);
 
 	if (!book) return null;
@@ -159,6 +167,8 @@ function Fields({
 							occurred_on: pickedDay(values.occurred_on),
 							currency: other ? values.currency : null,
 							conversion_rate: other ? values.rate : null,
+							// Money in another currency goes through no account; otherwise what the field shows.
+							bank_account_id: other ? undefined : bankValue(values.bank_account_id),
 						},
 					});
 					let unsent = 0;
@@ -195,6 +205,12 @@ function Fields({
 				<FlowSwitch name="flow" />
 				<MoneyFields key={book.id} book={book} initialCurrency={book.currency} initialRate="" />
 				<DayField name="occurred_on" label={t.transactions.date} isRequired />
+				<BankField
+					key={`bank-${book.id}`}
+					name="bank_account_id"
+					bookId={book.id}
+					hidden={currency !== book.currency}
+				/>
 			</div>
 			<div className="flex flex-col gap-4">
 				<CategoryField

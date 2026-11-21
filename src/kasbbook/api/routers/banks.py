@@ -1,0 +1,181 @@
+"""Bank accounts: the ones a person owns, and the ones a book uses.
+
+The routes are in two groups on purpose. `/bank-accounts` is the owner's: the account itself, its
+numbers, and the one real balance across every book. `/books/{id}/bank-accounts` is a book's: which
+accounts it uses, what its own share of each is, and which is the default. A member of a book sees
+only the second, so nothing here lets one book learn what another did with the same account.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import List
+
+from fastapi import APIRouter
+
+from ...modules.banks.models import BankAccount
+from ...modules.banks.service import (
+    UNSET,
+    BankService,
+    BankSummary,
+    BookBank,
+    mask_card,
+)
+from ..deps import CurrentUser, SessionDep
+from ..schemas import (
+    BankAccountRequest,
+    BankAccountResponse,
+    BankAccountUpdate,
+    BankLinkRequest,
+    BankLinkUpdate,
+    BankReconciliationResponse,
+    BankShareCheckResponse,
+    BankShareResponse,
+    BookBankResponse,
+)
+
+router = APIRouter(prefix="/bank-accounts", tags=["banks"])
+book_router = APIRouter(prefix="/books", tags=["banks"])
+
+
+def _owner_view(summary: BankSummary) -> BankAccountResponse:
+    bank = summary.bank
+    return BankAccountResponse(
+        id=bank.id, title=bank.title, bank_name=bank.bank_name, holder_name=bank.holder_name,
+        display_name=bank.display_name, card_number=bank.card_number,
+        account_number=bank.account_number, sheba=bank.sheba, currency=bank.currency,
+        opening_balance=bank.opening_balance, is_active=bank.is_active,
+        total_balance=summary.total, created_at=bank.created_at,
+        shares=[
+            BankShareResponse(
+                book_id=s.book_id, book_name=s.book_name, balance=s.balance,
+                is_active=s.link.is_active, is_default=s.link.is_default,
+            ) for s in summary.shares
+        ],
+    )
+
+
+def _book_view(row: BookBank, user_id: uuid.UUID) -> BookBankResponse:
+    bank: BankAccount = row.bank
+    return BookBankResponse(
+        id=bank.id, title=bank.title, bank_name=bank.bank_name, holder_name=bank.holder_name,
+        display_name=bank.display_name, card_last4=mask_card(bank.card_number),
+        card_number=bank.card_number if row.details else None,
+        account_number=bank.account_number if row.details else None,
+        sheba=bank.sheba if row.details else None,
+        currency=bank.currency, is_active=row.link.is_active and bank.is_active,
+        is_default=row.link.is_default, is_owner=bank.owner_user_id == user_id, balance=row.balance,
+    )
+
+
+# ------------------------------------------------------------ the owner's accounts
+@router.get("", response_model=List[BankAccountResponse])
+async def list_mine(user: CurrentUser, session: SessionDep) -> List[BankAccountResponse]:
+    """Every account you own, with its balance and how much of it belongs to each book."""
+    return [_owner_view(summary) for summary in await BankService(session).mine(user.id)]
+
+
+@router.post("", response_model=BankAccountResponse, status_code=201)
+async def create(
+    body: BankAccountRequest, user: CurrentUser, session: SessionDep
+) -> BankAccountResponse:
+    """Add an account. Only the bank and the holder are required; `book_ids` links it right away."""
+    service = BankService(session)
+    bank = await service.create(
+        user.id, bank_name=body.bank_name, holder_name=body.holder_name,
+        display_name=body.display_name, card_number=body.card_number,
+        account_number=body.account_number, sheba=body.sheba,
+        opening_balance=body.opening_balance, currency=body.currency, book_ids=body.book_ids,
+    )
+    return _owner_view(await service.get_mine(user.id, bank.id))
+
+
+@router.get("/{bank_id}", response_model=BankAccountResponse)
+async def get(bank_id: uuid.UUID, user: CurrentUser, session: SessionDep) -> BankAccountResponse:
+    return _owner_view(await BankService(session).get_mine(user.id, bank_id))
+
+
+@router.patch("/{bank_id}", response_model=BankAccountResponse)
+async def update(
+    bank_id: uuid.UUID, body: BankAccountUpdate, user: CurrentUser, session: SessionDep
+) -> BankAccountResponse:
+    """Change what was sent. A field left out stays; a null clears the optional ones."""
+    changes = body.model_dump(exclude_unset=True)
+    service = BankService(session)
+    await service.update(user.id, bank_id, **changes)
+    return _owner_view(await service.get_mine(user.id, bank_id))
+
+
+@router.delete("/{bank_id}", status_code=204)
+async def delete(bank_id: uuid.UUID, user: CurrentUser, session: SessionDep) -> None:
+    """Only an account nothing was recorded against; any other is switched off instead."""
+    await BankService(session).delete(user.id, bank_id)
+
+
+@router.get("/{bank_id}/reconciliation", response_model=BankReconciliationResponse)
+async def reconcile(
+    bank_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> BankReconciliationResponse:
+    """The balance worked out two independent ways, per book and in total. They must agree."""
+    result = await BankService(session).reconcile(user.id, bank_id)
+    return BankReconciliationResponse(
+        bank_id=result.bank_id, opening=result.opening, from_journal=result.from_journal,
+        from_transactions=result.from_transactions, consistent=result.consistent,
+        shares=[
+            BankShareCheckResponse(
+                book_id=s.book_id, book_name=s.book_name, journal=s.journal,
+                transactions=s.transactions,
+            ) for s in result.shares
+        ],
+    )
+
+
+# ------------------------------------------------------------ a book's accounts
+@book_router.get("/{book_id}/bank-accounts", response_model=List[BookBankResponse])
+async def list_for_book(
+    book_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[BookBankResponse]:
+    """The accounts this book uses, the default first. What the transaction form chooses from."""
+    rows = await BankService(session).for_book(book_id, user.id)
+    return [_book_view(row, user.id) for row in rows]
+
+
+async def _one(session, book_id: uuid.UUID, bank_id: uuid.UUID, user_id: uuid.UUID) -> BookBankResponse:
+    from ...shared.errors import NotFound
+
+    for row in await BankService(session).for_book(book_id, user_id):
+        if row.bank.id == bank_id:
+            return _book_view(row, user_id)
+    raise NotFound("این حساب بانکی پیدا نشد.")
+
+
+@book_router.put("/{book_id}/bank-accounts/{bank_id}", response_model=BookBankResponse)
+async def link(
+    book_id: uuid.UUID, bank_id: uuid.UUID, body: BankLinkRequest, user: CurrentUser,
+    session: SessionDep,
+) -> BookBankResponse:
+    """Use one of your accounts in this book. The book's first account becomes its default."""
+    await BankService(session).link(user.id, book_id, bank_id, make_default=body.make_default)
+    return await _one(session, book_id, bank_id, user.id)
+
+
+@book_router.patch("/{book_id}/bank-accounts/{bank_id}", response_model=BookBankResponse)
+async def update_link(
+    book_id: uuid.UUID, bank_id: uuid.UUID, body: BankLinkUpdate, user: CurrentUser,
+    session: SessionDep,
+) -> BookBankResponse:
+    """Switch the account on or off in this book, or make it this book's default."""
+    changes = body.model_dump(exclude_unset=True)
+    await BankService(session).set_link(
+        user.id, book_id, bank_id,
+        is_active=changes.get("is_active", UNSET), is_default=changes.get("is_default", UNSET),
+    )
+    return await _one(session, book_id, bank_id, user.id)
+
+
+@book_router.delete("/{book_id}/bank-accounts/{bank_id}", status_code=204)
+async def unlink(
+    book_id: uuid.UUID, bank_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> None:
+    """Stop using the account in this book; refused once a transaction here used it."""
+    await BankService(session).unlink(user.id, book_id, bank_id)

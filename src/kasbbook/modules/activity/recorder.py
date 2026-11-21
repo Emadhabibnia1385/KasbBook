@@ -82,6 +82,7 @@ TRACKED: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
     "TreasuryRule": ("treasury", "قاعدهٔ صندوق", ("category",)),
     "Membership": ("members", "عضو دفتر", ()),
     "Book": ("books", "دفتر", ("name",)),
+    "BankAccountLink": ("banks", "حساب بانکی دفتر", ()),
     "ApiKey": ("account", "کلید API", ("name", "label")),
 }
 
@@ -99,6 +100,7 @@ CATEGORY_LABELS = {
     "treasury": "صندوق‌ها",
     "members": "اعضا",
     "books": "دفترها",
+    "banks": "حساب‌های بانکی",
     "account": "حساب و ورود",
 }
 
@@ -120,6 +122,7 @@ FIELD_LABELS = {
     "ends_on": "پایان", "value": "مقدار", "basis": "مبنا", "period": "دوره", "mode": "حالت",
     "target": "هدف", "instrument": "چه چیزی", "sold_on": "تاریخ فروش", "sold_for": "قیمت فروش",
     "text": "متن", "unit_price": "قیمت واحد", "acquired_on": "تاریخ خرید", "installment_amount": "مبلغ قسط",
+    "bank_account_id": "حساب بانکی", "is_default": "پیش‌فرض",
     "kind": "نوع", "net_pay": "خالص پرداخت", "base_currency": "ارز پایه", "calendar": "تقویم",
     "cost_policy": "سیاست هزینه", "reason": "دلیل", "type": "نوع", "direction": "جهت",
 }
