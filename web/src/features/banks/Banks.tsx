@@ -31,6 +31,7 @@ import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { BankBalances, BankShareDonut, BankSplitPanel } from "./BankBalances";
 import { BankDialog } from "./BankForm";
+import { isSharedBook } from "./privacy";
 import { BookTransfers } from "./BookTransfers";
 import { Transfers } from "./Transfers";
 
@@ -87,6 +88,7 @@ function BankCard({
 	const assign = useBanksAssign();
 	const [removing, setRemoving] = useState(false);
 	const [assigning, setAssigning] = useState(false);
+	const shared = isSharedBook(book);
 	const here = bank.shares.find((share) => share.book_id === book.id);
 	const others = bank.shares.filter((share) => share.book_id !== book.id);
 	const refresh = () =>
@@ -129,9 +131,9 @@ function BankCard({
 					) : null}
 				</div>
 				<div className="flex flex-col items-end">
-					<span className="text-xs text-muted">{t.banks.total}</span>
+					<span className="text-xs text-muted">{shared ? t.banks.thisBook : t.banks.total}</span>
 					<span className="text-xl font-semibold tabular-nums">
-						{formatMoney(bank.total_balance, bank.currency)}
+						{formatMoney(shared ? (here?.balance ?? "0") : bank.total_balance, bank.currency)}
 					</span>
 				</div>
 			</header>
@@ -144,42 +146,46 @@ function BankCard({
 				) : null}
 				{bank.sheba ? <Copyable label={t.banks.sheba} value={bank.sheba} /> : null}
 			</div>
-			<div className="grid gap-4 md:grid-cols-2">
-				<BankShareDonut bank={bank} currency={bank.currency} highlightBookId={book.id} />
-				<div className="flex flex-col gap-2 text-sm">
-					<span className="font-medium">{t.banks.perBook}</span>
-					<ul className="flex flex-col gap-1.5">
-						{bank.shares.map((share) => (
-							<li key={share.book_id} className="flex items-center justify-between gap-3">
-								<bdi className="truncate">
-									{share.book_name}
-									{share.book_id === book.id ? ` (${t.banks.thisBook})` : ""}
-									{share.is_active ? "" : ` · ${t.banks.inactiveMark}`}
-								</bdi>
-								<span className="tabular-nums">{formatMoney(share.balance, bank.currency)}</span>
-							</li>
-						))}
-						{Number(bank.opening_balance) !== 0 ? (
-							<li className="flex items-center justify-between gap-3 text-muted">
-								<span>{t.banks.openingLine}</span>
-								<span className="tabular-nums">
-									{formatMoney(bank.opening_balance, bank.currency)}
-								</span>
-							</li>
+			{/* In a team book only this book's own share is said: the total and the other books are not the team's to see. */}
+			{shared ? null : (
+				<div className="grid gap-4 md:grid-cols-2">
+					<BankShareDonut bank={bank} currency={bank.currency} highlightBookId={book.id} />
+					<div className="flex flex-col gap-2 text-sm">
+						<span className="font-medium">{t.banks.perBook}</span>
+						<ul className="flex flex-col gap-1.5">
+							{bank.shares.map((share) => (
+								<li key={share.book_id} className="flex items-center justify-between gap-3">
+									<bdi className="truncate">
+										{share.book_name}
+										{share.book_id === book.id ? ` (${t.banks.thisBook})` : ""}
+										{share.is_active ? "" : ` · ${t.banks.inactiveMark}`}
+									</bdi>
+									<span className="tabular-nums">{formatMoney(share.balance, bank.currency)}</span>
+								</li>
+							))}
+							{Number(bank.opening_balance) !== 0 ? (
+								<li className="flex items-center justify-between gap-3 text-muted">
+									<span>{t.banks.openingLine}</span>
+									<span className="tabular-nums">
+										{formatMoney(bank.opening_balance, bank.currency)}
+									</span>
+								</li>
+							) : null}
+						</ul>
+						{others.length > 0 && here ? (
+							<p className="text-xs text-muted">
+								{t.banks.thisBook}: {formatMoney(here.balance, bank.currency)} ·{" "}
+								{t.banks.otherBooks}:{" "}
+								{formatMoney(
+									others.reduce((sum, share) => sum + Number(share.balance), 0).toFixed(4),
+									bank.currency,
+								)}
+							</p>
 						) : null}
-					</ul>
-					{others.length > 0 && here ? (
-						<p className="text-xs text-muted">
-							{t.banks.thisBook}: {formatMoney(here.balance, bank.currency)} · {t.banks.otherBooks}:{" "}
-							{formatMoney(
-								others.reduce((sum, share) => sum + Number(share.balance), 0).toFixed(4),
-								bank.currency,
-							)}
-						</p>
-					) : null}
-					<Check bank={bank} />
+						<Check bank={bank} />
+					</div>
 				</div>
-			</div>
+			)}
 			<footer className="flex flex-wrap gap-2">
 				<Button size="sm" variant="secondary" onPress={onEdit}>
 					{t.banks.edit}
@@ -253,26 +259,30 @@ function BankCard({
 						{t.banks.linkHere}
 					</Button>
 				) : null}
-				<Button
-					size="sm"
-					variant="secondary"
-					onPress={() =>
-						run(
-							() => update.mutateAsync({ bankId: bank.id, data: { is_active: !bank.is_active } }),
-							t.banks.updated,
-						)
-					}
-				>
-					{bank.is_active ? t.banks.switchOffAll : t.banks.switchOnAll}
-				</Button>
+				{shared ? null : (
+					<Button
+						size="sm"
+						variant="secondary"
+						onPress={() =>
+							run(
+								() => update.mutateAsync({ bankId: bank.id, data: { is_active: !bank.is_active } }),
+								t.banks.updated,
+							)
+						}
+					>
+						{bank.is_active ? t.banks.switchOffAll : t.banks.switchOnAll}
+					</Button>
+				)}
 				{here?.is_active && bank.is_active ? (
 					<Button size="sm" variant="secondary" onPress={() => setAssigning(true)}>
 						{t.banks.assign}
 					</Button>
 				) : null}
-				<Button size="sm" variant="danger-soft" onPress={() => setRemoving(true)}>
-					{t.banks.remove}
-				</Button>
+				{shared ? null : (
+					<Button size="sm" variant="danger-soft" onPress={() => setRemoving(true)}>
+						{t.banks.remove}
+					</Button>
+				)}
 			</footer>
 			<ConfirmDialog
 				isOpen={assigning}
@@ -321,13 +331,63 @@ function BankCard({
 	);
 }
 
+/** Your other accounts, by name only, that this team book could start using. */
+function OfferedBanks({ book, banks }: { book: BookResponse; banks: BankAccountResponse[] }) {
+	const queryClient = useQueryClient();
+	const link = useBanksLink();
+	return (
+		<div className="mt-4 flex flex-col gap-2">
+			<span className="text-sm font-medium">{t.banks.offeredTitle}</span>
+			<ul className="flex flex-col divide-y divide-separator rounded-xl border border-border">
+				{banks.map((bank) => (
+					<li key={bank.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+						<bdi className="truncate">{bank.title}</bdi>
+						<Button
+							size="sm"
+							variant="secondary"
+							onPress={async () => {
+								try {
+									await link.mutateAsync({
+										bookId: book.id,
+										bankId: bank.id,
+										data: { make_default: false },
+									});
+									await Promise.all([
+										queryClient.invalidateQueries({ queryKey: getBanksListMineQueryKey() }),
+										refreshMoney(queryClient, book.id),
+									]);
+									toast.success(t.banks.linked);
+								} catch (error) {
+									reportFailure(error);
+								}
+							}}
+						>
+							{t.banks.linkHere}
+						</Button>
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
 function Mine({ book, books }: { book: BookResponse; books: BookResponse[] }) {
 	const query = useBanksListMine();
 	const [editing, setEditing] = useState<BankAccountResponse | null>(null);
 	const [adding, setAdding] = useState(false);
 	if (query.isLoading) return <PageSkeleton header={false} rows={2} />;
 	if (query.isError) return <ErrorState onRetry={() => void query.refetch()} />;
-	const banks = query.data ?? [];
+	const all = query.data ?? [];
+	// In a team book only the accounts this book uses are listed, with this book's share; the owner's other
+	// accounts are not shown there, only offered by name below.
+	const shared = isSharedBook(book);
+	const banks = shared ? all.filter((bank) => bank.shares.some((s) => s.book_id === book.id)) : all;
+	const offered = shared
+		? all.filter(
+				(bank) =>
+					!bank.shares.some((s) => s.book_id === book.id) && bank.currency === book.currency,
+			)
+		: [];
 	return (
 		<>
 			{banks.length === 0 ? (
@@ -354,6 +414,7 @@ function Mine({ book, books }: { book: BookResponse; books: BookResponse[] }) {
 					</div>
 				</div>
 			)}
+			{offered.length > 0 ? <OfferedBanks book={book} banks={offered} /> : null}
 			<BankDialog
 				isOpen={adding}
 				onOpenChange={setAdding}

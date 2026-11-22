@@ -14,6 +14,7 @@ import { formatMoney, toAscii } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 import { amountRule } from "@/features/transactions/rules";
+import { isSharedBook } from "./privacy";
 
 // Only the bank and the holder are required. Every number is checked by the server (Luhn for a card,
 // the check digits for a Sheba), so a typo is refused with a sentence rather than saved.
@@ -135,28 +136,35 @@ function Fields({
 			<TextField name="card_number" label={t.banks.fieldCard} dir="ltr" inputMode="numeric" />
 			<TextField name="account_number" label={t.banks.fieldAccount} dir="ltr" />
 			<TextField name="sheba" label={t.banks.fieldSheba} dir="ltr" />
-			<TextField
-				name="opening_balance"
-				label={t.banks.fieldOpening}
-				description={t.banks.fieldOpeningHint}
-				inputMode="decimal"
-			/>
-			{bank ? (
+			{/* The opening balance and the bank's real balance are the account's own, whole: not for a team book to see or set. */}
+			{isSharedBook(current) ? null : (
 				<>
 					<TextField
-						name="current_balance"
-						label={t.banks.fieldCurrent}
-						description={t.banks.fieldCurrentHint}
+						name="opening_balance"
+						label={t.banks.fieldOpening}
+						description={t.banks.fieldOpeningHint}
 						inputMode="decimal"
 					/>
-					{preview !== null ? (
-						<p className="text-sm text-muted">
-							{t.banks.currentPreview}:{" "}
-							<b className="text-foreground tabular-nums">{formatMoney(preview, bank.currency)}</b>
-						</p>
+					{bank ? (
+						<>
+							<TextField
+								name="current_balance"
+								label={t.banks.fieldCurrent}
+								description={t.banks.fieldCurrentHint}
+								inputMode="decimal"
+							/>
+							{preview !== null ? (
+								<p className="text-sm text-muted">
+									{t.banks.currentPreview}:{" "}
+									<b className="text-foreground tabular-nums">
+										{formatMoney(preview, bank.currency)}
+									</b>
+								</p>
+							) : null}
+						</>
 					) : null}
 				</>
-			) : null}
+			)}
 			{bank ? null : (
 				<fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
 					<legend className="mb-1 text-sm font-medium">{t.banks.useIn}</legend>

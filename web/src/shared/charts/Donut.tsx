@@ -8,7 +8,14 @@ import { toNumber } from "./text";
 import type { FormatValue } from "./types";
 import { useReducedMotion } from "./useReducedMotion";
 
-export type Slice = { key: string; label: string; value: string; color: string };
+export type Slice = {
+	key: string;
+	label: string;
+	value: string;
+	color: string;
+	/** A small word beside the name in the legend («این دفتر»), so it need not be glued onto the name. */
+	tag?: string;
+};
 
 type DonutProps = {
 	title: string;
@@ -37,6 +44,8 @@ export function Donut({
 	const drawn = slices.map((slice) => ({
 		...slice,
 		number: Math.max(0, toNumber(slice.value) ?? 0),
+		// Below zero it cannot be drawn as part of a ring, but it is still said, in red, never as «۰٪».
+		negative: (toNumber(slice.value) ?? 0) < 0,
 	}));
 	const total = drawn.reduce((sum, slice) => sum + slice.number, 0);
 	const share = (number: number) =>
@@ -60,14 +69,27 @@ export function Donut({
 								style={{ background: slice.color }}
 							/>
 							<span className="min-w-0 flex-1">
-								<span className="block truncate">{slice.label}</span>
+								<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+									<span className="[overflow-wrap:anywhere]">{slice.label}</span>
+									{slice.tag ? (
+										<span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent-soft-foreground">
+											{slice.tag}
+										</span>
+									) : null}
+								</span>
 								{/* The amount has its own column from sm up; below that it goes under the name. */}
-								<span className="block text-xs text-muted tabular-nums sm:hidden">
+								<span
+									className={`block text-xs tabular-nums sm:hidden ${slice.negative ? "text-danger" : "text-muted"}`}
+								>
 									{formatValue(slice.value)}
 								</span>
 							</span>
-							<span className="tabular-nums text-muted">{share(slice.number)}٪</span>
-							<span className="hidden w-36 text-end tabular-nums sm:inline">
+							<span className="tabular-nums text-muted">
+								{slice.negative ? "—" : `${share(slice.number)}٪`}
+							</span>
+							<span
+								className={`hidden w-36 text-end tabular-nums sm:inline ${slice.negative ? "text-danger" : ""}`}
+							>
 								{formatValue(slice.value)}
 							</span>
 						</li>
@@ -79,11 +101,16 @@ export function Donut({
 				columns: [t.analytics.chart.amount, t.analytics.chart.share],
 				rows: drawn.map((slice) => ({
 					key: slice.key,
-					cells: [slice.label, formatValue(slice.value), `${share(slice.number)}٪`],
+					cells: [
+						slice.tag ? `${slice.label} (${slice.tag})` : slice.label,
+						formatValue(slice.value),
+						slice.negative ? "—" : `${share(slice.number)}٪`,
+					],
 				})),
 			}}
 		>
-			<div className="relative mx-auto size-36 sm:size-44">
+			{/* A click on the picture focuses its svg; the browser's square outline around a ring is not wanted. */}
+			<div className="relative mx-auto size-36 sm:size-44 [&_.recharts-wrapper]:outline-none [&_.recharts-surface]:outline-none">
 				<ResponsiveContainer width="100%" height="100%">
 					<PieChart accessibilityLayer={false}>
 						<Pie

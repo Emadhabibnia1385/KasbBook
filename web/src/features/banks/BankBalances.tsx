@@ -6,6 +6,7 @@ import { categoryColor, Donut, type Slice } from "@/shared/charts";
 import { addMoney } from "@/shared/decimal";
 import { formatCompact, formatMoney } from "@/shared/format";
 import { t } from "@/strings";
+import { isSharedBook } from "./privacy";
 
 /**
  * How one account's money divides between the books that use it: a ring with every book named, its
@@ -23,10 +24,9 @@ export function BankShareDonut({
 }) {
 	const slices: Slice[] = bank.shares.map((share, index) => ({
 		key: share.book_id,
-		label:
-			share.book_id === highlightBookId
-				? `${share.book_name} (${t.banks.thisBook})`
-				: share.book_name,
+		label: share.book_name,
+		// Said beside the name as a tag, not glued onto it: the name stays whole and wraps.
+		tag: share.book_id === highlightBookId ? t.banks.thisBook : undefined,
 		value: share.balance,
 		color: categoryColor(index),
 	}));
@@ -92,6 +92,8 @@ export function BankBalances({ book }: { book: BookResponse }) {
  */
 export function BankSplitPanel({ book }: { book: BookResponse }) {
 	const query = useBanksListMine();
+	// In a team book the account's total and the other books' shares are not for the team to see.
+	if (isSharedBook(book)) return null;
 	return (
 		<SectionCard title={t.banks.shareTitle} description={t.banks.shareHint}>
 			<Loaded query={query}>
@@ -103,7 +105,8 @@ export function BankSplitPanel({ book }: { book: BookResponse }) {
 					if (mine.length === 0)
 						return <p className="text-sm text-muted">{t.banks.balancesEmpty}</p>;
 					return (
-						<div className="grid gap-6 lg:grid-cols-2">
+						// Two accounts side by side; one account uses the whole width instead of half of it.
+						<div className={mine.length > 1 ? "grid gap-6 lg:grid-cols-2" : "flex flex-col gap-6"}>
 							{mine.map((bank) => {
 								const here = bank.shares.find((s) => s.book_id === book.id)?.balance ?? "0";
 								const others = addMoney(
