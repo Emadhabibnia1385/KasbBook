@@ -24,7 +24,7 @@ from ...modules.payroll.service import PayrollService
 from ...modules.treasury.models import FundKind, RuleBasis
 from ...modules.treasury.service import TreasuryService
 from ...shared.errors import NotFound, ValidationError
-from ..deps import CurrentUser, SessionDep
+from ..deps import CurrentUser, SessionDep, bank_choice
 from ..schemas import (
     AdjustmentRequest,
     AdjustmentResponse,
@@ -340,7 +340,8 @@ def _payslip(row, names) -> PayslipResponse:
         payments=[
             PaymentResponse(id=p.id, amount=p.amount, currency=p.currency,
                             conversion_rate=p.conversion_rate,
-                            paid_on=p.paid_on, reference=p.reference)
+                            paid_on=p.paid_on, reference=p.reference,
+                            bank_account_id=p.bank_account_id)
             for p in row.payments
         ],
     )
@@ -406,7 +407,7 @@ async def pay(
     await payroll.pay(
         user.id, payslip_id, body.amount, paid_on=body.paid_on,
         currency=body.currency, conversion_rate=body.conversion_rate,
-        reference=body.reference,
+        reference=body.reference, bank_account_id=bank_choice(body),
     )
 
     slip = await session.get(Payslip, payslip_id)

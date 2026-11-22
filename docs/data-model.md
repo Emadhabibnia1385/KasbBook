@@ -143,6 +143,13 @@ joined by a pair id: the bank account against the equity account «انتقال 
 book leaves the other consistent. The same shared account may be both ends, which
 moves only how much of it counts for each book.
 
+Pay to members (`3200`) and currency exchange (`3300`) post against their own
+equity accounts, and lent or borrowed cash against «مطالبات از دیگران» (`1710`)
+or «بدهی به دیگران» (`2100`): none of them is income or an expense. A debt keeps
+`DebtMovement` rows (it grew, or some was paid), each with its account when real
+cash moved. Unlike the other flows, a debt with no account named moves no cash,
+because a debt from a credit sale already counted its money.
+
 Everything that moves cash can name the account: a transaction, a transfer,
 a recurring rule (which keeps the account it was made with), a loan installment,
 and an asset, fund or loan-principal movement. Left out, the book's default is

@@ -25,6 +25,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     LargeBinary,
@@ -76,7 +77,15 @@ class CurrencyConversion(UUIDPrimaryKey, Timestamped, Base):
     """Value leaving one currency of a book's wallet and arriving in another."""
 
     __tablename__ = "currency_conversions"
-    __table_args__ = (Index("ix_conversions_book_day", "book_id", "occurred_on"),)
+    __table_args__ = (
+        Index("ix_conversions_book_day", "book_id", "occurred_on"),
+        # One of this book's own accounts, or none.
+        ForeignKeyConstraint(
+            ["book_id", "bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_conversion_bank_book", deferrable=True, initially="DEFERRED",
+        ),
+    )
 
     book_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("books.id", ondelete="CASCADE"), nullable=False
@@ -85,6 +94,13 @@ class CurrencyConversion(UUIDPrimaryKey, Timestamped, Base):
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     occurred_on: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # The bank account the book's own currency left or arrived in, and the journal entry that moved it:
+    # only a conversion with the book's own currency on one side has one. Empty is «no account».
+    bank_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    journal_entry_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
+    )
 
     from_currency: Mapped[str] = mapped_column(String(8), nullable=False)
     from_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)

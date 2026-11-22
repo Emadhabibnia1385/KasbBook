@@ -3212,6 +3212,18 @@
       },
       "ConversionRequest": {
         "properties": {
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "base_value": {
             "anyOf": [
               {
@@ -3303,6 +3315,18 @@
             "title": "Attachment Count",
             "type": "integer"
           },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "base_currency": {
             "title": "Base Currency",
             "type": "string"
@@ -3368,6 +3392,18 @@
       "ConversionUpdate": {
         "description": "Every part of a conversion may be corrected; whatever is left out stays.",
         "properties": {
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "base_value": {
             "anyOf": [
               {
@@ -3834,6 +3870,131 @@
         "title": "DayResponse",
         "type": "object"
       },
+      "DebtIncreaseRequest": {
+        "description": "The debt grew: more lent to them, or more borrowed from them.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "occurred_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred On"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "DebtIncreaseRequest",
+        "type": "object"
+      },
+      "DebtMovementResponse": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "occurred_on": {
+            "format": "date",
+            "title": "Occurred On",
+            "type": "string"
+          },
+          "transaction_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transaction Id"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "amount",
+          "occurred_on"
+        ],
+        "title": "DebtMovementResponse",
+        "type": "object"
+      },
       "DebtRequest": {
         "properties": {
           "amount": {
@@ -3848,6 +4009,18 @@
               }
             ],
             "title": "Amount"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
           },
           "direction": {
             "title": "Direction",
@@ -3877,6 +4050,18 @@
             ],
             "title": "Note"
           },
+          "occurred_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred On"
+          },
           "person": {
             "maxLength": 120,
             "minLength": 1,
@@ -3898,6 +4083,11 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Amount",
             "type": "string"
+          },
+          "cash_moved": {
+            "default": false,
+            "title": "Cash Moved",
+            "type": "boolean"
           },
           "direction": {
             "title": "Direction",
@@ -3985,6 +4175,42 @@
               }
             ],
             "title": "Amount"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "occurred_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred On"
           },
           "record_transaction": {
             "default": false,
@@ -5510,6 +5736,18 @@
             ],
             "title": "Amount"
           },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
+          },
           "conversion_rate": {
             "anyOf": [
               {
@@ -5574,6 +5812,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Amount",
             "type": "string"
+          },
+          "bank_account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Id"
           },
           "conversion_rate": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -15757,7 +16007,195 @@
     },
     "/api/v1/books/{book_id}/debts/{debt_id}": {
       "delete": {
+        "description": "Forget a debt. Refused while real cash moved on it, unless `undo_cash` takes that back too.",
         "operationId": "planning_delete_debt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "debt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Debt Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "also take back the cash that moved on it",
+            "in": "query",
+            "name": "undo_cash",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "also take back the cash that moved on it",
+              "title": "Undo Cash",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Debt",
+        "tags": [
+          "planning"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/debts/{debt_id}/increase": {
+      "post": {
+        "description": "It grew: more was lent to them or borrowed from them. With an account, that cash moved.",
+        "operationId": "planning_increase_debt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "debt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Debt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebtIncreaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebtResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Increase Debt",
+        "tags": [
+          "planning"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/debts/{debt_id}/movements": {
+      "get": {
+        "description": "What happened to this debt, newest first: added again, paid some, received some.",
+        "operationId": "planning_debt_movements",
         "parameters": [
           {
             "in": "path",
@@ -15813,7 +16251,18 @@
           }
         ],
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DebtMovementResponse"
+                  },
+                  "title": "Response Planning Debt Movements",
+                  "type": "array"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
@@ -15827,7 +16276,103 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Debt",
+        "summary": "Debt Movements",
+        "tags": [
+          "planning"
+        ]
+      }
+    },
+    "/api/v1/books/{book_id}/debts/{debt_id}/movements/{movement_id}": {
+      "delete": {
+        "description": "Take one back; its cash goes with it. A debt is never taken below what was already paid.",
+        "operationId": "planning_void_debt_movement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Book Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "debt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Debt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "movement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Movement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebtResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Void Debt Movement",
         "tags": [
           "planning"
         ]

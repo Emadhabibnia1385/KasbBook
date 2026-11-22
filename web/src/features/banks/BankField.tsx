@@ -13,10 +13,15 @@ export function BankField({
 	name,
 	bookId,
 	hidden,
+	noneLabel,
+	label,
 }: {
 	name: string;
 	bookId: string;
 	hidden?: boolean;
+	/** What «no account» is called where it means something more specific than «بدون حساب». */
+	noneLabel?: string;
+	label?: string;
 }) {
 	const { field } = useController({ name });
 	const query = useBanksListForBook(bookId);
@@ -32,7 +37,7 @@ export function BankField({
 
 	if (hidden || !rows || rows.length === 0) return null;
 	const options = [
-		{ value: "none", label: t.banks.none },
+		{ value: "none", label: noneLabel ?? t.banks.none },
 		...rows
 			.filter((row) => row.is_active || row.id === value)
 			.map((row) => ({
@@ -47,5 +52,5 @@ export function BankField({
 					.join(" "),
 			})),
 	];
-	return <SelectField name={name} label={t.banks.account} options={options} />;
+	return <SelectField name={name} label={label ?? t.banks.account} options={options} />;
 }

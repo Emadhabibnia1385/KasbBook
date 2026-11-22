@@ -10,7 +10,7 @@ from .modules.banks.models import BankAccount, BankAccountLink, BankBookTransfer
 from .modules.books.models import Book, Membership, TeamInvitation
 from .modules.income.models import IncomeEntry, IncomeLink
 from .modules.budgets.models import Budget
-from .modules.debts.models import Debt
+from .modules.debts.models import Debt, DebtMovement
 from .modules.exchange.models import BookCurrency, ConversionAttachment, CurrencyConversion
 from .modules.identity.models import (
     ApiKey,
@@ -58,6 +58,7 @@ __all__ = [
     "BankAccountLink",
     "BankTransfer",
     "BankBookTransferLeg",
+    "DebtMovement",
     "IncomeEntry",
     "IncomeLink",
     "ActivityEvent",
@@ -77,6 +78,7 @@ __all__ = [
     "CapitalMovement",
     "ConversionAttachment",
     "Debt",
+    "DebtMovement",
     "FinancialNote",
     "FinancialPeriod",
     "Fund",

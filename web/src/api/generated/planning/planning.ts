@@ -33,12 +33,15 @@ import type {
 import type {
 	BudgetRequest,
 	BudgetResponse,
+	DebtIncreaseRequest,
+	DebtMovementResponse,
 	DebtRequest,
 	DebtResponse,
 	DebtSettleRequest,
 	HTTPValidationError,
 	LoanRequest,
 	LoanResponse,
+	PlanningDeleteDebtParams,
 	PlanningListDebtsParams,
 	PlanningPayInstallmentParams,
 } from "../model";
@@ -654,19 +657,37 @@ export const usePlanningCreateDebt = <TError = ErrorType<HTTPValidationError>, T
 > => {
 	return useMutation(getPlanningCreateDebtMutationOptions(options), queryClient);
 };
-export const getPlanningDeleteDebtUrl = (bookId: string, debtId: string) => {
-	return `/api/v1/books/${bookId}/debts/${debtId}`;
+export const getPlanningDeleteDebtUrl = (
+	bookId: string,
+	debtId: string,
+	params?: PlanningDeleteDebtParams,
+) => {
+	const normalizedParams = new URLSearchParams();
+
+	Object.entries(params || {}).forEach(([key, value]) => {
+		if (value !== undefined) {
+			normalizedParams.append(key, value === null ? "null" : String(value));
+		}
+	});
+
+	const stringifiedParams = normalizedParams.toString();
+
+	return stringifiedParams.length > 0
+		? `/api/v1/books/${bookId}/debts/${debtId}?${stringifiedParams}`
+		: `/api/v1/books/${bookId}/debts/${debtId}`;
 };
 
 /**
+ * Forget a debt. Refused while real cash moved on it, unless `undo_cash` takes that back too.
  * @summary Delete Debt
  */
 export const planningDeleteDebt = async (
 	bookId: string,
 	debtId: string,
+	params?: PlanningDeleteDebtParams,
 	options?: Parameters<typeof apiFetch>[1],
 ): Promise<void> => {
-	return apiFetch<void>(getPlanningDeleteDebtUrl(bookId, debtId), {
+	return apiFetch<void>(getPlanningDeleteDebtUrl(bookId, debtId, params), {
 		...options,
 		method: "DELETE",
 	});
@@ -702,9 +723,9 @@ export const getPlanningDeleteDebtMutationOptions = <
 		Awaited<ReturnType<typeof planningDeleteDebt>>,
 		PlanningDeleteDebtMutationVariables
 	> = (props) => {
-		const { bookId, debtId } = props ?? {};
+		const { bookId, debtId, params } = props ?? {};
 
-		return planningDeleteDebt(bookId, debtId, requestOptions);
+		return planningDeleteDebt(bookId, debtId, params, requestOptions);
 	};
 
 	return { mutationFn, ...mutationOptions };
@@ -715,7 +736,11 @@ export type PlanningDeleteDebtMutationResult = NonNullable<
 >;
 
 export type PlanningDeleteDebtMutationError = ErrorType<HTTPValidationError>;
-export type PlanningDeleteDebtMutationVariables = { bookId: string; debtId: string };
+export type PlanningDeleteDebtMutationVariables = {
+	bookId: string;
+	debtId: string;
+	params?: PlanningDeleteDebtParams;
+};
 
 /**
  * @summary Delete Debt
@@ -738,6 +763,366 @@ export const usePlanningDeleteDebt = <TError = ErrorType<HTTPValidationError>, T
 	TContext
 > => {
 	return useMutation(getPlanningDeleteDebtMutationOptions(options), queryClient);
+};
+export const getPlanningIncreaseDebtUrl = (bookId: string, debtId: string) => {
+	return `/api/v1/books/${bookId}/debts/${debtId}/increase`;
+};
+
+/**
+ * It grew: more was lent to them or borrowed from them. With an account, that cash moved.
+ * @summary Increase Debt
+ */
+export const planningIncreaseDebt = async (
+	bookId: string,
+	debtId: string,
+	debtIncreaseRequest: DebtIncreaseRequest,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<DebtResponse> => {
+	const getHeaders = (
+		h?: NonNullable<RequestInit["headers"]>,
+	): Record<string, string | readonly string[]> => {
+		if (!h) return {};
+		if (h instanceof Headers) return Object.fromEntries(h.entries());
+		if (Symbol.iterator in h) {
+			return Object.fromEntries(
+				Array.from(
+					h as Iterable<Iterable<string>>,
+					(entry) => Array.from(entry) as [string, string],
+				),
+			);
+		}
+		const headers: Record<string, string | readonly string[]> = {};
+		for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+			if (value !== undefined) headers[name] = value;
+		}
+		return headers;
+	};
+	return apiFetch<DebtResponse>(getPlanningIncreaseDebtUrl(bookId, debtId), {
+		...options,
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+		body: JSON.stringify(debtIncreaseRequest),
+	});
+};
+
+export const getPlanningIncreaseDebtMutationKey = () => ["planningIncreaseDebt"] as const;
+
+export const getPlanningIncreaseDebtMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof planningIncreaseDebt>>,
+		TError,
+		PlanningIncreaseDebtMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof planningIncreaseDebt>>,
+	TError,
+	PlanningIncreaseDebtMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPlanningIncreaseDebtMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof planningIncreaseDebt>>,
+		PlanningIncreaseDebtMutationVariables
+	> = (props) => {
+		const { bookId, debtId, data } = props ?? {};
+
+		return planningIncreaseDebt(bookId, debtId, data, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PlanningIncreaseDebtMutationResult = NonNullable<
+	Awaited<ReturnType<typeof planningIncreaseDebt>>
+>;
+export type PlanningIncreaseDebtMutationBody = DebtIncreaseRequest;
+export type PlanningIncreaseDebtMutationError = ErrorType<HTTPValidationError>;
+export type PlanningIncreaseDebtMutationVariables = {
+	bookId: string;
+	debtId: string;
+	data: DebtIncreaseRequest;
+};
+
+/**
+ * @summary Increase Debt
+ */
+export const usePlanningIncreaseDebt = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof planningIncreaseDebt>>,
+			TError,
+			PlanningIncreaseDebtMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof planningIncreaseDebt>>,
+	TError,
+	PlanningIncreaseDebtMutationVariables,
+	TContext
+> => {
+	return useMutation(getPlanningIncreaseDebtMutationOptions(options), queryClient);
+};
+export const getPlanningDebtMovementsUrl = (bookId: string, debtId: string) => {
+	return `/api/v1/books/${bookId}/debts/${debtId}/movements`;
+};
+
+/**
+ * What happened to this debt, newest first: added again, paid some, received some.
+ * @summary Debt Movements
+ */
+export const planningDebtMovements = async (
+	bookId: string,
+	debtId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<DebtMovementResponse[]> => {
+	return apiFetch<DebtMovementResponse[]>(getPlanningDebtMovementsUrl(bookId, debtId), {
+		...options,
+		method: "GET",
+	});
+};
+
+export const getPlanningDebtMovementsQueryKey = (bookId: string, debtId: string) => {
+	return [`/api/v1/books/${bookId}/debts/${debtId}/movements`] as const;
+};
+
+export const usePlanningDebtMovementsQueryOptions = <
+	TData = Awaited<ReturnType<typeof planningDebtMovements>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	debtId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof planningDebtMovements>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+) => {
+	const { query: queryOptions, request: requestOptions } = options ?? {};
+
+	const queryKey = queryOptions?.queryKey ?? getPlanningDebtMovementsQueryKey(bookId, debtId);
+
+	const queryFn: QueryFunction<Awaited<ReturnType<typeof planningDebtMovements>>> = ({ signal }) =>
+		planningDebtMovements(bookId, debtId, { signal, ...requestOptions });
+
+	const customOptions = queryDefaults({
+		queryKey,
+		queryFn,
+		enabled: bookId !== null && bookId !== undefined && debtId !== null && debtId !== undefined,
+		...queryOptions,
+	});
+
+	return customOptions as UseQueryOptions<
+		Awaited<ReturnType<typeof planningDebtMovements>>,
+		TError,
+		TData
+	> & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type PlanningDebtMovementsQueryResult = NonNullable<
+	Awaited<ReturnType<typeof planningDebtMovements>>
+>;
+export type PlanningDebtMovementsQueryError = ErrorType<HTTPValidationError>;
+
+export function usePlanningDebtMovements<
+	TData = Awaited<ReturnType<typeof planningDebtMovements>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	debtId: string,
+	options: {
+		query: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof planningDebtMovements>>, TError, TData>
+		> &
+			Pick<
+				DefinedInitialDataOptions<
+					Awaited<ReturnType<typeof planningDebtMovements>>,
+					TError,
+					Awaited<ReturnType<typeof planningDebtMovements>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePlanningDebtMovements<
+	TData = Awaited<ReturnType<typeof planningDebtMovements>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	debtId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof planningDebtMovements>>, TError, TData>
+		> &
+			Pick<
+				UndefinedInitialDataOptions<
+					Awaited<ReturnType<typeof planningDebtMovements>>,
+					TError,
+					Awaited<ReturnType<typeof planningDebtMovements>>
+				>,
+				"initialData"
+			>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePlanningDebtMovements<
+	TData = Awaited<ReturnType<typeof planningDebtMovements>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	debtId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof planningDebtMovements>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Debt Movements
+ */
+
+export function usePlanningDebtMovements<
+	TData = Awaited<ReturnType<typeof planningDebtMovements>>,
+	TError = ErrorType<HTTPValidationError>,
+>(
+	bookId: string,
+	debtId: string,
+	options?: {
+		query?: Partial<
+			UseQueryOptions<Awaited<ReturnType<typeof planningDebtMovements>>, TError, TData>
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+	const queryOptions = usePlanningDebtMovementsQueryOptions(bookId, debtId, options);
+
+	const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+		queryKey: DataTag<QueryKey, TData, TError>;
+	};
+
+	return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getPlanningVoidDebtMovementUrl = (
+	bookId: string,
+	debtId: string,
+	movementId: string,
+) => {
+	return `/api/v1/books/${bookId}/debts/${debtId}/movements/${movementId}`;
+};
+
+/**
+ * Take one back; its cash goes with it. A debt is never taken below what was already paid.
+ * @summary Void Debt Movement
+ */
+export const planningVoidDebtMovement = async (
+	bookId: string,
+	debtId: string,
+	movementId: string,
+	options?: Parameters<typeof apiFetch>[1],
+): Promise<DebtResponse> => {
+	return apiFetch<DebtResponse>(getPlanningVoidDebtMovementUrl(bookId, debtId, movementId), {
+		...options,
+		method: "DELETE",
+	});
+};
+
+export const getPlanningVoidDebtMovementMutationKey = () => ["planningVoidDebtMovement"] as const;
+
+export const getPlanningVoidDebtMovementMutationOptions = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(options?: {
+	mutation?: UseMutationOptions<
+		Awaited<ReturnType<typeof planningVoidDebtMovement>>,
+		TError,
+		PlanningVoidDebtMovementMutationVariables,
+		TContext
+	>;
+	request?: SecondParameter<typeof apiFetch>;
+}): UseMutationOptions<
+	Awaited<ReturnType<typeof planningVoidDebtMovement>>,
+	TError,
+	PlanningVoidDebtMovementMutationVariables,
+	TContext
+> => {
+	const mutationKey = getPlanningVoidDebtMovementMutationKey();
+	const { mutation: mutationOptions, request: requestOptions } = options
+		? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+			? options
+			: { ...options, mutation: { ...options.mutation, mutationKey } }
+		: { mutation: { mutationKey }, request: undefined };
+
+	const mutationFn: MutationFunction<
+		Awaited<ReturnType<typeof planningVoidDebtMovement>>,
+		PlanningVoidDebtMovementMutationVariables
+	> = (props) => {
+		const { bookId, debtId, movementId } = props ?? {};
+
+		return planningVoidDebtMovement(bookId, debtId, movementId, requestOptions);
+	};
+
+	return { mutationFn, ...mutationOptions };
+};
+
+export type PlanningVoidDebtMovementMutationResult = NonNullable<
+	Awaited<ReturnType<typeof planningVoidDebtMovement>>
+>;
+
+export type PlanningVoidDebtMovementMutationError = ErrorType<HTTPValidationError>;
+export type PlanningVoidDebtMovementMutationVariables = {
+	bookId: string;
+	debtId: string;
+	movementId: string;
+};
+
+/**
+ * @summary Void Debt Movement
+ */
+export const usePlanningVoidDebtMovement = <
+	TError = ErrorType<HTTPValidationError>,
+	TContext = unknown,
+>(
+	options?: {
+		mutation?: UseMutationOptions<
+			Awaited<ReturnType<typeof planningVoidDebtMovement>>,
+			TError,
+			PlanningVoidDebtMovementMutationVariables,
+			TContext
+		>;
+		request?: SecondParameter<typeof apiFetch>;
+	},
+	queryClient?: QueryClient,
+): UseMutationResult<
+	Awaited<ReturnType<typeof planningVoidDebtMovement>>,
+	TError,
+	PlanningVoidDebtMovementMutationVariables,
+	TContext
+> => {
+	return useMutation(getPlanningVoidDebtMovementMutationOptions(options), queryClient);
 };
 export const getPlanningSettleDebtUrl = (bookId: string, debtId: string) => {
 	return `/api/v1/books/${bookId}/debts/${debtId}/settle`;

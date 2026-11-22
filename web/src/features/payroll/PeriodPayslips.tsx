@@ -21,7 +21,10 @@ import {
 	type StatusTone,
 } from "@nyxon/nasim";
 import { useEffect, useRef } from "react";
+import { useBanksListForBook } from "@/api/generated/banks/banks";
 import { useBooksListCurrencies } from "@/api/generated/books/books";
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { useRates } from "@/features/market/useRates";
 import type {
 	BookResponse,
@@ -79,6 +82,8 @@ function PayForm({
 			currency: z.string(),
 			rate: z.string().transform(toAscii),
 			reference: z.string().trim().max(80),
+			// The account the money leaves: empty until the book's accounts load, then «none» or an account.
+			bank_account_id: z.string(),
 		})
 		.superRefine((values, context) => {
 			if (values.currency === slip.currency) return;
@@ -96,6 +101,7 @@ function PayForm({
 			currency: slip.currency,
 			rate: "",
 			reference: "",
+			bank_account_id: "",
 		},
 	});
 	const currency = useWatch({ control: form.control, name: "currency" });
@@ -134,6 +140,8 @@ function PayForm({
 							currency: other ? values.currency : null,
 							conversion_rate: other ? values.rate : null,
 							reference: values.reference || null,
+							// An account holds only the book's own currency, so a payment in another has none.
+							bank_account_id: other ? undefined : bankValue(values.bank_account_id),
 						},
 					});
 					await refreshPayroll(queryClient, book.id);
@@ -194,6 +202,7 @@ function PayForm({
 					{t.payroll.pay.fillRest}
 				</Button>
 			) : null}
+			<BankField name="bank_account_id" bookId={book.id} hidden={foreign} />
 			<TextField
 				name="reference"
 				label={t.payroll.pay.reference}
@@ -210,11 +219,14 @@ function Payments({
 	payments,
 	canVoid,
 	onVoid,
+	accounts,
 }: {
 	slip: PayslipResponse;
 	payments: readonly PaymentResponse[];
 	canVoid: boolean;
 	onVoid: (payment: PaymentResponse) => void;
+	/** Account id → what it is called, for the book. */
+	accounts: Record<string, string>;
 }) {
 	if (payments.length === 0)
 		return <p className="text-sm text-muted">{t.payroll.slips.noPayments}</p>;
@@ -234,6 +246,9 @@ function Payments({
 						</Figure>
 						<span className="text-xs text-muted">
 							{formatFullDate(payment.paid_on)}
+							{payment.bank_account_id && accounts[payment.bank_account_id]
+								? ` · ${accounts[payment.bank_account_id]}`
+								: ""}
 							{payment.reference ? ` · ${payment.reference}` : ""}
 						</span>
 					</span>
@@ -267,6 +282,11 @@ export function PeriodPayslips({
 		payment: PaymentResponse;
 	} | null>(null);
 	const open = period.status !== "locked";
+	const accounts = Object.fromEntries(
+		(useBanksListForBook(book.id).data ?? []).map((bank) => [bank.id, bank.title]),
+	);
+	// The account a «pay it all» comes out of: chosen in the confirmation, starting on the book's default.
+	const allForm = useForm<{ bank_account_id: string }>({ defaultValues: { bank_account_id: "" } });
 	const owedTotal = sum(
 		slips.filter((slip) => isPositive(slip.outstanding)).map((slip) => slip.outstanding),
 	);
@@ -398,6 +418,7 @@ export function PeriodPayslips({
 										payments={slip.payments}
 										canVoid={open}
 										onVoid={(payment) => setVoiding({ slip, payment })}
+										accounts={accounts}
 									/>
 								</div>
 							</ItemCard>
@@ -432,7 +453,10 @@ export function PeriodPayslips({
 						await pay.mutateAsync({
 							bookId: book.id,
 							payslipId: payingAll.id,
-							data: { amount: payingAll.outstanding },
+							data: {
+								amount: payingAll.outstanding,
+								bank_account_id: bankValue(allForm.getValues("bank_account_id")),
+							},
 						});
 						await refreshPayroll(queryClient, book.id);
 						toast.success(t.payroll.slips.paidToast);
@@ -441,7 +465,13 @@ export function PeriodPayslips({
 						throw error;
 					}
 				}}
-			/>
+			>
+				{payingAll && payingAll.currency === book.currency ? (
+					<FormRoot form={allForm} onSubmit={() => {}}>
+						<BankField name="bank_account_id" bookId={book.id} />
+					</FormRoot>
+				) : null}
+			</ConfirmDialog>
 			<ConfirmDialog
 				isOpen={voiding !== null}
 				onOpenChange={(isOpen) => !isOpen && setVoiding(null)}

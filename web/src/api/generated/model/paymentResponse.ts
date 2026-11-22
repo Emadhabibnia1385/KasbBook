@@ -18,6 +18,7 @@
 export interface PaymentResponse {
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	amount: string;
+	bank_account_id?: string | null;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	conversion_rate: string;
 	currency: string;

@@ -1,3 +1,6 @@
+import { useBanksListForBook } from "@/api/generated/banks/banks";
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { DayPair } from "@/shared/DayPair";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -60,6 +63,8 @@ function conversionSchema(baseCode: string | undefined) {
 			baseValue: z.string(),
 			occurred_on: z.string().min(1, { error: t.days.needDate }),
 			note: z.string().max(300),
+			// The account the book's own currency left or arrived in: empty until the accounts load.
+			bank_account_id: z.string(),
 		})
 		.superRefine((value, ctx) => {
 			if (value.from && value.from === value.to) {
@@ -124,6 +129,7 @@ function ConvertForm({
 					baseValue: String(Number(conversion.base_value)),
 					occurred_on: `${conversion.occurred_on}T12:00`,
 					note: conversion.note ?? "",
+					bank_account_id: conversion.bank_account_id ?? "none",
 				}
 			: {
 					from: held[0]?.code ?? "",
@@ -133,6 +139,7 @@ function ConvertForm({
 					baseValue: "",
 					occurred_on: todayPicker(),
 					note: "",
+					bank_account_id: "",
 				},
 	});
 	const from = useWatch({ control: form.control, name: "from" });
@@ -151,6 +158,8 @@ function ConvertForm({
 	})();
 	const positive = /^\d+(\.\d+)?$/.test(balance) && Number(balance) > 0;
 	const needsBase = Boolean(from && to && from !== to && from !== baseCode && to !== baseCode);
+	// An account holds only the book's own currency, so one is asked for only when it is a side.
+	const usesBase = Boolean(from && to && (from === baseCode || to === baseCode));
 
 	// Today's price of what is paid, in what is received: it fills the received amount as the paid one is
 	// typed, until the person writes that one themselves.
@@ -210,6 +219,7 @@ function ConvertForm({
 					base_value: needsBase ? values.baseValue : null,
 					occurred_on: pickedDay(values.occurred_on),
 					note: values.note || null,
+					bank_account_id: usesBase ? bankValue(values.bank_account_id) : undefined,
 				};
 				try {
 					let id = conversion?.id;
@@ -290,6 +300,7 @@ function ConvertForm({
 				/>
 			) : null}
 			<DayField name="occurred_on" label={t.wallet.date} isRequired />
+			<BankField name="bank_account_id" bookId={book.id} hidden={!usesBase} />
 			<TextField name="note" label={t.wallet.note} />
 			<AttachmentsField
 				bookId={book.id}
@@ -318,6 +329,9 @@ export function Conversions({
 	const [removing, setRemoving] = useState<ConversionResponse | null>(null);
 	const remove = useBooksDeleteConversion();
 	const query = useBooksListConversions(book.id, { page, per_page: PER_PAGE });
+	const accounts = Object.fromEntries(
+		(useBanksListForBook(book.id).data ?? []).map((bank) => [bank.id, bank.title]),
+	);
 	const cal = calendarOf(book.calendar);
 	const enough = options.filter((option) => option.enabled).length >= 2;
 	const pages = Math.max(1, Math.ceil((query.data?.total ?? 0) / PER_PAGE));
@@ -360,6 +374,16 @@ export function Conversions({
 						header: t.wallet.received,
 						align: "center",
 						cell: (row) => <span dir="ltr">{formatMoney(row.to_amount, row.to_currency)}</span>,
+					},
+					{
+						id: "account",
+						header: t.banks.account,
+						align: "center",
+						cell: (row) => (
+							<bdi className="block max-w-40 truncate text-sm">
+								{row.bank_account_id ? (accounts[row.bank_account_id] ?? "—") : "—"}
+							</bdi>
+						),
 					},
 					{
 						id: "note",

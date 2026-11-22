@@ -24,8 +24,10 @@ import {
 	getPlanningListLoansQueryKey,
 	usePlanningDeleteBudget,
 	usePlanningDeleteDebt,
+	usePlanningDebtMovements,
 	usePlanningDeleteLoan,
 	usePlanningListBudgets,
+	usePlanningVoidDebtMovement,
 	usePlanningListDebts,
 	usePlanningListLoans,
 	usePlanningPayInstallment,
@@ -36,12 +38,13 @@ import type {
 	DebtResponse,
 	LoanResponse,
 } from "@/api/generated/model";
+import { useBanksListForBook } from "@/api/generated/banks/banks";
 import { BankField } from "@/features/banks/BankField";
 import { useActiveBook } from "@/features/books/useActiveBook";
 import { formatAmount, formatFullDate, formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
-import { BudgetForm, DebtForm, LoanForm, SettleForm } from "./PlanningForms";
+import { BudgetForm, DebtForm, IncreaseDebtForm, LoanForm, SettleForm } from "./PlanningForms";
 import { daysUntil, dueText } from "./dueDates";
 import { Funds } from "@/features/capital/Capital";
 import { FundForm } from "@/features/capital/CapitalForms";
@@ -173,11 +176,102 @@ function Budgets({ book }: { book: BookResponse }) {
 	);
 }
 
+/** What happened to one debt: added again, paid some, received some: each with its day and account. */
+function DebtHistory({ book, debt }: { book: BookResponse; debt: DebtResponse }) {
+	const queryClient = useQueryClient();
+	const [open, setOpen] = useState(false);
+	const movements = usePlanningDebtMovements(book.id, debt.id, { query: { enabled: open } });
+	const accounts = Object.fromEntries(
+		(useBanksListForBook(book.id).data ?? []).map((bank) => [bank.id, bank.title]),
+	);
+	const voidMovement = usePlanningVoidDebtMovement();
+	const [voiding, setVoiding] = useState<string | null>(null);
+	const rows = movements.data ?? [];
+	// Whatever the movements do not add up to is what the debt already was before they were kept.
+	const increased = rows
+		.filter((row) => row.kind === "increase")
+		.reduce((sum, row) => sum + Number(row.amount), 0);
+	const opening = Number(debt.amount) - increased;
+	return (
+		<div className="flex flex-col gap-2">
+			<Button size="sm" variant="ghost" onPress={() => setOpen(!open)}>
+				{t.plan.history}
+			</Button>
+			{open ? (
+				<ul className="flex flex-col divide-y divide-separator rounded-xl border border-border text-sm">
+					{rows.length === 0 && !movements.isLoading ? (
+						<li className="p-3 text-muted">{t.plan.historyEmpty}</li>
+					) : null}
+					{opening > 0 && rows.length > 0 ? (
+						<li className="flex items-center justify-between gap-2 px-3 py-2 text-muted">
+							<span>{t.plan.opening}</span>
+							<span className="tabular-nums">{formatMoney(String(opening), book.currency)}</span>
+						</li>
+					) : null}
+					{rows.map((row) => (
+						<li
+							key={row.id}
+							className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+						>
+							<span className="flex min-w-0 flex-col">
+								<span>
+									<b>{row.kind === "increase" ? t.plan.kindIncrease : t.plan.kindPayment}</b>{" "}
+									<span className="tabular-nums">{formatMoney(row.amount, book.currency)}</span>
+								</span>
+								<span className="text-xs text-muted">
+									{formatFullDate(row.occurred_on)}
+									{row.bank_account_id && accounts[row.bank_account_id]
+										? ` · ${accounts[row.bank_account_id]}`
+										: ""}
+									{row.note ? ` — ${row.note}` : ""}
+								</span>
+							</span>
+							<Button size="sm" variant="ghost" onPress={() => setVoiding(row.id)}>
+								{t.plan.voidMovement}
+							</Button>
+						</li>
+					))}
+				</ul>
+			) : null}
+			<ConfirmDialog
+				isOpen={voiding !== null}
+				onOpenChange={(isOpen) => !isOpen && setVoiding(null)}
+				title={t.plan.voidTitle}
+				description={t.plan.voidBody}
+				confirmLabel={t.plan.voidMovement}
+				tone="danger"
+				onConfirm={async () => {
+					if (!voiding) return;
+					try {
+						await voidMovement.mutateAsync({
+							bookId: book.id,
+							debtId: debt.id,
+							movementId: voiding,
+						});
+						await Promise.all([
+							queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) }),
+							queryClient.invalidateQueries({
+								predicate: (query) => String(query.queryKey[0]).includes("/debts/"),
+							}),
+							refreshMoney(queryClient, book.id),
+						]);
+						toast.success(t.plan.voided);
+					} catch (error) {
+						reportFailure(error);
+						throw error;
+					}
+				}}
+			/>
+		</div>
+	);
+}
+
 function Debts({ book }: { book: BookResponse }) {
 	const queryClient = useQueryClient();
 	const { data = [], isLoading } = usePlanningListDebts(book.id);
 	const remove = usePlanningDeleteDebt();
 	const [adding, setAdding] = useState(false);
+	const [increasing, setIncreasing] = useState<DebtResponse | null>(null);
 	const [settling, setSettling] = useState<DebtResponse | null>(null);
 	const [removing, setRemoving] = useState<DebtResponse | null>(null);
 	return (
@@ -244,16 +338,35 @@ function Debts({ book }: { book: BookResponse }) {
 										{t.plan.partPay}
 									</Button>
 								)}
+								<Button size="sm" variant="secondary" onPress={() => setIncreasing(debt)}>
+									{t.plan.more}
+								</Button>
 								<Button size="sm" variant="ghost" onPress={() => setRemoving(debt)}>
 									{t.common.delete}
 								</Button>
 							</Actions>
+							<DebtHistory book={book} debt={debt} />
 						</Row>
 					))}
 				</ul>
 			)}
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.planningForms.addDebt} size="sm">
 				<DebtForm book={book} onDone={() => setAdding(false)} />
+			</Modal>
+			<Modal
+				isOpen={increasing !== null}
+				onOpenChange={(open) => !open && setIncreasing(null)}
+				title={increasing ? `${t.plan.moreTitle} ${increasing.person}` : t.plan.more}
+				size="sm"
+			>
+				{increasing ? (
+					<IncreaseDebtForm
+						key={increasing.id}
+						book={book}
+						debt={increasing}
+						onDone={() => setIncreasing(null)}
+					/>
+				) : null}
 			</Modal>
 			<Modal
 				isOpen={settling !== null}
@@ -273,17 +386,23 @@ function Debts({ book }: { book: BookResponse }) {
 			<ConfirmDialog
 				isOpen={removing !== null}
 				onOpenChange={(open) => !open && setRemoving(null)}
-				title={t.planningForms.deleteDebtTitle}
-				description={t.planningForms.deleteDebtBody}
-				confirmLabel={t.common.delete}
+				title={removing?.cash_moved ? t.plan.cashDeleteTitle : t.planningForms.deleteDebtTitle}
+				description={removing?.cash_moved ? t.plan.cashDeleteBody : t.planningForms.deleteDebtBody}
+				confirmLabel={removing?.cash_moved ? t.plan.cashDeleteConfirm : t.common.delete}
 				tone="danger"
 				onConfirm={async () => {
 					if (!removing) return;
 					try {
-						await remove.mutateAsync({ bookId: book.id, debtId: removing.id });
-						await queryClient.invalidateQueries({
-							queryKey: getPlanningListDebtsQueryKey(book.id),
+						await remove.mutateAsync({
+							bookId: book.id,
+							debtId: removing.id,
+							// Real cash is in its history: the person has just been told, and agreed, that it goes too.
+							params: removing.cash_moved ? { undo_cash: true } : undefined,
 						});
+						await Promise.all([
+							queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) }),
+							refreshMoney(queryClient, book.id),
+						]);
 						toast.success(t.planningForms.deleted);
 					} catch (error) {
 						reportFailure(error);

@@ -28,6 +28,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
@@ -288,7 +289,15 @@ class Payment(UUIDPrimaryKey, Timestamped, Base):
     """Money actually handed over — possibly in instalments, possibly in another currency."""
 
     __tablename__ = "payroll_payments"
-    __table_args__ = (Index("ix_payments_payslip", "payslip_id"),)
+    __table_args__ = (
+        Index("ix_payments_payslip", "payslip_id"),
+        # The account must be one the payment's own book is linked to; empty means no account.
+        ForeignKeyConstraint(
+            ["book_id", "bank_account_id"],
+            ["bank_account_links.book_id", "bank_account_links.bank_account_id"],
+            name="fk_payment_bank_book", deferrable=True, initially="DEFERRED",
+        ),
+    )
 
     payslip_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("payslips.id", ondelete="CASCADE"), nullable=False
@@ -299,6 +308,15 @@ class Payment(UUIDPrimaryKey, Timestamped, Base):
         Money, nullable=False, default=Decimal("1")
     )
     paid_on: Mapped[date] = mapped_column(Date, nullable=False)
+    # The book it was paid in (the payslip's), kept here so the account can be tied to that book's links.
+    # Empty only on payments made before accounts existed.
+    book_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    # Which of the book's bank accounts the money left, and the journal entry that moved it there. Only for
+    # a payment in the book's own currency; a payment in another currency leaves no account.
+    bank_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    journal_entry_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
+    )
     reference: Mapped[Optional[str]] = mapped_column(String(80))
     note: Mapped[Optional[str]] = mapped_column(Text)
 

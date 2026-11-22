@@ -19,6 +19,7 @@
  * Every part of a conversion may be corrected; whatever is left out stays.
  */
 export interface ConversionUpdate {
+	bank_account_id?: string | null;
 	base_value?: number | string | null;
 	from_amount?: number | string | null;
 	from_currency?: string | null;

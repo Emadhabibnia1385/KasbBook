@@ -17,6 +17,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..banks.service import UNSET, BankService
 from ..capital.models import CapitalMovement
 from ...shared import jalali
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
@@ -25,7 +26,7 @@ from ..books.models import Permission, Role
 from ..books.service import BookService
 from ..budgets.models import Budget
 from ..debts.models import Debt
-from ..ledger.models import Flow, Transaction
+from ..ledger.models import Flow, JournalEntry, Transaction
 from ..loans.models import Loan
 from ..recurring.models import RecurringRule
 from ..treasury.models import TreasuryFund
@@ -388,8 +389,14 @@ class ExchangeService:
         base_value=None,
         occurred_on: Optional[date] = None,
         note: Optional[str] = None,
+        bank_account_id=UNSET,
     ) -> CurrencyConversion:
-        """Move value from one of the book's currencies into another."""
+        """Move value from one of the book's currencies into another.
+
+        When the book's own currency is one side, that money left (or arrived in) a bank account:
+        `bank_account_id` names it (left out, the book's default; `None`, none). Between two other
+        currencies there is no account.
+        """
         await self.books.require(book_id, actor_user_id, Permission.MANAGE_TREASURY)
         book = await self.books.get_book(book_id)
 
@@ -431,9 +438,14 @@ class ExchangeService:
             if base <= ZERO:
                 raise ValidationError("ارزش تبدیل باید بیشتر از صفر باشد.")
 
+        link = await BankService(self.session).resolve(
+            book_id, bank_account_id,
+            in_base_currency=book.base_currency in (from_currency, to_currency),
+        )
         conversion = CurrencyConversion(
             book_id=book_id,
             actor_user_id=actor_user_id,
+            bank_account_id=link.bank_account_id if link else None,
             occurred_on=occurred_on or jalali.today_in(book.timezone),
             from_currency=from_currency,
             from_amount=out_amount,
@@ -445,7 +457,36 @@ class ExchangeService:
         )
         self.session.add(conversion)
         await self.session.flush()
+        if link is not None:
+            conversion.journal_entry_id = await self._post(conversion, link)
+            await self.session.flush()
         return conversion
+
+    async def _post(self, conversion: CurrencyConversion, link) -> uuid.UUID:
+        """The bank account's side of a conversion, against «تبدیل ارز»: money out of the account when the
+        book's own currency was given, into it when it was received. Not income and not an expense."""
+        from ..ledger.service import LedgerService
+
+        ledger = LedgerService(self.session)
+        await ledger.ensure_chart_of_accounts(conversion.book_id)
+        equity = await ledger.account(conversion.book_id, "3300")
+        bank = await ledger._money_account(conversion.book_id, link)
+        leaving = conversion.from_currency == conversion.base_currency
+        amount = conversion.from_amount if leaving else conversion.to_amount
+        lines = ([(equity.id, amount, ZERO), (bank.id, ZERO, amount)] if leaving
+                 else [(bank.id, amount, ZERO), (equity.id, ZERO, amount)])
+        entry = await ledger.post_entry(
+            conversion.book_id, conversion.occurred_on, lines, memo="currency conversion"
+        )
+        return entry.id
+
+    async def _unpost(self, conversion: CurrencyConversion) -> None:
+        if conversion.journal_entry_id is not None:
+            entry = await self.session.get(JournalEntry, conversion.journal_entry_id)
+            if entry is not None:
+                await self.session.delete(entry)
+                await self.session.flush()
+            conversion.journal_entry_id = None
 
     async def conversions(
         self, actor_user_id: uuid.UUID, book_id: uuid.UUID, limit: int = 20
@@ -514,6 +555,7 @@ class ExchangeService:
         from_currency: Optional[str] = None, from_amount=None,
         to_currency: Optional[str] = None, to_amount=None, base_value=None,
         occurred_on: Optional[date] = None, note: Optional[str] = None,
+        bank_account_id=UNSET,
     ) -> CurrencyConversion:
         """Correct a conversion: either side, either amount, its worth in the book's currency, its day, its note."""
         await self.books.require(book_id, actor_user_id, Permission.MANAGE_TREASURY)
@@ -546,6 +588,13 @@ class ExchangeService:
         else:
             # Neither side is the book's own currency: keep the worth it had unless the amounts moved.
             base = to_decimal(row.base_value)
+        # Left out, the account stays if the conversion still has the book's own currency on a side; an
+        # account is never kept on one that no longer does.
+        uses_base = book.base_currency in (src, dst)
+        if bank_account_id is UNSET:
+            link = await BankService(self.session).link_for(book_id, row.bank_account_id) if uses_base else None
+        else:
+            link = await BankService(self.session).resolve(book_id, bank_account_id, in_base_currency=uses_base)
         row.from_currency, row.to_currency = src, dst
         row.from_amount, row.to_amount, row.base_value = out_amount, in_amount, base
         row.base_currency = book.base_currency
@@ -553,6 +602,12 @@ class ExchangeService:
             row.occurred_on = occurred_on
         if note is not None:
             row.note = note.strip() or None
+        # The entry mirrors the conversion, so it is taken back and written again from what it is now.
+        await self._unpost(row)
+        row.bank_account_id = link.bank_account_id if link else None
+        await self.session.flush()
+        if link is not None:
+            row.journal_entry_id = await self._post(row, link)
         await self.session.flush()
         await self._nothing_goes_negative(book_id, touched | {src, dst})
         return row
@@ -566,6 +621,7 @@ class ExchangeService:
 
         await CategoryService(self.session).lock_book(book_id)
         codes = {row.from_currency, row.to_currency}
+        await self._unpost(row)
         await self.session.delete(row)
         await self.session.flush()
         await self._nothing_goes_negative(book_id, codes)

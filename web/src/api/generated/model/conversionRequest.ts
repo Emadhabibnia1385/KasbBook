@@ -16,6 +16,7 @@
  */
 
 export interface ConversionRequest {
+	bank_account_id?: string | null;
 	base_value?: number | string | null;
 	from_amount: number | string;
 	from_currency: string;

@@ -824,3 +824,272 @@ async def test_deleting_one_book_leaves_the_other_consistent(api, db):
     check = (await api.get(f"{V1}/bank-accounts/{mine['id']}/reconciliation", headers=headers)).json()
     assert check["consistent"] is True and Decimal(check["from_journal"]) == 90
     assert await balanced(db, personal["id"])
+
+
+# ----------------------------------------- pay to members, and exchanging currency
+async def team_with_pay(api, db):
+    """A team book of one with a bank account, a 100% share, an income and a calculated period."""
+    tokens = await register(api, email="payer@example.com")
+    headers = bearer(tokens)
+    me = (await api.get(f"{V1}/auth/me", headers=headers)).json()
+    book = (await api.post(f"{V1}/books", headers=headers, json={"name": "تیم", "type": "team"})).json()
+    bank = await make_bank(api, headers, [book], opening_balance="5000")
+    await api.put(f"{V1}/books/{book['id']}/shares", headers=headers, json={
+        "user_id": me["id"], "basis": "percent", "value": "100", "effective_from": "2026-01-01"})
+    await record(api, headers, book, "income", 1000, bank_account_id=bank["id"])
+    period = (await api.post(f"{V1}/books/{book['id']}/periods", headers=headers, json={
+        "label": "مرداد", "starts_on": "2026-08-01", "ends_on": "2026-08-31"})).json()
+    slip = (await api.post(f"{V1}/books/{book['id']}/periods/{period['id']}/calculate",
+                           headers=headers)).json()[0]
+    return headers, book, bank, slip
+
+
+async def test_paying_a_member_takes_the_money_off_the_account_and_voiding_puts_it_back(api, db):
+    headers, book, bank, slip = await team_with_pay(api, db)
+    assert (await totals(api, headers))[bank["id"]] == 6000  # 5000 opening + 1000 income
+
+    paid = await api.post(f"{V1}/books/{book['id']}/payslips/{slip['id']}/payments", headers=headers,
+                          json={"amount": "300", "paid_on": DAY})
+    assert paid.status_code == 201, paid.text
+    payment = paid.json()["payments"][0]
+    assert payment["bank_account_id"] == bank["id"]  # the book's default, left out of the request
+    assert (await totals(api, headers))[bank["id"]] == 5700
+    await everything_agrees(api, db, headers, [book])
+
+    # Not an expense of the book: its report of income and expense did not move.
+    page = (await api.get(f"{V1}/books/{book['id']}/transactions", headers=headers)).json()
+    assert Decimal(page["total_expense"]) == 0
+
+    voided = await api.delete(
+        f"{V1}/books/{book['id']}/payslips/{slip['id']}/payments/{payment['id']}", headers=headers)
+    assert voided.status_code == 200, voided.text
+    assert (await totals(api, headers))[bank["id"]] == 6000
+    await everything_agrees(api, db, headers, [book])
+
+
+async def test_a_payment_can_name_no_account_and_another_currency_cannot_name_one(api, db):
+    headers, book, bank, slip = await team_with_pay(api, db)
+    none = await api.post(f"{V1}/books/{book['id']}/payslips/{slip['id']}/payments", headers=headers,
+                          json={"amount": "100", "paid_on": DAY, "bank_account_id": None})
+    assert none.status_code == 201, none.text
+    assert none.json()["payments"][0]["bank_account_id"] is None
+    assert (await totals(api, headers))[bank["id"]] == 6000
+
+    await api.put(f"{V1}/books/{book['id']}/currencies/USDT", headers=headers, json={"enabled": True})
+    await record(api, headers, book, "income", 50, currency="USDT", conversion_rate="100",
+                 bank_account_id=None)
+    refused = await api.post(f"{V1}/books/{book['id']}/payslips/{slip['id']}/payments", headers=headers,
+                             json={"amount": "1", "currency": "USDT", "conversion_rate": "100",
+                                   "paid_on": DAY, "bank_account_id": bank["id"]})
+    assert refused.status_code == 422
+    # Naming nothing is fine: the default does not apply to another currency.
+    ok = await api.post(f"{V1}/books/{book['id']}/payslips/{slip['id']}/payments", headers=headers,
+                        json={"amount": "1", "currency": "USDT", "conversion_rate": "100", "paid_on": DAY})
+    assert ok.status_code == 201, ok.text
+    await everything_agrees(api, db, headers, [book])
+
+
+async def test_a_member_paid_through_an_account_blocks_removing_it(api, db):
+    headers, book, bank, slip = await team_with_pay(api, db)
+    await api.post(f"{V1}/books/{book['id']}/payslips/{slip['id']}/payments", headers=headers,
+                   json={"amount": "10", "paid_on": DAY})
+    assert (await api.delete(f"{V1}/bank-accounts/{bank['id']}", headers=headers)).status_code == 422
+    assert (await api.delete(f"{V1}/books/{book['id']}/bank-accounts/{bank['id']}",
+                             headers=headers)).status_code == 422
+
+
+async def exchange(api, headers, book, **fields):
+    body = {"from_currency": "IRT", "from_amount": "1000", "to_currency": "USDT", "to_amount": "10",
+            "occurred_on": DAY, **fields}
+    return await api.post(f"{V1}/books/{book['id']}/conversions", headers=headers, json=body)
+
+
+async def test_exchanging_the_books_currency_moves_an_account_both_ways(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    # The book's own currency is held as what came in minus what went out, so there is something to exchange.
+    await record(api, headers, personal, "income", 5000)
+    await api.put(f"{V1}/books/{personal['id']}/currencies/USDT", headers=headers, json={"enabled": True})
+
+    bought = await exchange(api, headers, personal)
+    assert bought.status_code == 201, bought.text
+    assert bought.json()["bank_account_id"] == bank["id"]
+    assert (await totals(api, headers))[bank["id"]] == 4000  # 1000 toman left for 10 USDT
+
+    sold = await exchange(api, headers, personal, from_currency="USDT", from_amount="4",
+                          to_currency="IRT", to_amount="500")
+    assert sold.status_code == 201, sold.text
+    assert (await totals(api, headers))[bank["id"]] == 4500  # 500 toman arrived
+    await everything_agrees(api, db, headers, [personal])
+
+    # Correcting it rebuilds the entry; taking it back returns the account.
+    fixed = await api.patch(f"{V1}/books/{personal['id']}/conversions/{sold.json()['id']}", headers=headers,
+                            json={"to_amount": "600"})
+    assert fixed.status_code == 200, fixed.text
+    assert (await totals(api, headers))[bank["id"]] == 4600
+    assert (await api.delete(f"{V1}/books/{personal['id']}/conversions/{sold.json()['id']}",
+                             headers=headers)).status_code == 204
+    assert (await totals(api, headers))[bank["id"]] == 4000
+    await everything_agrees(api, db, headers, [personal])
+    # Not income and not an expense: only the 5000 recorded above is income.
+    page = (await api.get(f"{V1}/books/{personal['id']}/transactions", headers=headers)).json()
+    assert Decimal(page["total_income"]) == 5000 and Decimal(page["total_expense"]) == 0
+
+
+async def test_an_exchange_between_two_other_currencies_has_no_account(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    for code in ("USDT", "TON"):
+        await api.put(f"{V1}/books/{personal['id']}/currencies/{code}", headers=headers, json={"enabled": True})
+    await record(api, headers, personal, "income", 20, currency="USDT", conversion_rate="100",
+                 bank_account_id=None)
+    swap = await exchange(api, headers, personal, from_currency="USDT", from_amount="5",
+                          to_currency="TON", to_amount="3", base_value="500")
+    assert swap.status_code == 201, swap.text
+    assert swap.json()["bank_account_id"] is None
+    refused = await exchange(api, headers, personal, from_currency="USDT", from_amount="1",
+                             to_currency="TON", to_amount="1", base_value="100", bank_account_id=bank["id"])
+    assert refused.status_code == 422
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_a_conversion_can_choose_the_account_or_none(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    first = await make_bank(api, headers, [personal], bank_name="ملی", opening_balance="1000")
+    second = await make_bank(api, headers, [personal], bank_name="ملت", opening_balance="1000")
+    await api.put(f"{V1}/books/{personal['id']}/currencies/USDT", headers=headers, json={"enabled": True})
+    await exchange(api, headers, personal, bank_account_id=second["id"])
+    await exchange(api, headers, personal, bank_account_id=None)
+    after = await totals(api, headers)
+    assert after[first["id"]] == 1000 and after[second["id"]] == 0
+    await everything_agrees(api, db, headers, [personal])
+
+
+# --------------------------------------------------- lending, borrowing, being paid back
+async def debt(api, headers, book, **fields):
+    body = {"person": "علی", "amount": "1000", "direction": "owed_to_me", "occurred_on": DAY, **fields}
+    reply = await api.post(f"{V1}/books/{book['id']}/debts", headers=headers, json=body)
+    assert reply.status_code == 201, reply.text
+    return reply.json()
+
+
+async def test_lending_and_being_paid_back_move_an_account_and_never_an_expense(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal], opening_balance="5000")
+
+    lent = await debt(api, headers, personal, bank_account_id=bank["id"])
+    assert (await totals(api, headers))[bank["id"]] == 4000  # 1000 left the account
+    base = f"{V1}/books/{personal['id']}/debts/{lent['id']}"
+
+    more = await api.post(f"{base}/increase", headers=headers, json={
+        "amount": "300", "occurred_on": DAY, "bank_account_id": bank["id"], "note": "دوباره دادم"})
+    assert more.status_code == 200, more.text
+    assert Decimal(more.json()["amount"]) == 1300
+    assert (await totals(api, headers))[bank["id"]] == 3700
+
+    back = await api.post(f"{base}/settle", headers=headers, json={
+        "amount": "400", "occurred_on": DAY, "bank_account_id": bank["id"]})
+    assert back.status_code == 200, back.text
+    assert Decimal(back.json()["remaining"]) == 900
+    assert (await totals(api, headers))[bank["id"]] == 4100  # 400 arrived
+
+    history = (await api.get(f"{base}/movements", headers=headers)).json()
+    assert sorted((m["kind"], Decimal(m["amount"])) for m in history) == [
+        ("increase", 300), ("increase", 1000), ("payment", 400)]
+    assert all(m["bank_account_id"] == bank["id"] for m in history)
+    page = (await api.get(f"{V1}/books/{personal['id']}/transactions", headers=headers)).json()
+    assert Decimal(page["total_income"]) == 0 and Decimal(page["total_expense"]) == 0
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_borrowing_and_paying_back_move_the_other_way(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    owed = await debt(api, headers, personal, direction="i_owe", amount="500", bank_account_id=bank["id"])
+    assert (await totals(api, headers))[bank["id"]] == 500  # borrowed money arrived
+    await api.post(f"{V1}/books/{personal['id']}/debts/{owed['id']}/settle", headers=headers,
+                   json={"amount": "200", "bank_account_id": bank["id"], "occurred_on": DAY})
+    assert (await totals(api, headers))[bank["id"]] == 300
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_a_debt_with_no_account_moves_no_cash(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal], opening_balance="100")
+    owed = await debt(api, headers, personal)  # a credit sale: left out means none moved
+    await api.post(f"{V1}/books/{personal['id']}/debts/{owed['id']}/settle", headers=headers,
+                   json={"amount": "250"})
+    assert (await totals(api, headers))[bank["id"]] == 100
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_settling_as_income_uses_the_books_account_and_adds_no_second_entry(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    owed = await debt(api, headers, personal, amount="800")
+    done = await api.post(f"{V1}/books/{personal['id']}/debts/{owed['id']}/settle", headers=headers,
+                          json={"record_transaction": True, "amount": "800", "occurred_on": DAY})
+    assert done.status_code == 200, done.text
+    page = (await api.get(f"{V1}/books/{personal['id']}/transactions", headers=headers)).json()
+    assert Decimal(page["total_income"]) == 800
+    assert (await totals(api, headers))[bank["id"]] == 800  # once, through the transaction
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_a_movement_can_be_taken_back_and_a_debt_with_cash_asks_before_it_goes(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal], opening_balance="1000")
+    lent = await debt(api, headers, personal, amount="400", bank_account_id=bank["id"])
+    base = f"{V1}/books/{personal['id']}/debts/{lent['id']}"
+    await api.post(f"{base}/settle", headers=headers, json={
+        "amount": "100", "bank_account_id": bank["id"], "occurred_on": DAY})
+    paid_row = next(m for m in (await api.get(f"{base}/movements", headers=headers)).json()
+                    if m["kind"] == "payment")
+
+    gone = await api.delete(f"{base}/movements/{paid_row['id']}", headers=headers)
+    assert gone.status_code == 200, gone.text
+    assert Decimal(gone.json()["remaining"]) == 400
+    assert (await totals(api, headers))[bank["id"]] == 600  # only the lending is left
+
+    assert (await api.delete(base, headers=headers)).status_code == 422
+    assert (await api.delete(base, headers=headers, params={"undo_cash": "true"})).status_code == 204
+    assert (await totals(api, headers))[bank["id"]] == 1000
+    await everything_agrees(api, db, headers, [personal])
+
+
+async def test_an_added_amount_cannot_be_taken_back_below_what_was_paid(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    lent = await debt(api, headers, personal, amount="100", bank_account_id=bank["id"])
+    base = f"{V1}/books/{personal['id']}/debts/{lent['id']}"
+    await api.post(f"{base}/increase", headers=headers, json={"amount": "100", "bank_account_id": bank["id"]})
+    await api.post(f"{base}/settle", headers=headers, json={"amount": "150", "bank_account_id": bank["id"]})
+    grown = next(m for m in (await api.get(f"{base}/movements", headers=headers)).json()
+                 if m["kind"] == "increase" and Decimal(m["amount"]) == 100 and m["note"] is None)
+    # 100 + 100 added, 150 already paid: taking one 100 back would leave 100 against 150 paid.
+    refused = await api.delete(f"{base}/movements/{grown['id']}", headers=headers)
+    assert refused.status_code == 422
+
+
+async def test_a_settled_debt_that_grows_is_open_again(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    owed = await debt(api, headers, personal, amount="100", bank_account_id=bank["id"])
+    base = f"{V1}/books/{personal['id']}/debts/{owed['id']}"
+    await api.post(f"{base}/settle", headers=headers, json={"bank_account_id": bank["id"]})
+    assert (await api.get(f"{V1}/books/{personal['id']}/debts", headers=headers)).json() == []
+    again = await api.post(f"{base}/increase", headers=headers, json={"amount": "50", "bank_account_id": bank["id"]})
+    assert again.json()["is_settled"] is False and Decimal(again.json()["remaining"]) == 50
+
+
+async def test_debt_cash_stays_inside_the_book_and_inside_the_currency(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    mine = await make_bank(api, headers, [personal])
+    # An account of another book is not found; a stranger cannot reach the movements.
+    other = await api.post(f"{V1}/books/{business['id']}/debts", headers=headers, json={
+        "person": "علی", "amount": "10", "direction": "owed_to_me", "bank_account_id": mine["id"]})
+    assert other.status_code == 404
+    owed = await debt(api, headers, personal)
+    stranger = bearer(await register(api, email="stranger9@example.com"))
+    assert (await api.get(f"{V1}/books/{personal['id']}/debts/{owed['id']}/movements",
+                          headers=stranger)).status_code == 404

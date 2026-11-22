@@ -17,10 +17,13 @@ import {
 	getPlanningListLoansQueryKey,
 	usePlanningCreateDebt,
 	usePlanningCreateLoan,
+	usePlanningIncreaseDebt,
 	usePlanningSetBudget,
 	usePlanningSettleDebt,
 } from "@/api/generated/planning/planning";
 import type { BookResponse, DebtResponse } from "@/api/generated/model";
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { CategoryChips } from "@/features/books/CategoryChips";
 import { pickedDay, todayPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
@@ -120,6 +123,9 @@ const debtSchema = z.object({
 	amount: amountRule,
 	due_on: z.string(),
 	note: z.string().max(300),
+	// The day the money moved, and the account when it really did: empty until the book's accounts load.
+	occurred_on: z.string().min(1, { error: t.days.needDate }),
+	bank_account_id: z.string(),
 });
 type DebtValues = z.input<typeof debtSchema>;
 
@@ -128,7 +134,15 @@ export function DebtForm({ book, onDone }: { book: BookResponse; onDone: () => v
 	const create = usePlanningCreateDebt();
 	const form = useForm<DebtValues>({
 		resolver: zodResolver(debtSchema),
-		defaultValues: { person: "", direction: "owed_to_me", amount: "", due_on: "", note: "" },
+		defaultValues: {
+			person: "",
+			direction: "owed_to_me",
+			amount: "",
+			due_on: "",
+			note: "",
+			occurred_on: todayPicker(),
+			bank_account_id: "",
+		},
 	});
 	return (
 		<FormRoot
@@ -145,9 +159,15 @@ export function DebtForm({ book, onDone }: { book: BookResponse; onDone: () => v
 							amount: values.amount,
 							due_on: pickedDay(values.due_on) || null,
 							note: values.note.trim() || null,
+							occurred_on: pickedDay(values.occurred_on),
+							// Empty (accounts not loaded) means none moved; «none» is the same, said out loud.
+							bank_account_id: bankValue(values.bank_account_id) ?? null,
 						},
 					});
-					await queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) });
+					await Promise.all([
+						queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) }),
+						refreshMoney(queryClient, book.id),
+					]);
 					toast.success(t.planningForms.debtCreated);
 					onDone();
 				} catch (error) {
@@ -171,6 +191,13 @@ export function DebtForm({ book, onDone }: { book: BookResponse; onDone: () => v
 				dir="ltr"
 				isRequired
 			/>
+			<DayField name="occurred_on" label={t.plan.date} isRequired />
+			<BankField
+				name="bank_account_id"
+				bookId={book.id}
+				label={t.banks.debtAccount}
+				noneLabel={t.banks.debtNone}
+			/>
 			<DayField name="due_on" label={t.planningForms.dueOn} />
 			<TextField name="note" label={t.planningForms.note} />
 			<SubmitButton>{t.common.save}</SubmitButton>
@@ -178,7 +205,82 @@ export function DebtForm({ book, onDone }: { book: BookResponse; onDone: () => v
 	);
 }
 
-const settleSchema = z.object({ amount: amountRule, record_transaction: z.boolean() });
+const moreSchema = z.object({
+	amount: amountRule,
+	occurred_on: z.string().min(1, { error: t.days.needDate }),
+	note: z.string().max(300),
+	bank_account_id: z.string(),
+});
+type MoreValues = z.input<typeof moreSchema>;
+
+/** The debt grew: more was lent to them or borrowed from them, on a day, through an account if cash moved. */
+export function IncreaseDebtForm({
+	book,
+	debt,
+	onDone,
+}: {
+	book: BookResponse;
+	debt: DebtResponse;
+	onDone: () => void;
+}) {
+	const queryClient = useQueryClient();
+	const increase = usePlanningIncreaseDebt();
+	const form = useForm<MoreValues>({
+		resolver: zodResolver(moreSchema),
+		defaultValues: { amount: "", occurred_on: todayPicker(), note: "", bank_account_id: "" },
+	});
+	return (
+		<FormRoot
+			form={form}
+			className="flex flex-col gap-4"
+			onSubmit={async (raw) => {
+				const values = moreSchema.parse(raw);
+				try {
+					await increase.mutateAsync({
+						bookId: book.id,
+						debtId: debt.id,
+						data: {
+							amount: values.amount,
+							occurred_on: pickedDay(values.occurred_on),
+							note: values.note.trim() || null,
+							bank_account_id: bankValue(values.bank_account_id) ?? null,
+						},
+					});
+					await Promise.all([
+						queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) }),
+						queryClient.invalidateQueries({
+							predicate: (query) => String(query.queryKey[0]).includes("/debts/"),
+						}),
+						refreshMoney(queryClient, book.id),
+					]);
+					toast.success(t.plan.moreDone);
+					onDone();
+				} catch (error) {
+					reportFailure(error);
+				}
+			}}
+		>
+			<p className="text-sm text-muted">{t.plan.moreHint}</p>
+			<TextField name="amount" label={t.plan.moreAmount} inputMode="decimal" dir="ltr" isRequired />
+			<DayField name="occurred_on" label={t.plan.date} isRequired />
+			<BankField
+				name="bank_account_id"
+				bookId={book.id}
+				label={t.banks.debtAccount}
+				noneLabel={t.banks.debtNone}
+			/>
+			<TextField name="note" label={t.planningForms.note} />
+			<SubmitButton>{t.common.save}</SubmitButton>
+		</FormRoot>
+	);
+}
+
+const settleSchema = z.object({
+	amount: amountRule,
+	record_transaction: z.boolean(),
+	occurred_on: z.string().min(1, { error: t.days.needDate }),
+	bank_account_id: z.string(),
+});
 type SettleValues = z.input<typeof settleSchema>;
 
 /** Settling only marks the debt paid; booking the money moving as a transaction is a separate, opt-in choice. */
@@ -199,6 +301,8 @@ export function SettleForm({
 			// Everything that is left, unless the person writes less: then it is a part payment.
 			amount: String(Number(debt.remaining ?? debt.amount)),
 			record_transaction: false,
+			occurred_on: todayPicker(),
+			bank_account_id: "",
 		},
 	});
 	return (
@@ -211,10 +315,20 @@ export function SettleForm({
 					await settle.mutateAsync({
 						bookId: book.id,
 						debtId: debt.id,
-						data: { record_transaction: values.record_transaction, amount: values.amount },
+						data: {
+							record_transaction: values.record_transaction,
+							amount: values.amount,
+							occurred_on: pickedDay(values.occurred_on),
+							// Cash that really moved goes through this account; «none» (or not loaded) moves none.
+							bank_account_id: values.record_transaction
+								? bankValue(values.bank_account_id)
+								: (bankValue(values.bank_account_id) ?? null),
+						},
 					});
-					await queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) });
-					if (values.record_transaction) await refreshMoney(queryClient, book.id);
+					await Promise.all([
+						queryClient.invalidateQueries({ queryKey: getPlanningListDebtsQueryKey(book.id) }),
+						refreshMoney(queryClient, book.id),
+					]);
 					toast.success(
 						Number(values.amount) >= Number(debt.remaining ?? debt.amount)
 							? t.planning.settledToast
@@ -233,6 +347,13 @@ export function SettleForm({
 				inputMode="decimal"
 				dir="ltr"
 				isRequired
+			/>
+			<DayField name="occurred_on" label={t.plan.date} isRequired />
+			<BankField
+				name="bank_account_id"
+				bookId={book.id}
+				label={t.banks.debtAccount}
+				noneLabel={t.banks.debtNone}
 			/>
 			<SwitchField
 				name="record_transaction"

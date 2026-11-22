@@ -19,12 +19,13 @@ from ...shared import jalali
 from ...shared.errors import NotFound, PermissionDenied, ValidationError
 from ...shared.money import SCALE, ZERO, quantize, to_decimal
 from ...shared.security import utcnow
+from ..banks.service import UNSET, BankService
 from ..books.models import CostPolicy, Permission
 from ..exchange.models import CURRENCY_NAMES
 from ..exchange.service import ExchangeService
 from ..books.service import BookService
 from ..identity.models import AuditEvent
-from ..ledger.models import Flow, Transaction
+from ..ledger.models import Flow, JournalEntry, Transaction
 from ..ledger.categories import CategoryService
 from ..treasury.models import RuleBasis, TreasuryAllocation, TreasuryFund, TreasuryRule
 from .models import (
@@ -1222,6 +1223,13 @@ class PayrollService:
                 detail=f"{payment.amount} {payment.currency}",
             )
         )
+        if payment.journal_entry_id is not None:
+            # The entry that moved the money off its account goes with the payment, or the account would
+            # keep a debit nobody paid.
+            entry = await self.session.get(JournalEntry, payment.journal_entry_id)
+            if entry is not None:
+                await self.session.delete(entry)
+                await self.session.flush()
         await self.session.delete(payment)
         await self.session.flush()
         await self.session.refresh(slip, attribute_names=["payments"])
@@ -1308,8 +1316,13 @@ class PayrollService:
         currency: Optional[str] = None,
         conversion_rate=None,
         reference: Optional[str] = None,
+        bank_account_id=UNSET,
     ) -> Payment:
-        """Hand over some or all of what is owed. Instalments are the norm."""
+        """Hand over some or all of what is owed. Instalments are the norm.
+
+        `bank_account_id` is the account the money left: left out, the book's default; `None`, none.
+        Only a payment in the book's own currency can leave an account (an account holds nothing else).
+        """
         slip = await self.session.get(Payslip, payslip_id)
         if slip is None:
             raise NotFound("payslip")
@@ -1398,8 +1411,13 @@ class PayrollService:
         # You cannot hand over a token the book does not hold.
         await exchange.require_funds(slip.book_id, paid_in, value)
 
+        link = await BankService(self.session).resolve(
+            slip.book_id, bank_account_id, in_base_currency=paid_in == book.base_currency
+        )
         payment = Payment(
             payslip_id=payslip_id,
+            book_id=slip.book_id,
+            bank_account_id=link.bank_account_id if link else None,
             amount=value,
             currency=paid_in,
             conversion_rate=rate,
@@ -1410,6 +1428,21 @@ class PayrollService:
         )
         self.session.add(payment)
         await self.session.flush()
+        if link is not None:
+            # Money that leaves a bank account is a journal entry on it, against «پرداخت به اعضا»: not an
+            # expense of the book, so no report moves, but the account's balance does.
+            from ..ledger.service import LedgerService
+
+            ledger = LedgerService(self.session)
+            await ledger.ensure_chart_of_accounts(slip.book_id)
+            equity = await ledger.account(slip.book_id, "3200")
+            bank = await ledger._money_account(slip.book_id, link)
+            entry = await ledger.post_entry(
+                slip.book_id, payment.paid_on,
+                [(equity.id, value, ZERO), (bank.id, ZERO, value)], memo="payroll payment",
+            )
+            payment.journal_entry_id = entry.id
+            await self.session.flush()
         # Reload the collection so the caller's `remaining` / `is_settled` are true.
         await self.session.refresh(slip, attribute_names=["payments"])
         await self._income_follows(slip.book_id)

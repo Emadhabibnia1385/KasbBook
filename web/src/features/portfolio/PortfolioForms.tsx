@@ -1,3 +1,5 @@
+import { BankField } from "@/features/banks/BankField";
+import { bankValue } from "@/features/banks/bankValue";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
@@ -376,6 +378,8 @@ const itemSchema = z.object({
 	pay: z.enum(["record", "cash", "loan"]),
 	loan_id: z.string(),
 	down: optional(t.portfolio.needAmount),
+	// The account the cash paid now comes out of, when it is a purchase: empty until the accounts load.
+	bank_account_id: z.string(),
 });
 type ItemValues = z.input<typeof itemSchema>;
 
@@ -413,6 +417,7 @@ export function AddItemForm({
 			pay: "record",
 			loan_id: "",
 			down: "",
+			bank_account_id: "",
 		},
 	});
 	const code = useWatch({ control: form.control, name: "instrument" });
@@ -477,6 +482,7 @@ export function AddItemForm({
 								unit: manual ? null : unit,
 								note: values.note || null,
 								instrument: manual ? null : values.instrument,
+								bank_account_id: bankValue(values.bank_account_id),
 								...(values.pay === "loan"
 									? { loan_id: values.loan_id, down_payment: values.down ? values.down : null }
 									: {}),
@@ -575,6 +581,8 @@ export function AddItemForm({
 					</>
 				)
 			) : null}
+			{/* Only a purchase moves money; merely writing a holding down moves none. */}
+			{pay === "record" ? null : <BankField name="bank_account_id" bookId={book.id} />}
 			<TextField name="note" label={t.portfolio.note} />
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>

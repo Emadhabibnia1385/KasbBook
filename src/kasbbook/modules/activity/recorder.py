@@ -64,6 +64,7 @@ TRACKED: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
     "Category": ("categories", "دسته", ("name",)),
     "Budget": ("budgets", "بودجه", ("target",)),
     "Debt": ("debts", "بدهی یا طلب", ("person",)),
+    "DebtMovement": ("debts", "جابه‌جایی بدهی یا طلب", ()),
     "Loan": ("loans", "وام یا قسط", ("title",)),
     "LoanPayment": ("loans", "پرداخت قسط", ()),
     "RecurringRule": ("recurring", "تراکنش تکرارشونده", ("category",)),

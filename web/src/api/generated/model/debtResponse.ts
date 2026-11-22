@@ -18,6 +18,7 @@
 export interface DebtResponse {
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	amount: string;
+	cash_moved?: boolean;
 	direction: string;
 	due_on?: string | null;
 	id: string;

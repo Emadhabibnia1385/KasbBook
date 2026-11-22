@@ -66,6 +66,13 @@ DEFAULT_ACCOUNTS = (
     # What stands against the bank account on each side of a transfer between two books: money that
     # left this book for another is a debit here, money that came from another a credit.
     ("3100", "انتقال بین دفترها", AccountType.EQUITY),
+    # What stands against a bank account when money leaves it as pay to a member, and when it is
+    # exchanged for or from another currency. Neither is income or an expense, so neither is in a report.
+    ("3200", "پرداخت به اعضا", AccountType.EQUITY),
+    ("3300", "تبدیل ارز", AccountType.EQUITY),
+    # Cash lent to someone, and cash borrowed from someone, while it is outstanding.
+    ("1710", "مطالبات از دیگران", AccountType.ASSET),
+    ("2100", "بدهی به دیگران", AccountType.LIABILITY),
 )
 
 CASH = "1000"

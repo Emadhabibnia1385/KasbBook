@@ -17,6 +17,7 @@
 
 export interface PayRequest {
 	amount: number | string;
+	bank_account_id?: string | null;
 	conversion_rate?: number | string | null;
 	currency?: string | null;
 	paid_on?: string | null;

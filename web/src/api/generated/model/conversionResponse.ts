@@ -17,6 +17,7 @@
 
 export interface ConversionResponse {
 	attachment_count?: number;
+	bank_account_id?: string | null;
 	base_currency: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	base_value: string;

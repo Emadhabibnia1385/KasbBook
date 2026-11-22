@@ -27,7 +27,7 @@ from ...modules.ledger.attachments import MAX_BYTES, AttachmentService, sniff
 from ...modules.ledger.service import LedgerService
 from ...modules.ledger.categories import CategoryService
 from ...shared.errors import NotFound, ValidationError
-from ..deps import CurrentUser, SessionDep, SettingsDep
+from ..deps import CurrentUser, SessionDep, SettingsDep, bank_choice
 from ..schemas import (
     AttachmentResponse,
     BaseCurrencyRequest,
@@ -232,6 +232,7 @@ async def convert(
         base_value=body.base_value,
         occurred_on=body.occurred_on,
         note=body.note,
+        bank_account_id=bank_choice(body),
     )
     return _conversion(row)
 
@@ -243,7 +244,7 @@ def _conversion(row, files: int = 0) -> ConversionResponse:
         from_currency=row.from_currency, from_amount=row.from_amount,
         to_currency=row.to_currency, to_amount=row.to_amount,
         base_value=row.base_value, base_currency=row.base_currency,
-        note=row.note,
+        note=row.note, bank_account_id=row.bank_account_id,
     )
 
 
@@ -258,6 +259,7 @@ async def update_conversion(
         from_currency=body.from_currency, from_amount=body.from_amount,
         to_currency=body.to_currency, to_amount=body.to_amount,
         base_value=body.base_value, occurred_on=body.occurred_on, note=body.note,
+        bank_account_id=bank_choice(body),
     )
     return _conversion(row)
 

@@ -9,6 +9,7 @@ import {
 	Modal,
 	PageHeader,
 	PageSkeleton,
+	Pager,
 	SectionCard,
 	StatCard,
 	StatusChip,
@@ -322,6 +323,10 @@ function Holdings({
 	);
 }
 
+// How many rows a note shows at once, and how many notes a page holds.
+const ENTRIES_PER_PAGE = 8;
+const NOTES_PER_PAGE = 6;
+
 function Note({ book, note }: { book: BookResponse; note: FinancialNoteResponse }) {
 	const queryClient = useQueryClient();
 	const removeNote = usePortfolioDeleteNote();
@@ -330,8 +335,14 @@ function Note({ book, note }: { book: BookResponse; note: FinancialNoteResponse 
 	const [editingEntry, setEditingEntry] = useState<NoteEntryResponse | null>(null);
 	const [editingNote, setEditingNote] = useState(false);
 	const [removing, setRemoving] = useState(false);
+	const [entryPage, setEntryPage] = useState(1);
 	const refresh = () =>
 		queryClient.invalidateQueries({ queryKey: getPortfolioListNotesQueryKey(book.id) });
+	// Newest first, a page at a time: a note that has collected hundreds of rows is not one long scroll.
+	const shown = note.entries.filter((entry) => entry.kind !== "value").toReversed();
+	const entryPages = Math.max(1, Math.ceil(shown.length / ENTRIES_PER_PAGE));
+	const page = Math.min(entryPage, entryPages);
+	const visible = shown.slice((page - 1) * ENTRIES_PER_PAGE, page * ENTRIES_PER_PAGE);
 	return (
 		<li className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
 			<div className="flex items-start justify-between gap-3">
@@ -344,57 +355,63 @@ function Note({ book, note }: { book: BookResponse; note: FinancialNoteResponse 
 				<span className="text-xs text-muted">{t.portfolio.spentTotal}</span>
 				<b className="text-lg">{formatMoney(note.spent, book.currency)}</b>
 			</div>
-			{note.entries.length > 0 ? (
+			{shown.length > 0 ? (
 				<ol className="flex flex-col gap-1.5 border-s-2 border-border ps-3 text-sm">
-					{note.entries
-						.filter((entry) => entry.kind !== "value")
-						.map((entry) => (
-							<li key={entry.id} className="flex items-start justify-between gap-2">
-								<span className="flex flex-col">
-									<span>
-										<b>
-											{t.portfolio.kinds[entry.kind as keyof typeof t.portfolio.kinds] ??
-												entry.kind}
-										</b>
-										{entry.amount ? ` · ${formatMoney(entry.amount, book.currency)}` : ""}
-									</span>
-									<span className="text-xs text-muted">
-										{formatFullDate(entry.occurred_on)}
-										{entry.memo ? ` — ${entry.memo}` : ""}
-									</span>
+					{visible.map((entry) => (
+						<li key={entry.id} className="flex items-start justify-between gap-2">
+							<span className="flex flex-col">
+								<span>
+									<b>
+										{t.portfolio.kinds[entry.kind as keyof typeof t.portfolio.kinds] ?? entry.kind}
+									</b>
+									{entry.amount ? ` · ${formatMoney(entry.amount, book.currency)}` : ""}
 								</span>
-								<span className="flex shrink-0 gap-1">
-									<Button
-										size="sm"
-										variant="ghost"
-										aria-label={t.portfolio.editEntry}
-										onPress={() => setEditingEntry(entry)}
-									>
-										{t.portfolio.edit}
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										aria-label={t.portfolio.deleteEntry}
-										onPress={async () => {
-											try {
-												await removeEntry.mutateAsync({
-													bookId: book.id,
-													noteId: note.id,
-													entryId: entry.id,
-												});
-												await refresh();
-											} catch (error) {
-												reportFailure(error);
-											}
-										}}
-									>
-										×
-									</Button>
+								<span className="text-xs text-muted">
+									{formatFullDate(entry.occurred_on)}
+									{entry.memo ? ` — ${entry.memo}` : ""}
 								</span>
-							</li>
-						))}
+							</span>
+							<span className="flex shrink-0 gap-1">
+								<Button
+									size="sm"
+									variant="ghost"
+									aria-label={t.portfolio.editEntry}
+									onPress={() => setEditingEntry(entry)}
+								>
+									{t.portfolio.edit}
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									aria-label={t.portfolio.deleteEntry}
+									onPress={async () => {
+										try {
+											await removeEntry.mutateAsync({
+												bookId: book.id,
+												noteId: note.id,
+												entryId: entry.id,
+											});
+											await refresh();
+										} catch (error) {
+											reportFailure(error);
+										}
+									}}
+								>
+									×
+								</Button>
+							</span>
+						</li>
+					))}
 				</ol>
+			) : null}
+			{entryPages > 1 ? (
+				<Pager
+					page={page}
+					pageCount={entryPages}
+					onPrevious={() => setEntryPage(page - 1)}
+					onNext={() => setEntryPage(page + 1)}
+					onPage={setEntryPage}
+				/>
 			) : null}
 			<div className="flex gap-2">
 				<Button size="sm" variant="secondary" onPress={() => setEntering(true)}>
@@ -459,6 +476,10 @@ function Note({ book, note }: { book: BookResponse; note: FinancialNoteResponse 
 function Notes({ book }: { book: BookResponse }) {
 	const { data = [], isLoading } = usePortfolioListNotes(book.id);
 	const [adding, setAdding] = useState(false);
+	const [notePage, setNotePage] = useState(1);
+	const notePages = Math.max(1, Math.ceil(data.length / NOTES_PER_PAGE));
+	const shownPage = Math.min(notePage, notePages);
+	const pageNotes = data.slice((shownPage - 1) * NOTES_PER_PAGE, shownPage * NOTES_PER_PAGE);
 	return (
 		<SectionCard
 			title={t.portfolio.notes}
@@ -472,11 +493,22 @@ function Notes({ book }: { book: BookResponse }) {
 			{isLoading ? null : data.length === 0 ? (
 				<p className="text-sm text-muted">{t.portfolio.noNotes}</p>
 			) : (
-				<ul className="grid gap-3 lg:grid-cols-2">
-					{data.map((note) => (
-						<Note key={note.id} book={book} note={note} />
-					))}
-				</ul>
+				<>
+					<ul className="grid gap-3 lg:grid-cols-2">
+						{pageNotes.map((note) => (
+							<Note key={note.id} book={book} note={note} />
+						))}
+					</ul>
+					{notePages > 1 ? (
+						<Pager
+							page={shownPage}
+							pageCount={notePages}
+							onPrevious={() => setNotePage(shownPage - 1)}
+							onNext={() => setNotePage(shownPage + 1)}
+							onPage={setNotePage}
+						/>
+					) : null}
+				</>
 			)}
 			<Modal isOpen={adding} onOpenChange={setAdding} title={t.portfolio.addNote} size="sm">
 				<NoteForm book={book} onDone={() => setAdding(false)} />

@@ -18,8 +18,10 @@ from ...modules.debts.models import Direction
 from ...modules.debts.service import DebtService
 from ...modules.loans.service import LoanService
 from ...shared.errors import ValidationError
-from ..deps import CurrentUser, SessionDep
+from ..deps import CurrentUser, SessionDep, bank_choice
 from ..schemas import (
+    DebtIncreaseRequest,
+    DebtMovementResponse,
     DebtSettleRequest,
     BudgetRequest,
     BudgetResponse,
@@ -92,7 +94,7 @@ async def list_debts(
     include_settled: bool = Query(default=False),
 ) -> List[DebtResponse]:
     rows = await DebtService(session).list_debts(book_id, user.id, include_settled)
-    return [_debt(row) for row in rows]
+    return await _debts(session, rows)
 
 
 @router.post("/debts", response_model=DebtResponse, status_code=201)
@@ -103,8 +105,9 @@ async def create_debt(
         book_id, user.id, body.person,
         _as_enum(Direction, body.direction, "direction"),
         body.amount, note=body.note, due_on=body.due_on,
+        bank_account_id=bank_choice(body), occurred_on=body.occurred_on,
     )
-    return _debt(debt)
+    return (await _debts(session, [debt]))[0]
 
 
 @router.post("/debts/{debt_id}/settle", response_model=DebtResponse)
@@ -119,15 +122,56 @@ async def settle_debt(
     """
     record = body.record_transaction if body else False
     amount = body.amount if body else None
-    return _debt(await DebtService(session).settle(book_id, user.id, debt_id,
-                                                   record_transaction=record, amount=amount))
+    debt = await DebtService(session).settle(
+        book_id, user.id, debt_id, record_transaction=record, amount=amount,
+        occurred_on=body.occurred_on if body else None, note=body.note if body else None,
+        bank_account_id=bank_choice(body) if body else UNSET,
+    )
+    return (await _debts(session, [debt]))[0]
+
+
+@router.post("/debts/{debt_id}/increase", response_model=DebtResponse)
+async def increase_debt(
+    book_id: uuid.UUID, debt_id: uuid.UUID, body: DebtIncreaseRequest, user: CurrentUser,
+    session: SessionDep,
+) -> DebtResponse:
+    """It grew: more was lent to them or borrowed from them. With an account, that cash moved."""
+    debt = await DebtService(session).increase(
+        book_id, user.id, debt_id, body.amount, occurred_on=body.occurred_on, note=body.note,
+        bank_account_id=bank_choice(body),
+    )
+    return (await _debts(session, [debt]))[0]
+
+
+@router.get("/debts/{debt_id}/movements", response_model=List[DebtMovementResponse])
+async def debt_movements(
+    book_id: uuid.UUID, debt_id: uuid.UUID, user: CurrentUser, session: SessionDep
+) -> List[DebtMovementResponse]:
+    """What happened to this debt, newest first: added again, paid some, received some."""
+    rows = await DebtService(session).movements(book_id, user.id, debt_id)
+    return [DebtMovementResponse(
+        id=row.id, kind=row.kind, amount=row.amount, occurred_on=row.occurred_on, note=row.note,
+        bank_account_id=row.bank_account_id, transaction_id=row.transaction_id,
+    ) for row in rows]
+
+
+@router.delete("/debts/{debt_id}/movements/{movement_id}", response_model=DebtResponse)
+async def void_debt_movement(
+    book_id: uuid.UUID, debt_id: uuid.UUID, movement_id: uuid.UUID, user: CurrentUser,
+    session: SessionDep,
+) -> DebtResponse:
+    """Take one back; its cash goes with it. A debt is never taken below what was already paid."""
+    debt = await DebtService(session).void_movement(book_id, user.id, debt_id, movement_id)
+    return (await _debts(session, [debt]))[0]
 
 
 @router.delete("/debts/{debt_id}", status_code=204)
 async def delete_debt(
-    book_id: uuid.UUID, debt_id: uuid.UUID, user: CurrentUser, session: SessionDep
+    book_id: uuid.UUID, debt_id: uuid.UUID, user: CurrentUser, session: SessionDep,
+    undo_cash: bool = Query(default=False, description="also take back the cash that moved on it"),
 ) -> None:
-    await DebtService(session).delete(book_id, user.id, debt_id)
+    """Forget a debt. Refused while real cash moved on it, unless `undo_cash` takes that back too."""
+    await DebtService(session).delete(book_id, user.id, debt_id, undo_cash=undo_cash)
 
 
 # ---------------------------------------------------------------- loans
@@ -189,13 +233,19 @@ async def delete_loan(
     await LoanService(session).delete(book_id, user.id, loan_id)
 
 
-def _debt(row) -> DebtResponse:
+def _debt(row, cash: bool = False) -> DebtResponse:
     return DebtResponse(
         id=row.id, person=row.person, amount=row.amount,
         paid=row.paid_amount or 0, remaining=row.remaining,
         direction=row.direction.value, is_settled=row.settled_at is not None,
-        due_on=row.due_on, note=row.note,
+        due_on=row.due_on, note=row.note, cash_moved=cash,
     )
+
+
+async def _debts(session, rows) -> List[DebtResponse]:
+    """The rows as responses, each knowing whether real cash moved on it (one query for all)."""
+    cash = await DebtService(session).with_cash([row.id for row in rows])
+    return [_debt(row, row.id in cash) for row in rows]
 
 
 def _loan(progress) -> LoanResponse:

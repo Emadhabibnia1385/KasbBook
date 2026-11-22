@@ -17,9 +17,11 @@
 
 export interface DebtRequest {
 	amount: number | string;
+	bank_account_id?: string | null;
 	direction: string;
 	due_on?: string | null;
 	note?: string | null;
+	occurred_on?: string | null;
 	/**
 	 * @minLength 1
 	 * @maxLength 120

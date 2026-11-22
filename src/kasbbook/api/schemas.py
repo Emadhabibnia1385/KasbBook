@@ -344,6 +344,9 @@ class ConversionRequest(MoneyModel):
     base_value: Optional[Decimal] = Field(default=None, gt=0)
     occurred_on: Optional[date] = None
     note: Optional[str] = Field(default=None, max_length=500)
+    # The account the book's own currency left or arrived in, when it is one side: left out is the
+    # book's default, null is none. Between two other currencies there is no account.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class ConversionUpdate(MoneyModel):
@@ -356,6 +359,8 @@ class ConversionUpdate(MoneyModel):
     base_value: Optional[Decimal] = Field(default=None, gt=0)
     occurred_on: Optional[date] = None
     note: Optional[str] = Field(default=None, max_length=500)
+    # Another of the book's accounts, or null for none; left out, it stays while it still applies.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class ConversionResponse(MoneyModel):
@@ -369,6 +374,7 @@ class ConversionResponse(MoneyModel):
     base_currency: str
     note: Optional[str] = None
     attachment_count: int = 0
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class ConversionPage(MoneyModel):
@@ -628,6 +634,32 @@ class DebtRequest(MoneyModel):
     direction: str
     due_on: Optional[date] = None
     note: Optional[str] = Field(default=None, max_length=500)
+    # The account the cash went through, when money really changed hands (lent, or borrowed). Left out or
+    # null, none moved: a debt from a credit sale moves none, and guessing would count it twice.
+    bank_account_id: Optional[uuid.UUID] = None
+    # The day the money moved; left out, today.
+    occurred_on: Optional[date] = None
+
+
+class DebtIncreaseRequest(MoneyModel):
+    """The debt grew: more lent to them, or more borrowed from them."""
+
+    amount: Decimal = Field(gt=0)
+    occurred_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=300)
+    bank_account_id: Optional[uuid.UUID] = None
+
+
+class DebtMovementResponse(MoneyModel):
+    id: uuid.UUID
+    # "increase" (it grew) or "payment" (some was paid).
+    kind: str
+    amount: Decimal
+    occurred_on: date
+    note: Optional[str] = None
+    bank_account_id: Optional[uuid.UUID] = None
+    # The income or expense it was recorded as, when it was.
+    transaction_id: Optional[uuid.UUID] = None
 
 
 class DebtSettleRequest(Model):
@@ -636,6 +668,13 @@ class DebtSettleRequest(Model):
     record_transaction: bool = False
     # A part payment: how much of what is left was paid. Left out, the whole of it is.
     amount: Optional[Decimal] = Field(default=None, gt=0)
+    # The day it was paid; left out, today.
+    occurred_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=300)
+    # Cash that really moved goes through this account and is neither income nor expense. Left out or
+    # null, none moved (a credit sale already counted it). With `record_transaction`, this is instead the
+    # account of the income or expense recorded: left out is the book's default, null is none.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class DebtResponse(MoneyModel):
@@ -648,6 +687,9 @@ class DebtResponse(MoneyModel):
     is_settled: bool
     due_on: Optional[date] = None
     note: Optional[str] = None
+    # Real cash moved on it (through an account, or recorded as income or expense): deleting it then
+    # needs `undo_cash`, which takes that cash back too.
+    cash_moved: bool = False
 
 
 class LoanRequest(MoneyModel):
@@ -793,6 +835,8 @@ class PaymentResponse(MoneyModel):
     conversion_rate: Decimal
     paid_on: date
     reference: Optional[str] = None
+    # The bank account the money left, when it was paid in the book's own currency.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class PayslipResponse(MoneyModel):
@@ -826,6 +870,9 @@ class PayRequest(MoneyModel):
     # The column is 80 wide. Allowing 120 here passed validation and then
     # failed the write on PostgreSQL with a 500 that SQLite never showed.
     reference: Optional[str] = Field(default=None, max_length=80)
+    # The account the money left: left out is the book's default, null is none. Only a payment in the
+    # book's own currency leaves an account.
+    bank_account_id: Optional[uuid.UUID] = None
 
 
 class FundRequest(Model):

@@ -31,8 +31,11 @@ from ...shared.parsing import to_ascii_digits
 from ..books.models import Book, Permission
 from ..books.service import BookService
 from ..capital.models import CapitalMovement
+from ..debts.models import DebtMovement
+from ..exchange.models import CurrencyConversion
 from ..ledger.models import Account, AccountType, Flow, JournalLine, Transaction
 from ..income.models import IncomeLink
+from ..payroll.models import Payment
 from ..recurring.models import RecurringRule
 from .models import BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer
 
@@ -284,6 +287,23 @@ class BankService:
             .where(CapitalMovement.bank_account_id == bank_id)
         )).all():
             spent[book_id] = spent.get(book_id, ZERO) + delta
+        # Cash lent, borrowed, paid back or received back, through this account.
+        for book_id, delta in (await self.session.execute(
+            select(DebtMovement.book_id, DebtMovement.cash_delta).where(DebtMovement.bank_account_id == bank_id)
+        )).all():
+            spent[book_id] = spent.get(book_id, ZERO) + delta
+        # Pay handed to members, and money exchanged into or out of another currency, through this account.
+        for book_id, amount in (await self.session.execute(
+            select(Payment.book_id, Payment.amount).where(Payment.bank_account_id == bank_id)
+        )).all():
+            spent[book_id] = spent.get(book_id, ZERO) - amount
+        for book_id, from_currency, from_amount, to_amount, base in (await self.session.execute(
+            select(CurrencyConversion.book_id, CurrencyConversion.from_currency,
+                   CurrencyConversion.from_amount, CurrencyConversion.to_amount,
+                   CurrencyConversion.base_currency)
+            .where(CurrencyConversion.bank_account_id == bank_id)
+        )).all():
+            spent[book_id] = spent.get(book_id, ZERO) + (-from_amount if from_currency == base else to_amount)
         # Money moved to or from another book: in is a gain here, out a loss, and the account's total
         # follows only when the other end is a different account.
         for book_id, direction, amount in (await self.session.execute(
@@ -492,15 +512,21 @@ class BankService:
         rules = select(RecurringRule.id).where(RecurringRule.bank_account_id == bank_id)
         legs = select(BankBookTransferLeg.id).where(BankBookTransferLeg.bank_account_id == bank_id)
         feeds = select(IncomeLink.id).where(IncomeLink.bank_account_id == bank_id)
+        paid = select(Payment.id).where(Payment.bank_account_id == bank_id)
+        lent = select(DebtMovement.id).where(DebtMovement.bank_account_id == bank_id)
+        swapped = select(CurrencyConversion.id).where(CurrencyConversion.bank_account_id == bank_id)
         if book_id is not None:
             legs = legs.where(BankBookTransferLeg.book_id == book_id)
             feeds = feeds.where(IncomeLink.target_book_id == book_id)
+            paid = paid.where(Payment.book_id == book_id)
+            lent = lent.where(DebtMovement.book_id == book_id)
+            swapped = swapped.where(CurrencyConversion.book_id == book_id)
         if book_id is not None:
             tx = tx.where(Transaction.book_id == book_id)
             moved = moved.where(BankTransfer.book_id == book_id)
             capital = capital.where(CapitalMovement.book_id == book_id)
             rules = rules.where(RecurringRule.book_id == book_id)
-        for query in (tx, moved, capital, rules, legs, feeds):
+        for query in (tx, moved, capital, rules, legs, feeds, paid, swapped, lent):
             if await self.session.scalar(query.limit(1)):
                 return True
         return False

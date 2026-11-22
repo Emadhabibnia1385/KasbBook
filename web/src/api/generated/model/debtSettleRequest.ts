@@ -17,5 +17,8 @@
 
 export interface DebtSettleRequest {
 	amount?: number | string | null;
+	bank_account_id?: string | null;
+	note?: string | null;
+	occurred_on?: string | null;
 	record_transaction?: boolean;
 }
