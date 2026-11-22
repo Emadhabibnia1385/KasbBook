@@ -17,6 +17,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..banks.models import BankBookTransferLeg
 from ..banks.service import UNSET, BankService
 from ..capital.models import CapitalMovement
 from ...shared import jalali
@@ -25,7 +26,7 @@ from ...shared.money import ZERO, quantize, to_decimal
 from ..books.models import Permission, Role
 from ..books.service import BookService
 from ..budgets.models import Budget
-from ..debts.models import Debt
+from ..debts.models import Debt, DebtMovement
 from ..ledger.models import Flow, JournalEntry, Transaction
 from ..loans.models import Loan
 from ..recurring.models import RecurringRule
@@ -285,6 +286,22 @@ class ExchangeService:
         for (delta,) in (
             await self.session.execute(
                 select(CapitalMovement.cash_delta).where(CapitalMovement.book_id == book_id)
+            )
+        ).all():
+            add(book.base_currency, to_decimal(delta))
+
+        # Money moved to or from another of the owner's books leaves or enters this one's wallet, and cash
+        # lent, borrowed, repaid or received through an account does too; neither is income or an expense.
+        for direction, amount in (
+            await self.session.execute(
+                select(BankBookTransferLeg.direction, BankBookTransferLeg.amount)
+                .where(BankBookTransferLeg.book_id == book_id)
+            )
+        ).all():
+            add(book.base_currency, to_decimal(amount) if direction == "in" else -to_decimal(amount))
+        for (delta,) in (
+            await self.session.execute(
+                select(DebtMovement.cash_delta).where(DebtMovement.book_id == book_id)
             )
         ).all():
             add(book.base_currency, to_decimal(delta))

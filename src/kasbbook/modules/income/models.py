@@ -55,6 +55,9 @@ class IncomeLink(UUIDPrimaryKey, Timestamped, Base):
     # recurring rule's): the book's default then, an account, or none.
     bank_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Also take the same amount out of the source book as the owner's draw, so what the book holds follows
+    # what its owner took. Only for a business of one: a team pays its members through payroll instead.
+    draws: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
 
 
 class IncomeEntry(UUIDPrimaryKey, Timestamped, Base):
@@ -79,3 +82,7 @@ class IncomeEntry(UUIDPrimaryKey, Timestamped, Base):
         Uuid, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=True
     )
     problem: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    # The draw (or contribution) recorded in the source book alongside this entry, when the link takes draws.
+    draw_movement_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("capital_movements.id", ondelete="SET NULL"), nullable=True
+    )

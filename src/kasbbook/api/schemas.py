@@ -1335,6 +1335,10 @@ class IncomeLinkRequest(MoneyModel):
     starts_on: Optional[date] = None
     # The target book's account the income arrives in: left out is its default, null is none.
     bank_account_id: Optional[uuid.UUID] = None
+    # Also take the same amount out of the source business as the owner's draw, so what that business
+    # holds follows what its owner took. Left out: on for a business, off for anything else (a team pays
+    # through payroll). Only a business can take draws.
+    draws: Optional[bool] = None
 
 
 class IncomeLinkUpdate(MoneyModel):
@@ -1342,6 +1346,7 @@ class IncomeLinkUpdate(MoneyModel):
     category: Optional[str] = Field(default=None, min_length=1, max_length=80)
     starts_on: Optional[date] = None
     is_active: Optional[bool] = None
+    draws: Optional[bool] = None
 
 
 class IncomeLinkResponse(MoneyModel):
@@ -1359,6 +1364,10 @@ class IncomeLinkResponse(MoneyModel):
     entries: int
     total: Decimal
     problems: int
+    draws: bool = False
+    # Plain sentences about why nothing (or not everything) was written: a start day that has not come, or
+    # transactions from before it.
+    notes: List[str] = Field(default_factory=list)
     created_at: datetime
 
 

@@ -4793,6 +4793,17 @@
             ],
             "title": "Category"
           },
+          "draws": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draws"
+          },
           "mode": {
             "title": "Mode",
             "type": "string"
@@ -4851,6 +4862,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "draws": {
+            "default": false,
+            "title": "Draws",
+            "type": "boolean"
+          },
           "entries": {
             "title": "Entries",
             "type": "integer"
@@ -4867,6 +4883,13 @@
           "mode": {
             "title": "Mode",
             "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
           },
           "problems": {
             "title": "Problems",
@@ -4933,6 +4956,17 @@
               }
             ],
             "title": "Category"
+          },
+          "draws": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draws"
           },
           "is_active": {
             "anyOf": [

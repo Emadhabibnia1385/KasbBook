@@ -91,6 +91,11 @@ refuses (a closed month), the refusal is kept on the entry and shown, the team's
 own entry still succeeds, and «حساب دوباره» retries. A link is one hop only (a
 book that feeds another cannot itself be fed).
 
+From a business book the link also takes the same amount out of the business as
+the owner's draw (cash leaving against «برداشت مالک»; not an expense, so the
+business's profit does not move), and puts it back for a losing stretch, so the
+business wallet reaches zero for what the owner took. `draws` switches it off.
+
 ## Periods
 
 Neither issuing a payslip nor paying one closes a period. Income that arrives a

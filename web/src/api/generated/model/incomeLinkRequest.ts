@@ -21,6 +21,7 @@
 export interface IncomeLinkRequest {
 	bank_account_id?: string | null;
 	category?: string | null;
+	draws?: boolean | null;
 	mode: string;
 	source_book_id: string;
 	starts_on?: string | null;

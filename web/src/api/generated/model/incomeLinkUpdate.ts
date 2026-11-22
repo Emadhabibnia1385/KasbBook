@@ -17,6 +17,7 @@
 
 export interface IncomeLinkUpdate {
 	category?: string | null;
+	draws?: boolean | null;
 	is_active?: boolean | null;
 	mode?: string | null;
 	starts_on?: string | null;

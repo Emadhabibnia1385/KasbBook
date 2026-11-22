@@ -71,6 +71,8 @@ DEFAULT_ACCOUNTS = (
     ("3200", "پرداخت به اعضا", AccountType.EQUITY),
     ("3300", "تبدیل ارز", AccountType.EQUITY),
     # Cash lent to someone, and cash borrowed from someone, while it is outstanding.
+    # What an owner takes out of their own business (or puts back in): the other side of a draw.
+    ("3400", "برداشت مالک", AccountType.EQUITY),
     ("1710", "مطالبات از دیگران", AccountType.ASSET),
     ("2100", "بدهی به دیگران", AccountType.LIABILITY),
 )

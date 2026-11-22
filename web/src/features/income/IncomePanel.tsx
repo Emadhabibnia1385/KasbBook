@@ -12,6 +12,7 @@ import {
 	SectionCard,
 	SelectField,
 	SubmitButton,
+	SwitchField,
 	toast,
 } from "@nyxon/nasim";
 import {
@@ -32,6 +33,7 @@ import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
 import { DayPair } from "@/shared/DayPair";
 import { formatMoney } from "@/shared/format";
+import { shiftIso } from "@/shared/jalaliDay";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
@@ -50,6 +52,8 @@ const schema = z.object({
 	mode: z.enum(MODES),
 	category: z.string().trim().max(80),
 	starts_on: z.string().min(1, { error: t.days.needDate }),
+	// A business also records what its owner took out; a team has no draw.
+	draws: z.boolean(),
 });
 type Values = z.input<typeof schema>;
 
@@ -80,6 +84,7 @@ function LinkForm({
 				(link?.mode as Mode | undefined) ?? (available.includes("payment") ? "payment" : "daily"),
 			category: link?.category ?? "",
 			starts_on: toPicker(link?.starts_on ?? todayIso()),
+			draws: link?.draws ?? book.type === "business",
 		},
 	});
 	const mode = useWatch({ control: form.control, name: "mode" });
@@ -103,6 +108,7 @@ function LinkForm({
 								mode: values.mode,
 								category: values.category || link.category,
 								starts_on: pickedDay(values.starts_on),
+								...(book.type === "business" ? { draws: values.draws } : {}),
 							},
 						});
 					} else {
@@ -113,6 +119,7 @@ function LinkForm({
 								mode: values.mode,
 								category: values.category || null,
 								starts_on: pickedDay(values.starts_on),
+								...(book.type === "business" ? { draws: values.draws } : {}),
 							},
 						});
 					}
@@ -156,7 +163,34 @@ function LinkForm({
 				{t.income.categoryHint} <bdi>«{book.name}»</bdi>
 			</p>
 			<DayField name="starts_on" label={t.income.startsOn} />
+			{/* Nothing before this day is written, so a start that is too late is the commonest reason for an empty list. */}
+			<div className="flex flex-wrap gap-2">
+				{(
+					[
+						[t.income.back30, 30],
+						[t.income.back90, 90],
+						[t.income.backYear, 365],
+					] as const
+				).map(([label, days]) => (
+					<Button
+						key={days}
+						size="sm"
+						variant="secondary"
+						onPress={() =>
+							form.setValue("starts_on", toPicker(shiftIso(todayIso(), -days)), {
+								shouldDirty: true,
+								shouldValidate: true,
+							})
+						}
+					>
+						{label}
+					</Button>
+				))}
+			</div>
 			<p className="text-xs text-muted">{t.income.startsOnHint}</p>
+			{book.type === "business" ? (
+				<SwitchField name="draws" label={t.income.drawsLabel} description={t.income.drawsHint} />
+			) : null}
 			<SubmitButton>{t.common.save}</SubmitButton>
 		</FormRoot>
 	);
@@ -253,6 +287,16 @@ function Active({
 				<p className="rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm">
 					{link.problems} {t.income.problems}. {t.income.problemsHint}
 				</p>
+			) : null}
+			{(link.notes ?? []).length > 0 ? (
+				<div className="flex flex-col gap-1 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm">
+					<b>{t.income.notesTitle}</b>
+					<ul className="flex list-disc flex-col gap-1 ps-5">
+						{(link.notes ?? []).map((note) => (
+							<li key={note}>{note}</li>
+						))}
+					</ul>
+				</div>
 			) : null}
 			<Entries link={link} currency={book.currency} />
 			<div className="flex flex-wrap gap-2">

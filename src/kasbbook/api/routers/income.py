@@ -30,7 +30,7 @@ def _link(view: LinkView) -> IncomeLinkResponse:
         target_book_id=link.target_book_id, target_book_name=view.target_name, mode=link.mode,
         category=link.category, starts_on=link.starts_on, bank_account_id=link.bank_account_id,
         is_active=link.is_active, entries=view.entries, total=view.total, problems=view.problems,
-        created_at=link.created_at,
+        draws=link.draws, notes=view.notes, created_at=link.created_at,
     )
 
 
@@ -61,7 +61,7 @@ async def create_link(
     link = await IncomeSyncService(session).create_link(
         user.id, source_book_id=body.source_book_id, target_book_id=body.target_book_id,
         mode=body.mode, category=body.category, starts_on=body.starts_on,
-        bank_account_id=bank_choice(body),
+        bank_account_id=bank_choice(body), draws=body.draws,
     )
     return await _one(session, user.id, link.id)
 

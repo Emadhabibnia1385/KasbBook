@@ -19,10 +19,12 @@ export interface IncomeLinkResponse {
 	bank_account_id?: string | null;
 	category: string;
 	created_at: string;
+	draws?: boolean;
 	entries: number;
 	id: string;
 	is_active: boolean;
 	mode: string;
+	notes?: string[];
 	problems: number;
 	source_book_id: string;
 	source_book_name: string;

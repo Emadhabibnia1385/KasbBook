@@ -24,18 +24,19 @@ import uuid
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...shared import calendars, jalali
 from ...shared.errors import KasbBookError, NotFound, ValidationError
-from ...shared.money import ZERO, quantize
+from ...shared.money import ZERO, quantize, to_decimal
 from ..banks.service import UNSET
 from ..books.models import Book, BookType, Permission
 from ..books.service import BookService
-from ..ledger.models import Flow, Scope, Transaction
+from ..capital.models import CapitalMovement
+from ..ledger.models import Flow, JournalEntry, Scope, Transaction
 from ..ledger.service import LedgerService
 from ..payroll.models import FinancialPeriod, Payment, Payslip, PeriodStatus, ShareBasis
 from .models import BUCKETS, DAILY, MODES, MONTHLY, PAYMENT, PERIOD, WEEKLY, IncomeEntry, IncomeLink
@@ -44,6 +45,8 @@ from .models import BUCKETS, DAILY, MODES, MONTHLY, PAYMENT, PERIOD, WEEKLY, Inc
 _syncing: contextvars.ContextVar[bool] = contextvars.ContextVar("income_syncing", default=False)
 
 NOT_FOUND = "این پیوند پیدا نشد."
+# The account that stands against cash an owner takes out of their business, or puts back in.
+DRAW = "3400"
 HUNDRED = Decimal("100")
 
 
@@ -55,6 +58,9 @@ class LinkView:
     entries: int
     problems: int
     total: Decimal
+    # Plain sentences about why nothing (or not everything) was written: a start day that has not come, or
+    # transactions from before it. Empty when there is nothing to explain.
+    notes: List[str]
 
 
 def _bucket(mode: str, day: date, cal) -> Tuple[str, date, date]:
@@ -93,7 +99,7 @@ class IncomeSyncService:
     async def create_link(
         self, actor_id: uuid.UUID, *, source_book_id: uuid.UUID, target_book_id: uuid.UUID,
         mode: str, category: Optional[str] = None, starts_on: Optional[date] = None,
-        bank_account_id=UNSET,
+        bank_account_id=UNSET, draws: Optional[bool] = None,
     ) -> IncomeLink:
         if mode not in MODES:
             raise ValidationError("حالت همگام‌سازی باید یکی از «هر پرداخت»، «پایان دوره»، «روزانه»، «هفتگی» یا «ماهانه» باشد.")
@@ -132,6 +138,11 @@ class IncomeSyncService:
             IncomeLink.source_book_id == source_book_id, IncomeLink.user_id == actor_id
         ).limit(1)):
             raise ValidationError("برای این دفتر قبلاً پیوند ساخته‌ای؛ همان را تغییر بده.")
+        # A business of one takes its owner's income out of itself by default, so what the business holds
+        # follows what its owner took; a team pays its members through payroll instead and has no draw.
+        takes = source.type is BookType.BUSINESS if draws is None else bool(draws)
+        if takes and source.type is not BookType.BUSINESS:
+            raise ValidationError("برداشت از دفتر مبدأ فقط برای دفتر کسب‌وکار است؛ تیم از راه حقوق پرداخت می‌کند.")
         link_bank = await self.ledger.banks.resolve(target_book_id, bank_account_id, in_base_currency=True)
         # Left empty, the income is filed under the name of the book it comes from.
         name = (category or "").strip() or source.name.strip()
@@ -141,6 +152,7 @@ class IncomeSyncService:
             source_book_id=source_book_id, target_book_id=target_book_id, user_id=actor_id, mode=mode,
             category=name, starts_on=starts_on or jalali.today_in(target.timezone),
             bank_account_id=link_bank.bank_account_id if link_bank else None, is_active=True,
+            draws=takes,
         )
         self.session.add(link)
         await self.session.flush()
@@ -149,7 +161,7 @@ class IncomeSyncService:
 
     async def update_link(
         self, actor_id: uuid.UUID, link_id: uuid.UUID, *, mode=UNSET, category=UNSET,
-        starts_on=UNSET, is_active=UNSET,
+        starts_on=UNSET, is_active=UNSET, draws=UNSET,
     ) -> IncomeLink:
         link = await self._mine(actor_id, link_id)
         rebuild = False
@@ -172,6 +184,14 @@ class IncomeSyncService:
         if starts_on is not UNSET and starts_on is not None and starts_on != link.starts_on:
             link.starts_on = starts_on
             rebuild = True
+        if draws is not UNSET:
+            if draws is None:
+                raise ValidationError("برداشت را روشن یا خاموش کن.")
+            if draws and (await self.books.get_book(link.source_book_id)).type is not BookType.BUSINESS:
+                raise ValidationError("برداشت از دفتر مبدأ فقط برای دفتر کسب‌وکار است؛ تیم از راه حقوق پرداخت می‌کند.")
+            if bool(draws) != link.draws:
+                link.draws = bool(draws)
+                rebuild = True
         if is_active is not UNSET:
             if is_active is None:
                 raise ValidationError("فعال یا غیرفعال را مشخص کن.")
@@ -206,8 +226,50 @@ class IncomeSyncService:
                 entries=sum(1 for e in entries if e.transaction_id is not None),
                 problems=sum(1 for e in entries if e.problem),
                 total=sum((e.amount for e in entries if e.transaction_id is not None), ZERO),
+                notes=await self._notes(link, entries),
             ))
         return out
+
+    async def _notes(self, link: IncomeLink, entries: Sequence[IncomeEntry]) -> List[str]:
+        """Why nothing, or not everything, was written, in the words a person would use.
+
+        The panel used to say only «هنوز درآمدی نوشته نشده» and leave the person to guess. The usual cause is
+        a start day: later than today, or later than the transactions they meant.
+        """
+        source = await self.books.get_book(link.source_book_id)
+        cal = calendars.of(source)
+        notes: List[str] = []
+        member = await self.books.membership(link.source_book_id, link.user_id)
+        if member is None or not member.is_active:
+            notes.append("دیگر عضو دفتر مبدأ نیستی؛ چیز تازه‌ای نوشته نمی‌شود و آنچه نوشته شده می‌ماند.")
+        if not link.is_active:
+            notes.append("این پیوند غیرفعال است؛ تا فعالش نکنی چیزی نوشته نمی‌شود.")
+        today = jalali.today_in(source.timezone)
+        if link.starts_on > today:
+            notes.append(
+                f"تاریخ شروع ({cal.to_text(link.starts_on)}) هنوز نرسیده؛ تا آن روز چیزی نوشته نمی‌شود."
+            )
+        before = (await self.session.execute(
+            select(func.count(Transaction.id), func.min(Transaction.occurred_on), func.max(Transaction.occurred_on))
+            .where(Transaction.book_id == link.source_book_id, Transaction.occurred_on < link.starts_on)
+        )).one()
+        if before[0]:
+            notes.append(
+                f"{before[0]} تراکنش از {cal.to_text(before[1])} تا {cal.to_text(before[2])} پیش از تاریخ شروع‌اند "
+                "و نوشته نمی‌شوند؛ برای نوشتنشان «از چه روزی» را عقب‌تر ببر."
+            )
+        if link.mode in BUCKETS and source.type is not BookType.BUSINESS:
+            rule = (await self._payroll().share_rules_for(source.id, max(today, link.starts_on))).get(link.user_id)
+            if rule is None:
+                notes.append("برای تو در این دفتر سهم درصدی تعریف نشده یا هنوز شروع نشده؛ بدون آن چیزی نوشته نمی‌شود.")
+            elif rule.basis is not ShareBasis.PERCENT:
+                notes.append("سهم تو درصدی نیست؛ این حالت فقط برای سهم درصدی است.")
+        if not entries and not notes:
+            notes.append(
+                "در بازهٔ پس از تاریخ شروع تراکنشی که درآمد خالص یا زیانی بسازد پیدا نشد؛ با ثبت درآمد یا هزینه "
+                "در دفتر مبدأ اینجا پر می‌شود."
+            )
+        return notes
 
     async def entries(self, user_id: uuid.UUID, link_id: uuid.UUID) -> List[IncomeEntry]:
         link = await self._mine(user_id, link_id)
@@ -397,6 +459,9 @@ class IncomeSyncService:
                         link.target_book_id, link.user_id, tx.id, amount=magnitude, occurred_on=on,
                         flow=flow, description=note,
                     )
+                # The same amount leaves the business as the owner's draw, in the same step: either both
+                # are written or the entry says why neither was.
+                await self._sync_draw(link, entry, source, on, amount)
             entry.problem = None
         except KasbBookError as error:
             # Kept, not raised: a closed month in the target must never stop a payment or an entry here.
@@ -404,7 +469,55 @@ class IncomeSyncService:
         entry.occurred_on, entry.amount = on, amount
         await self.session.flush()
 
+    async def _sync_draw(
+        self, link: IncomeLink, entry: IncomeEntry, source: Book, on: date, amount: Decimal
+    ) -> None:
+        """Keep the source business's draw in step with the entry: what the owner took out, as cash leaving
+        the book (not an expense, so its profit is untouched), or put back when the share was a loss."""
+        movement = (
+            await self.session.get(CapitalMovement, entry.draw_movement_id)
+            if entry.draw_movement_id else None
+        )
+        if not link.draws:
+            if movement is not None:
+                await self._erase_draw(entry, movement)
+            return
+        cash = -amount
+        if movement is not None and movement.occurred_on == on and to_decimal(movement.cash_delta) == cash:
+            return
+        if movement is not None:
+            await self._erase_draw(entry, movement)
+        from ..capital.posting import CASH, post_movement
+
+        value = abs(amount)
+        lines = ([(DRAW, value, ZERO), (CASH, ZERO, value)] if amount > ZERO
+                 else [(CASH, value, ZERO), (DRAW, ZERO, value)])
+        moved = await post_movement(
+            self.session, link.source_book_id, link.user_id, on, "owner_draw", lines,
+            cash_delta=cash, memo=f"برداشت مالک از «{source.name}»",
+        )
+        entry.draw_movement_id = moved.id
+
+    async def _erase_draw(self, entry: IncomeEntry, movement: CapitalMovement) -> None:
+        if movement.journal_entry_id is not None:
+            journal = await self.session.get(JournalEntry, movement.journal_entry_id)
+            if journal is not None:
+                await self.session.delete(journal)
+        await self.session.delete(movement)
+        entry.draw_movement_id = None
+        await self.session.flush()
+
     async def _remove(self, link: IncomeLink, entry: IncomeEntry) -> None:
+        if entry.draw_movement_id is not None:
+            movement = await self.session.get(CapitalMovement, entry.draw_movement_id)
+            if movement is not None:
+                try:
+                    async with self.session.begin_nested():
+                        await self._erase_draw(entry, movement)
+                except KasbBookError as error:
+                    entry.problem = str(error)[:300]
+                    await self.session.flush()
+                    return
         if entry.transaction_id is not None:
             try:
                 async with self.session.begin_nested():
