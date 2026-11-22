@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The income link's category is a menu** of the personal book's income categories (with search and a way to add one), and left empty the income is filed under the name of the book it comes from, not «درآمد از …».
 - **Pay to members and currency exchange name the bank account.** A payroll payment in the book's own currency leaves one of its accounts (the default unless chosen; voiding it puts the money back) and an exchange with the book's own currency on one side moves one both ways; neither is income or an expense, and both count in the account's reconciliation. The purchase of an asset from the portfolio page asks for the account too.
 - **Debts and receivables keep a history, and say which account the cash used.** A debt can grow again (*افزودن به این مورد*), be paid in parts, and each of those is a dated entry in its history with the account when real cash moved: lending and being paid back, borrowing and paying back. It is cash on the account against a receivable or payable account, never income or an expense; with no account nothing moves (a credit sale already counted it). An entry can be taken back, and a debt with real cash on it is deleted only together with that cash (`undo_cash`). The account is chosen on purpose here (left out means none moved), unlike the other forms.
 - **Financial notes are paged**: six notes to a page, and each note shows its rows eight at a time, newest first.

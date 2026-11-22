@@ -66,8 +66,8 @@ tethers is what forty tethers were worth, not forty toman.
 
 A member's pay is theirs, and it belongs in their personal accounts. An
 **income link** (`/income-links`) says: write my income from this team (or
-business) book into this book of mine, filed under this category, from this
-day. It is the member's own setting and only they can see it.
+business) book into this book of mine, filed under this income category (left
+empty, the name of the source book), from this day. It is the member's own setting and only they can see it.
 
 `when` is one of:
 

@@ -1,0 +1,1 @@
+import{_ as e}from"./format-DMMAq1ZL.js";import{s as t}from"./schemas-C5acP8so.js";import{t as n}from"./index-BroG2cHU.js";var r=t().transform(e).refine(e=>/^\d+(\.\d{1,4})?$/.test(e)&&Number(e)>0,{error:n.transactions.badAmount});export{r as t};

@@ -313,3 +313,18 @@ async def test_a_member_who_left_keeps_what_was_written(api, db):
     await api.delete(f"{V1}/books/{book['id']}/members/{sara_id}", headers=owner)
     await add(api, owner, book, "income", 100)
     assert await incomes(api, sara, mine) == [(DAY, Decimal("40"))]
+
+
+async def test_the_income_is_filed_under_the_chosen_category_or_the_source_books_name(api, db):
+    owner, sara, book, mine = await team(api)
+    await add(api, owner, book, "income", 100)
+    made = (await link(api, sara, book, mine, "daily")).json()
+    assert made["category"] == book["name"]  # left out: the name of the book it comes from
+    page = (await api.get(f"{V1}/books/{mine['id']}/transactions", headers=sara)).json()
+    assert [row["category"] for row in page["items"]] == [book["name"]]
+
+    await api.delete(f"{V1}/income-links/{made['id']}", headers=sara, params={"remove_income": "true"})
+    chosen = (await link(api, sara, book, mine, "daily", category="حقوق")).json()
+    assert chosen["category"] == "حقوق"
+    page = (await api.get(f"{V1}/books/{mine['id']}/transactions", headers=sara)).json()
+    assert [row["category"] for row in page["items"]] == ["حقوق"]

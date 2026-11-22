@@ -133,7 +133,8 @@ class IncomeSyncService:
         ).limit(1)):
             raise ValidationError("برای این دفتر قبلاً پیوند ساخته‌ای؛ همان را تغییر بده.")
         link_bank = await self.ledger.banks.resolve(target_book_id, bank_account_id, in_base_currency=True)
-        name = (category or "").strip() or f"درآمد از «{source.name}»"
+        # Left empty, the income is filed under the name of the book it comes from.
+        name = (category or "").strip() or source.name.strip()
         if len(name) > 80:
             raise ValidationError("نام دسته حداکثر 80 حرف است.")
         link = IncomeLink(

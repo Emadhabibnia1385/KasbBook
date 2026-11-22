@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useEffect } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
@@ -11,7 +12,6 @@ import {
 	SectionCard,
 	SelectField,
 	SubmitButton,
-	TextField,
 	toast,
 } from "@nyxon/nasim";
 import {
@@ -26,6 +26,7 @@ import {
 import type { BookResponse, IncomeLinkResponse } from "@/api/generated/model";
 import { Loaded } from "@/features/analytics/Loaded";
 import { useActiveBook } from "@/features/books/useActiveBook";
+import { CategoryField } from "@/features/transactions/FormControls";
 import { todayIso } from "@/features/transactions/filters";
 import { pickedDay, toPicker } from "@/shared/dates";
 import { DayField } from "@/shared/DayField";
@@ -75,6 +76,12 @@ function LinkForm({
 		},
 	});
 	const mode = useWatch({ control: form.control, name: "mode" });
+	const target = useWatch({ control: form.control, name: "target" });
+	// The income is filed under a category of the book it lands in; another book has its own.
+	const targetBook = link?.target_book_id ?? target;
+	useEffect(() => {
+		if (!link) form.setValue("category", "");
+	}, [target, link, form]);
 	return (
 		<FormRoot
 			form={form}
@@ -129,7 +136,18 @@ function LinkForm({
 			{book.type === "business" ? (
 				<p className="text-xs text-muted">{t.income.businessNote}</p>
 			) : null}
-			<TextField name="category" label={t.income.category} description={t.income.categoryHint} />
+			{targetBook ? (
+				<CategoryField
+					key={targetBook}
+					name="category"
+					bookId={targetBook}
+					flow="income"
+					label={t.income.category}
+				/>
+			) : null}
+			<p className="text-xs text-muted">
+				{t.income.categoryHint} <bdi>«{book.name}»</bdi>
+			</p>
 			<DayField name="starts_on" label={t.income.startsOn} />
 			<p className="text-xs text-muted">{t.income.startsOnHint}</p>
 			<SubmitButton>{t.common.save}</SubmitButton>

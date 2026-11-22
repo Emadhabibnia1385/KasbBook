@@ -1325,7 +1325,8 @@ class IncomeLinkRequest(MoneyModel):
     # payment (each time I am paid), period (my net pay when a payroll period closes), or a running
     # share of the book's net income: daily, weekly or monthly.
     mode: str
-    # What the income is filed under; left out, «درآمد از «<book>»».
+    # What the income is filed under, one of the target book's income categories; left out, the name of the
+    # source book.
     category: Optional[str] = Field(default=None, max_length=80)
     # Nothing before this day is written; left out, today.
     starts_on: Optional[date] = None
