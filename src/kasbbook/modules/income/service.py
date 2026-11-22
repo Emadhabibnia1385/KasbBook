@@ -325,7 +325,9 @@ class IncomeSyncService:
             ref, start, _ = _bucket(link.mode, tx.occurred_on, cal)
             if only is not None and ref not in only:
                 continue
-            slot = buckets.setdefault(ref, {"income": ZERO, "costs": ZERO, "last": None})
+            slot = buckets.setdefault(ref, {"income": ZERO, "costs": ZERO, "last": None, "any": None})
+            if slot["any"] is None or tx.occurred_on > slot["any"]:  # type: ignore[operator]
+                slot["any"] = tx.occurred_on
             if tx.flow is Flow.INCOME:
                 slot["income"] += tx.converted_amount  # type: ignore[operator]
                 if slot["last"] is None or tx.occurred_on > slot["last"]:  # type: ignore[operator]
@@ -334,14 +336,19 @@ class IncomeSyncService:
                 slot["costs"] += tx.converted_amount  # type: ignore[operator]
         out: Dict[str, Tuple[date, Decimal, str]] = {}
         for ref, slot in buckets.items():
-            last = slot["last"]
-            if last is None:
+            # Signed, never clamped: a day whose costs are more than its income is a loss for this person's
+            # share, and writing it as zero (or as nothing) made the days add up to something other than
+            # their share of the book's profit whenever the costs fell on a different day from the income.
+            net = slot["income"] - slot["costs"]  # type: ignore[operator]
+            if net == ZERO:
                 continue
-            net = max(slot["income"] - slot["costs"], ZERO)  # type: ignore[operator]
-            percent = await self._percent(link, source, last)
+            # A gain is dated the last day with income, so it is never in the future; a loss, the last day
+            # with anything at all.
+            day = slot["last"] if net > ZERO else slot["any"]
+            percent = await self._percent(link, source, day)  # type: ignore[arg-type]
             amount = quantize(net * percent / HUNDRED)
-            if amount > ZERO:
-                out[ref] = (last, amount, ref.split(":", 1)[1])  # type: ignore[arg-type]
+            if amount != ZERO:
+                out[ref] = (day, amount, ref.split(":", 1)[1])  # type: ignore[arg-type]
         return out
 
     async def _percent(self, link: IncomeLink, source: Book, on: date) -> Decimal:
@@ -362,8 +369,14 @@ class IncomeSyncService:
                 await self._remove(link, entry)
             return
         on, amount, label = want
+        # A positive amount is income; a negative one is this person's share of costs, written as an expense
+        # so that, added up, the entries are exactly their share of the book's net.
+        flow = Flow.INCOME if amount > ZERO else Flow.EXPENSE
+        magnitude = abs(amount)
         target = await self.books.get_book(link.target_book_id)
         source = await self.books.get_book(link.source_book_id)
+        note = (f"همگام‌شده از «{source.name}» — {label}" if flow is Flow.INCOME
+                else f"سهم از هزینه‌های «{source.name}» — {label}")
         if entry is None:
             entry = IncomeEntry(link_id=link.id, ref=ref, occurred_on=on, amount=amount)
             self.session.add(entry)
@@ -373,16 +386,16 @@ class IncomeSyncService:
             async with self.session.begin_nested():
                 if tx is None:
                     tx = await self.ledger.record(
-                        link.target_book_id, link.user_id, Flow.INCOME,
+                        link.target_book_id, link.user_id, flow,
                         Scope.PERSONAL if target.type is BookType.PERSONAL else Scope.WORK,
-                        link.category, amount, occurred_on=on,
-                        description=f"همگام‌شده از «{source.name}» — {label}",
+                        link.category, magnitude, occurred_on=on, description=note,
                         bank_account_id=link.bank_account_id,
                     )
                     entry.transaction_id = tx.id
-                elif tx.converted_amount != amount or tx.occurred_on != on:
+                elif tx.converted_amount != magnitude or tx.occurred_on != on or tx.flow is not flow:
                     await self.ledger.update(
-                        link.target_book_id, link.user_id, tx.id, amount=amount, occurred_on=on
+                        link.target_book_id, link.user_id, tx.id, amount=magnitude, occurred_on=on,
+                        flow=flow, description=note,
                     )
             entry.problem = None
         except KasbBookError as error:

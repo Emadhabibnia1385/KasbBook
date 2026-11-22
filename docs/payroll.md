@@ -75,7 +75,7 @@ empty, the name of the source book), from this day. It is the member's own setti
 |---|---|
 | `payment` | each payment received, on its date (cash basis); voiding the payment removes it |
 | `period` | the net pay, once, when a payroll period is locked, dated the period's end; reopening removes it |
-| `daily` / `weekly` / `monthly` | your percentage share of the net income (income minus costs, never below zero) of each day, week or month |
+| `daily` / `weekly` / `monthly` | your percentage share of the net income (income minus costs) of each day, week or month: a gain is income, a loss is your share of the costs written as an expense, so the entries always add up to your share of the profit |
 
 The running modes are dated the last day in the stretch that had income, so
 nothing is dated in the future, and need a percentage share. They are an

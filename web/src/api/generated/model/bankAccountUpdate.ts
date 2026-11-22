@@ -19,6 +19,7 @@ export interface BankAccountUpdate {
 	account_number?: string | null;
 	bank_name?: string | null;
 	card_number?: string | null;
+	current_balance?: number | string | null;
 	display_name?: string | null;
 	holder_name?: string | null;
 	is_active?: boolean | null;

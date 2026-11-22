@@ -35,6 +35,13 @@ import { formatMoney } from "@/shared/format";
 import { refreshMoney, reportFailure } from "@/shared/mutations";
 import { t } from "@/strings";
 
+/** «−۱۶۰ تومان» for a loss, the plain figure otherwise: a negative share is written as an expense. */
+function signedMoney(value: string, currency: string): string {
+	return Number(value) < 0
+		? `−${formatMoney(String(Math.abs(Number(value))), currency)}`
+		: formatMoney(value, currency);
+}
+
 const MODES = ["payment", "period", "daily", "weekly", "monthly"] as const;
 type Mode = (typeof MODES)[number];
 
@@ -177,7 +184,12 @@ function Entries({ link, currency }: { link: IncomeLinkResponse; currency: strin
 											<span className="text-xs text-danger">{row.problem}</span>
 										) : null}
 									</span>
-									<span className="tabular-nums">{formatMoney(row.amount, currency)}</span>
+									<span
+										className={Number(row.amount) < 0 ? "tabular-nums text-danger" : "tabular-nums"}
+										title={Number(row.amount) < 0 ? t.income.lossShare : undefined}
+									>
+										{signedMoney(row.amount, currency)}
+									</span>
 								</li>
 							))}
 						</ul>
@@ -233,7 +245,7 @@ function Active({
 						{t.income.written}: {link.entries}
 					</span>
 					<span className="text-lg font-semibold tabular-nums">
-						{formatMoney(link.total, book.currency)}
+						{signedMoney(link.total, book.currency)}
 					</span>
 				</div>
 			</div>

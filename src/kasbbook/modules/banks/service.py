@@ -357,9 +357,17 @@ class BankService:
     async def update(
         self, owner_id: uuid.UUID, bank_id: uuid.UUID, *, bank_name=UNSET, holder_name=UNSET,
         display_name=UNSET, card_number=UNSET, account_number=UNSET, sheba=UNSET,
-        opening_balance=UNSET, is_active=UNSET,
+        opening_balance=UNSET, is_active=UNSET, current_balance=UNSET,
     ) -> BankAccount:
+        """Change what was given.
+
+        `current_balance` is what the bank says the account holds right now: the opening balance is
+        then worked out as whatever the books' own transactions do not explain, so the account's total
+        equals the bank's and each book keeps exactly its own share. It replaces `opening_balance`.
+        """
         bank = await self._owned(owner_id, bank_id)
+        if current_balance is not UNSET and opening_balance is not UNSET:
+            raise ValidationError("یا موجودی اولیه را بنویس یا موجودی فعلی حساب را، نه هر دو.")
         if bank_name is not UNSET:
             bank.bank_name = _required(bank_name, "نام بانک", 80)
         if holder_name is not UNSET:
@@ -376,6 +384,14 @@ class BankService:
             if opening_balance is None:
                 raise ValidationError("موجودی اولیه نمی‌تواند خالی باشد.")
             bank.opening_balance = quantize(opening_balance)
+        if current_balance is not UNSET:
+            if current_balance is None:
+                raise ValidationError("موجودی فعلی نمی‌تواند خالی باشد.")
+            # Everything the books put in or took out, across every book that uses the account.
+            shares = (await self._summary(bank)).shares
+            bank.opening_balance = quantize(
+                quantize(current_balance) - sum((share.balance for share in shares), ZERO)
+            )
         if is_active is not UNSET:
             if is_active is None:
                 raise ValidationError("فعال یا غیرفعال را مشخص کن.")

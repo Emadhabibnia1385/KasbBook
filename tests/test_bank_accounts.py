@@ -1093,3 +1093,38 @@ async def test_debt_cash_stays_inside_the_book_and_inside_the_currency(api, db):
     stranger = bearer(await register(api, email="stranger9@example.com"))
     assert (await api.get(f"{V1}/books/{personal['id']}/debts/{owed['id']}/movements",
                           headers=stranger)).status_code == 404
+
+
+async def test_the_real_balance_sets_the_opening_balance_to_what_the_books_do_not_explain(api, db):
+    headers, personal, business = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal, business], opening_balance="999")
+    await record(api, headers, business, "income", 3000)
+    await record(api, headers, personal, "expense", 500)
+
+    # The bank says 10,000 now; the books explain +3000 and -500, so 7,500 was there before them.
+    done = await api.patch(f"{V1}/bank-accounts/{bank['id']}", headers=headers,
+                           json={"current_balance": "10000"})
+    assert done.status_code == 200, done.text
+    assert Decimal(done.json()["opening_balance"]) == 7500
+    assert Decimal(done.json()["total_balance"]) == 10000
+    shares = {s["book_id"]: Decimal(s["balance"]) for s in done.json()["shares"]}
+    assert shares == {business["id"]: 3000, personal["id"]: -500}  # each book keeps its own share
+    await everything_agrees(api, db, headers, [personal, business])
+
+    # Later entries move the total; saying the bank's figure again re-settles it.
+    await record(api, headers, business, "income", 100)
+    again = await api.patch(f"{V1}/bank-accounts/{bank['id']}", headers=headers,
+                            json={"current_balance": "10000"})
+    assert Decimal(again.json()["opening_balance"]) == 7400
+    assert Decimal(again.json()["total_balance"]) == 10000
+
+
+async def test_the_real_balance_and_an_opening_balance_are_not_both_accepted(api, db):
+    headers, personal, _ = await owner_with_two_books(api, db)
+    bank = await make_bank(api, headers, [personal])
+    both = await api.patch(f"{V1}/bank-accounts/{bank['id']}", headers=headers,
+                           json={"current_balance": "10", "opening_balance": "5"})
+    assert both.status_code == 422
+    stranger = bearer(await register(api, email="stranger10@example.com"))
+    assert (await api.patch(f"{V1}/bank-accounts/{bank['id']}", headers=stranger,
+                            json={"current_balance": "10"})).status_code == 404

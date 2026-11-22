@@ -1164,6 +1164,9 @@ class BankAccountUpdate(MoneyModel):
     account_number: Optional[str] = Field(default=None, max_length=40)
     sheba: Optional[str] = Field(default=None, max_length=40)
     opening_balance: Optional[Decimal] = None
+    # What the bank says the account holds now. The opening balance is worked out from it (this minus
+    # what every book put in or took out), so the total matches the bank. Instead of `opening_balance`.
+    current_balance: Optional[Decimal] = None
     is_active: Optional[bool] = None
 
 

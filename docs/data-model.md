@@ -127,7 +127,9 @@ Transaction.bank_account_id → the account the money moved through (optional)
 ```
 
 The balance is not stored. It is the opening balance plus what each book's
-ledger account holds, so it cannot drift from the transactions.
+ledger account holds, so it cannot drift from the transactions. To match the
+bank, give `current_balance` (what the bank shows now): the opening balance is
+then worked out as that minus what every book put in or took out.
 `GET /bank-accounts/{id}/reconciliation` works it out a second way, from the
 transactions, and says whether the two agree. The opening balance is a fact
 about the account, not a transaction, so it never counts as income.
