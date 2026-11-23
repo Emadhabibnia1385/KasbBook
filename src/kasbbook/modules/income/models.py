@@ -58,6 +58,9 @@ class IncomeLink(UUIDPrimaryKey, Timestamped, Base):
     # Also take the same amount out of the source book as the owner's draw, so what the book holds follows
     # what its owner took. Only for a business of one: a team pays its members through payroll instead.
     draws: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    # The last day the settlement of a week or a month was looked at: a period ends by itself, with nobody
+    # recording anything, so the daily pass writes what has just become complete (see `settle_due`).
+    settled_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
 
 class IncomeEntry(UUIDPrimaryKey, Timestamped, Base):

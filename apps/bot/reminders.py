@@ -95,6 +95,15 @@ class ReminderLoop:
                 await RecurringService(session).run_due(until=server_day)
                 if self.book_recurring else RecurringRun()
             )
+            if self.book_recurring:
+                # The weeks and months that have just ended, written to the books of whoever takes their income
+                # from them. Best effort like the rest of the sync: a refusal is kept on the entry, not raised.
+                try:
+                    from kasbbook.modules.income.service import IncomeSyncService
+
+                    await IncomeSyncService(session).settle_due(today=server_day)
+                except Exception:
+                    logger.warning("settling the income links failed", exc_info=True)
             await session.commit()
             chats = dict(recipients)
             for notice in await service.recurring_notices(recurring, today=server_day):

@@ -477,3 +477,35 @@ async def payroll_ready(api, owner, sara, book):
     slips = (await api.post(f"{V1}/books/{book['id']}/periods/{period['id']}/calculate", headers=owner)).json()
     slip = next(s for s in slips if s["user_id"] == sara_id)
     return period, slip
+
+
+# ------------------------------------------------------------------ only finished periods
+async def test_a_month_still_running_is_neither_written_nor_drawn_until_it_is_over(api, db):
+    from kasbbook.shared import jalali
+
+    owner, personal, shop = await solo_business(api, db)
+    today = jalali.today_in("Asia/Tehran").isoformat()
+    await add(api, owner, shop, "income", 300, day=today)
+    made = (await link(api, owner, shop, personal, "monthly")).json()
+    # Today's month is not over: nothing is taken into the personal book and nothing leaves the business.
+    assert await incomes(api, owner, personal) == []
+    assert await wallet_base(api, owner, shop) == 300
+    mine = (await api.get(f"{V1}/income-links", headers=owner)).json()
+    assert any("هنوز تمام نشده" in note for row in mine if row["id"] == made["id"] for note in row["notes"])
+
+
+async def test_the_daily_settling_writes_a_month_that_has_just_ended(api, db):
+    from kasbbook.modules.income.service import IncomeSyncService
+    from kasbbook.shared import jalali
+
+    owner, personal, shop = await solo_business(api, db)
+    await add(api, owner, shop, "income", 500)  # a finished month, written when the link is made
+    (await link(api, owner, shop, personal, "monthly")).json()
+    assert await incomes(api, owner, personal) == [(DAY, Decimal("500"))]
+    async for session in db.session():
+        service = IncomeSyncService(session)
+        looked = await service.settle_due(today=jalali.today_in("Asia/Tehran"))
+        again = await service.settle_due(today=jalali.today_in("Asia/Tehran"))
+        await session.commit()
+    assert looked == 1 and again == 0  # once a day, and the result is not written twice
+    assert await incomes(api, owner, personal) == [(DAY, Decimal("500"))]

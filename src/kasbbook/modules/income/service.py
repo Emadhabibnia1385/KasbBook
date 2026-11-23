@@ -258,6 +258,20 @@ class IncomeSyncService:
                 f"{before[0]} تراکنش از {cal.to_text(before[1])} تا {cal.to_text(before[2])} پیش از تاریخ شروع‌اند "
                 "و نوشته نمی‌شوند؛ برای نوشتنشان «از چه روزی» را عقب‌تر ببر."
             )
+        if link.mode in (WEEKLY, MONTHLY):
+            current = _bucket(link.mode, today, cal)
+            running = (await self.session.execute(
+                select(func.count(Transaction.id)).where(
+                    Transaction.book_id == link.source_book_id,
+                    Transaction.occurred_on >= max(current[1], link.starts_on),
+                    Transaction.occurred_on <= current[2],
+                )
+            )).scalar() or 0
+            if running:
+                notes.append(
+                    f"{'ماه' if link.mode == MONTHLY else 'هفتهٔ'} جاری هنوز تمام نشده ({running} تراکنش در آن هست)؛ "
+                    "پس از پایان آن، به‌طور خودکار نوشته می‌شود و برداشت هم همان‌موقع ثبت می‌شود."
+                )
         if link.mode in BUCKETS and source.type is not BookType.BUSINESS:
             rule = (await self._payroll().share_rules_for(source.id, max(today, link.starts_on))).get(link.user_id)
             if rule is None:
@@ -302,6 +316,22 @@ class IncomeSyncService:
             refs = {_bucket(link.mode, day, cal)[0] for day in days if day and day >= link.starts_on}
             if refs:
                 await self._resync(link, only=refs)
+
+    async def settle_due(self, today: Optional[date] = None) -> int:
+        """Once a day, write the weeks and months that have just ended: a period closes by itself, with
+        nobody recording anything, so nothing else would notice. Returns how many links were looked at."""
+        if _syncing.get():
+            return 0
+        day = today or jalali.today_in("Asia/Tehran")
+        links = (await self.session.scalars(select(IncomeLink).where(
+            IncomeLink.is_active.is_(True), IncomeLink.mode.in_((WEEKLY, MONTHLY)),
+            (IncomeLink.settled_on.is_(None)) | (IncomeLink.settled_on < day),
+        ))).all()
+        for link in links:
+            await self._resync(link)
+            link.settled_on = day
+        await self.session.flush()
+        return len(links)
 
     async def payroll_changed(self, book_id: uuid.UUID) -> None:
         """A payment, a void, a close or a reopen happened in a book's payroll."""
@@ -396,6 +426,12 @@ class IncomeSyncService:
                     slot["last"] = tx.occurred_on
             else:
                 slot["costs"] += tx.converted_amount  # type: ignore[operator]
+        if link.mode in (WEEKLY, MONTHLY):
+            # A week or a month is written once it is over, never while it is still running: income is not
+            # taken, and nothing is drawn out of the business, for a month that has not finished. (A day is
+            # different: it is the stretch people mean when they ask for it to follow along.)
+            today = jalali.today_in(source.timezone)
+            buckets = {ref: slot for ref, slot in buckets.items() if _bucket_of_ref(ref, cal)[1] < today}
         out: Dict[str, Tuple[date, Decimal, str]] = {}
         for ref, slot in buckets.items():
             # Signed, never clamped: a day whose costs are more than its income is a loss for this person's
