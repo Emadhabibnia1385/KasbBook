@@ -954,10 +954,16 @@
             "title": "Account Number"
           },
           "bank_name": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Bank Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
           },
           "book_ids": {
             "items": {
@@ -1004,9 +1010,21 @@
             "title": "Display Name"
           },
           "holder_name": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Holder Name",
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Name"
+          },
+          "kind": {
+            "default": "bank",
+            "pattern": "^(bank|cash)$",
+            "title": "Kind",
             "type": "string"
           },
           "opening_balance": {
@@ -1035,10 +1053,6 @@
             "title": "Sheba"
           }
         },
-        "required": [
-          "bank_name",
-          "holder_name"
-        ],
         "title": "BankAccountRequest",
         "type": "object"
       },
@@ -1103,6 +1117,11 @@
           "is_active": {
             "title": "Is Active",
             "type": "boolean"
+          },
+          "kind": {
+            "default": "bank",
+            "title": "Kind",
+            "type": "string"
           },
           "opening_balance": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -10556,7 +10575,7 @@
         ]
       },
       "post": {
-        "description": "Add an account. Only the bank and the holder are required; `book_ids` links it right away.",
+        "description": "Add an account. Only the bank and the holder are required; `book_ids` links it right away.\n\n`kind: \"cash\"` adds the cash wallet instead: no bank or numbers, one per unit; asking again while an\ninactive one exists turns it back on.",
         "operationId": "banks_create",
         "parameters": [
           {

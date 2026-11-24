@@ -29,6 +29,7 @@ export interface BankAccountResponse {
 	holder_name: string;
 	id: string;
 	is_active: boolean;
+	kind?: string;
 	/** @pattern ^(?!^[-+.]*$)[+-]?0*\d*\.?\d*$ */
 	opening_balance: string;
 	shares: BankShareResponse[];

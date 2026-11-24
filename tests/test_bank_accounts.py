@@ -1128,3 +1128,49 @@ async def test_the_real_balance_and_an_opening_balance_are_not_both_accepted(api
     stranger = bearer(await register(api, email="stranger10@example.com"))
     assert (await api.patch(f"{V1}/bank-accounts/{bank['id']}", headers=stranger,
                             json={"current_balance": "10"})).status_code == 404
+
+
+# ------------------------------------------------------------------ the cash wallet and the rial
+async def test_a_cash_wallet_needs_no_bank_and_there_is_one_per_unit(api, db):
+    owner, personal, business = await owner_with_two_books(api, db)
+    books = [personal, business]
+    cash = await make_bank(api, owner, books[:1], kind="cash", bank_name=None, holder_name=None)
+    assert cash["kind"] == "cash" and cash["title"] == "کیف پول نقدی"
+    assert cash["card_number"] is None and cash["sheba"] is None
+    # A second one is refused while the first is on…
+    again = await api.post(f"{V1}/bank-accounts", headers=owner, json={"kind": "cash", "book_ids": [books[0]["id"]]})
+    assert again.status_code == 422 and "از قبل" in again.text
+    # …a bank's name or number has no place on it…
+    odd = await api.post(f"{V1}/bank-accounts", headers=owner, json={"kind": "cash", "bank_name": "ملی"})
+    assert odd.status_code == 422
+    # …and once it is switched off, asking for a wallet turns that one back on instead of adding a second.
+    off = await api.patch(f"{V1}/bank-accounts/{cash['id']}", headers=owner, json={"is_active": False})
+    assert off.status_code == 200 and off.json()["is_active"] is False
+    back = await api.post(f"{V1}/bank-accounts", headers=owner, json={"kind": "cash", "book_ids": [books[0]["id"]]})
+    assert back.status_code == 201 and back.json()["id"] == cash["id"] and back.json()["is_active"] is True
+    mine = (await api.get(f"{V1}/bank-accounts", headers=owner)).json()
+    assert [row["kind"] for row in mine].count("cash") == 1
+
+
+async def test_a_cash_wallet_takes_money_like_any_account_and_cannot_be_given_card_numbers(api, db):
+    owner, personal, business = await owner_with_two_books(api, db)
+    books = [personal, business]
+    cash = await make_bank(api, owner, books[:1], kind="cash", bank_name=None, holder_name=None)
+    await record(api, owner, books[0], "income", 400, bank_account_id=cash["id"])
+    got = (await api.get(f"{V1}/bank-accounts/{cash['id']}", headers=owner)).json()
+    assert Decimal(got["total_balance"]) == 400
+    bad = await api.patch(f"{V1}/bank-accounts/{cash['id']}", headers=owner, json={"sheba": "IR123"})
+    assert bad.status_code == 422
+
+
+async def test_an_account_can_be_kept_in_rials_and_only_joins_a_book_counted_in_rials(api, db):
+    owner, personal, business = await owner_with_two_books(api, db)
+    books = [personal, business]
+    rial = await make_bank(api, owner, [], currency="IRR")
+    assert rial["currency"] == "IRR" and rial["shares"] == []
+    refused = await api.put(f"{V1}/books/{books[0]['id']}/bank-accounts/{rial['id']}", headers=owner, json={})
+    assert refused.status_code == 422
+    # A wallet in rials is a different wallet from the one in tomans.
+    a = await make_bank(api, owner, [], kind="cash", bank_name=None, holder_name=None, currency="IRR")
+    b = await make_bank(api, owner, [], kind="cash", bank_name=None, holder_name=None, currency="IRT")
+    assert a["id"] != b["id"]

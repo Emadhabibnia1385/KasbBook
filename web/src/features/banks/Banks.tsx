@@ -122,7 +122,7 @@ function BankCard({
 							</span>
 						)}
 					</h3>
-					{bank.display_name ? (
+					{bank.display_name && bank.kind !== "cash" ? (
 						<span className="text-sm text-muted">
 							<bdi>
 								{bank.bank_name} · {bank.holder_name}

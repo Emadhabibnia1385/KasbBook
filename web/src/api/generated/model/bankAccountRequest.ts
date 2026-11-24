@@ -17,20 +17,14 @@
 
 export interface BankAccountRequest {
 	account_number?: string | null;
-	/**
-	 * @minLength 1
-	 * @maxLength 80
-	 */
-	bank_name: string;
+	bank_name?: string | null;
 	book_ids?: string[];
 	card_number?: string | null;
 	currency?: string | null;
 	display_name?: string | null;
-	/**
-	 * @minLength 1
-	 * @maxLength 120
-	 */
-	holder_name: string;
+	holder_name?: string | null;
+	/** @pattern ^(bank|cash)$ */
+	kind?: string;
 	opening_balance?: number | string;
 	sheba?: string | null;
 }

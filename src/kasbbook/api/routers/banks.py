@@ -55,7 +55,7 @@ def _owner_view(summary: BankSummary) -> BankAccountResponse:
     return BankAccountResponse(
         id=bank.id, title=bank.title, bank_name=bank.bank_name, holder_name=bank.holder_name,
         display_name=bank.display_name, card_number=bank.card_number,
-        account_number=bank.account_number, sheba=bank.sheba, currency=bank.currency,
+        account_number=bank.account_number, sheba=bank.sheba, currency=bank.currency, kind=bank.kind,
         opening_balance=bank.opening_balance, is_active=bank.is_active,
         total_balance=summary.total, created_at=bank.created_at,
         shares=[
@@ -91,13 +91,17 @@ async def list_mine(user: CurrentUser, session: SessionDep) -> List[BankAccountR
 async def create(
     body: BankAccountRequest, user: CurrentUser, session: SessionDep
 ) -> BankAccountResponse:
-    """Add an account. Only the bank and the holder are required; `book_ids` links it right away."""
+    """Add an account. Only the bank and the holder are required; `book_ids` links it right away.
+
+    `kind: "cash"` adds the cash wallet instead: no bank or numbers, one per unit; asking again while an
+    inactive one exists turns it back on."""
     service = BankService(session)
     bank = await service.create(
         user.id, bank_name=body.bank_name, holder_name=body.holder_name,
         display_name=body.display_name, card_number=body.card_number,
         account_number=body.account_number, sheba=body.sheba,
         opening_balance=body.opening_balance, currency=body.currency, book_ids=body.book_ids,
+        kind=body.kind,
     )
     return _owner_view(await service.get_mine(user.id, bank.id))
 

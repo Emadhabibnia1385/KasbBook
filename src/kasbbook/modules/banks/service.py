@@ -37,7 +37,12 @@ from ..ledger.models import Account, AccountType, Flow, JournalLine, Transaction
 from ..income.models import IncomeLink
 from ..payroll.models import Payment
 from ..recurring.models import RecurringRule
-from .models import BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer
+from .models import (
+    CASH_TITLE, KIND_BANK, KIND_CASH, BankAccount, BankAccountLink, BankBookTransferLeg, BankTransfer,
+)
+
+# What a cash wallet stores where a bank account has a bank's name.
+CASH_NAME = "نقد"
 
 # "Not given" is not the same as "given as nothing": an edit that leaves a field out keeps it, and one
 # that sends null clears it. The ledger shares this marker so the two services mean the same thing.
@@ -329,25 +334,51 @@ class BankService:
         display_name: Optional[str] = None, card_number: Optional[str] = None,
         account_number: Optional[str] = None, sheba: Optional[str] = None,
         opening_balance=0, currency: Optional[str] = None,
-        book_ids: Sequence[uuid.UUID] = (),
+        book_ids: Sequence[uuid.UUID] = (), kind: str = KIND_BANK,
     ) -> BankAccount:
+        if kind not in (KIND_BANK, KIND_CASH):
+            raise ValidationError("نوع حساب را «حساب بانکی» یا «کیف پول نقدی» بگذار.")
         books = [await self.books.get_book(book_id) for book_id in book_ids]
         # Checked before anything is written, so a refused link leaves no half-made account behind.
         for book_id in book_ids:
             await self.books.require(book_id, owner_id, Permission.MANAGE_ACCOUNTS)
         code = (currency or (books[0].base_currency if books else "IRT")).upper()
         opening = quantize(opening_balance)
-        bank = BankAccount(
-            owner_user_id=owner_id,
-            bank_name=_required(bank_name, "نام بانک", 80),
-            holder_name=_required(holder_name, "نام و نام خانوادگی صاحب حساب", 120),
-            display_name=_optional(display_name, "نام نمایشی", 80),
-            card_number=clean_card(card_number),
-            account_number=clean_account_number(account_number),
-            sheba=clean_sheba(sheba),
-            currency=code,
-            opening_balance=opening,
-        )
+        if kind == KIND_CASH:
+            if any((bank_name, holder_name, card_number, account_number, sheba)):
+                raise ValidationError("کیف پول نقدی بانک، صاحب حساب، شماره کارت و شبا ندارد.")
+            existing = await self.session.scalar(select(BankAccount).where(
+                BankAccount.owner_user_id == owner_id, BankAccount.currency == code,
+                BankAccount.kind == KIND_CASH,
+            ))
+            if existing is not None:
+                # One wallet per unit: asking for another turns the old one back on rather than adding it.
+                if existing.is_active:
+                    raise ValidationError(
+                        f"کیف پول نقدی {code} از قبل داری و فعال است؛ حساب دوم لازم نیست."
+                    )
+                existing.is_active = True
+                await self.session.flush()
+                for book_id in book_ids:
+                    await self.link(owner_id, book_id, existing.id)
+                return existing
+            bank = BankAccount(
+                owner_user_id=owner_id, bank_name=CASH_NAME, holder_name=CASH_TITLE,
+                display_name=_optional(display_name, "نام نمایشی", 80), currency=code,
+                opening_balance=opening, kind=KIND_CASH,
+            )
+        else:
+            bank = BankAccount(
+                owner_user_id=owner_id,
+                bank_name=_required(bank_name, "نام بانک", 80),
+                holder_name=_required(holder_name, "نام و نام خانوادگی صاحب حساب", 120),
+                display_name=_optional(display_name, "نام نمایشی", 80),
+                card_number=clean_card(card_number),
+                account_number=clean_account_number(account_number),
+                sheba=clean_sheba(sheba),
+                currency=code,
+                opening_balance=opening,
+            )
         self.session.add(bank)
         await self.session.flush()
         for book_id in book_ids:
@@ -366,6 +397,10 @@ class BankService:
         equals the bank's and each book keeps exactly its own share. It replaces `opening_balance`.
         """
         bank = await self._owned(owner_id, bank_id)
+        if bank.kind == KIND_CASH and any(
+            value is not UNSET for value in (bank_name, holder_name, card_number, account_number, sheba)
+        ):
+            raise ValidationError("کیف پول نقدی بانک، صاحب حساب، شماره کارت و شبا ندارد.")
         if current_balance is not UNSET and opening_balance is not UNSET:
             raise ValidationError("یا موجودی اولیه را بنویس یا موجودی فعلی حساب را، نه هر دو.")
         if bank_name is not UNSET:

@@ -34,8 +34,20 @@ from ...shared.database import Base, Timestamped, UUIDPrimaryKey
 from ...shared.money import Money
 
 
+KIND_BANK, KIND_CASH = "bank", "cash"
+CASH_TITLE = "کیف پول نقدی"
+
+
 class BankAccount(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "bank_accounts"
+    __table_args__ = (
+        CheckConstraint("kind in ('bank', 'cash')", name="bank_account_kind"),
+        # One cash wallet per person and unit, enforced by the database rather than hoped for.
+        Index(
+            "one_cash_wallet_per_owner_and_unit", "owner_user_id", "currency", unique=True,
+            sqlite_where=text("kind = 'cash'"), postgresql_where=text("kind = 'cash'"),
+        ),
+    )
 
     # RESTRICT: a person whose accounts are still used by other people's books is anonymised, not
     # dropped (see IdentityService._delete_account), so the account keeps a name to answer to.
@@ -62,10 +74,16 @@ class BankAccount(UUIDPrimaryKey, Timestamped, Base):
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # "bank" is a real account at a bank; "cash" is the owner's cash wallet: money in hand, with no bank,
+    # holder or numbers. There is one cash wallet per owner and unit (the database holds it to that).
+    kind: Mapped[str] = mapped_column(String(8), nullable=False, default=KIND_BANK, server_default=KIND_BANK)
 
     @property
     def title(self) -> str:
-        return (self.display_name or "").strip() or f"{self.bank_name} {self.holder_name}"
+        shown = (self.display_name or "").strip()
+        if shown:
+            return shown
+        return CASH_TITLE if self.kind == KIND_CASH else f"{self.bank_name} {self.holder_name}"
 
 
 class BankAccountLink(UUIDPrimaryKey, Timestamped, Base):

@@ -192,6 +192,9 @@ export const getBanksCreateUrl = () => {
 
 /**
  * Add an account. Only the bank and the holder are required; `book_ids` links it right away.
+ *
+ * `kind: "cash"` adds the cash wallet instead: no bank or numbers, one per unit; asking again while an
+ * inactive one exists turns it back on.
  * @summary Create
  */
 export const banksCreate = async (

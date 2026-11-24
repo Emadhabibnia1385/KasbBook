@@ -1140,8 +1140,10 @@ class FinancialNoteResponse(MoneyModel):
 # ------------------------------------------------------------ bank accounts
 class BankAccountRequest(MoneyModel):
     # The bank and the holder are required; everything else is for whoever needs to copy a number.
-    bank_name: str = Field(min_length=1, max_length=80)
-    holder_name: str = Field(min_length=1, max_length=120)
+    # Both are left out for a cash wallet (`kind: "cash"`), which has no bank, holder or numbers.
+    bank_name: Optional[str] = Field(default=None, max_length=80)
+    holder_name: Optional[str] = Field(default=None, max_length=120)
+    kind: str = Field(default="bank", pattern="^(bank|cash)$")
     # Shown instead of "bank holder" when given.
     display_name: Optional[str] = Field(default=None, max_length=80)
     card_number: Optional[str] = Field(default=None, max_length=40)
@@ -1202,6 +1204,7 @@ class BankAccountResponse(MoneyModel):
     account_number: Optional[str] = None
     sheba: Optional[str] = None
     currency: str
+    kind: str = "bank"
     opening_balance: Decimal
     is_active: bool
     # Opening balance plus every book's share: the balance the bank itself would show.
